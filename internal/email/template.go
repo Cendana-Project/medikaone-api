@@ -1,6 +1,10 @@
 package email
 
-import "fmt"
+import (
+	"fmt"
+	"html"
+	"time"
+)
 
 // RenderVerifyPIN menghasilkan HTML untuk email verifikasi PIN.
 func RenderVerifyPIN(firstName, pin string, ttlMinutes int) string {
@@ -17,8 +21,8 @@ func RenderVerifyPIN(firstName, pin string, ttlMinutes int) string {
     </div>
     <p style="color:#667">Jika kamu tidak meminta verifikasi ini, abaikan email ini.</p>
   </div>
-  <div style="text-align:center;color:#99a; font-size:12px;margin-top:10px">© %d MedikaOne</div>
-</body></html>`, firstName, ttlMinutes, pin, YearNow())
+  <div style="text-align:center;color:#99a; font-size:12px;margin-top:10px">&copy; %d MedikaOne</div>
+</body></html>`, html.EscapeString(firstName), ttlMinutes, html.EscapeString(pin), YearNow())
 }
 
 // RenderResetPIN menghasilkan HTML untuk email reset password (PIN).
@@ -36,9 +40,8 @@ func RenderResetPIN(firstName, pin string, ttlMinutes int) string {
     </div>
     <p style="color:#667">Jika kamu tidak meminta reset ini, abaikan email ini.</p>
   </div>
-  <div style="text-align:center;color:#99a; font-size:12px;margin-top:10px">© %d MedikaOne</div>
-</body></html>`, firstName, ttlMinutes, pin, YearNow())
+  <div style="text-align:center;color:#99a; font-size:12px;margin-top:10px">&copy; %d MedikaOne</div>
+</body></html>`, html.EscapeString(firstName), ttlMinutes, html.EscapeString(pin), YearNow())
 }
 
-// YearNow disediakan agar mudah ditest/mocking kalau perlu.
-func YearNow() int { return 2025 }
+func YearNow() int { return time.Now().Year() }

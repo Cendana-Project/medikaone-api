@@ -5,7 +5,6 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- =========================
 -- HOSPITALS (TENANTS)
 -- =========================
-DROP TABLE IF EXISTS hospitals CASCADE;
 CREATE TABLE hospitals (
                            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                            code         VARCHAR(40)  UNIQUE,
@@ -28,7 +27,6 @@ CREATE TABLE hospitals (
 -- =========================
 -- USER_HOSPITALS (membership)
 -- =========================
-DROP TABLE IF EXISTS user_hospitals;
 CREATE TABLE user_hospitals (
                                 id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -44,7 +42,6 @@ CREATE INDEX IF NOT EXISTS idx_user_hospitals_hospital_id ON user_hospitals(hosp
 -- =========================
 -- HOSPITAL_USER_ROLES (role scoped)
 -- =========================
-DROP TABLE IF EXISTS hospital_user_roles;
 CREATE TABLE hospital_user_roles (
                                      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                      hospital_id UUID NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,

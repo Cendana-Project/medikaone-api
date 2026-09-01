@@ -1,27 +1,29 @@
 package user
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/entity"
-	"github.com/api-monolith-template/internal/model/request"
-	"github.com/api-monolith-template/internal/model/response"
-	userrepo "github.com/api-monolith-template/internal/repository/user" // <=== added
-	"github.com/api-monolith-template/internal/service/auth"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	"github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type Controller struct {
 	svc      *auth.Service
-	userRepo *userrepo.Repository // <=== added
+	userRepo *userrepo.Repository
 }
 
-func NewController(svc *auth.Service, ur *userrepo.Repository) *Controller { // <=== changed
+func NewController(svc *auth.Service, ur *userrepo.Repository) *Controller {
 	return &Controller{svc: svc, userRepo: ur}
 }
 
@@ -69,8 +71,13 @@ func (ctl *Controller) Me(c *gin.Context) {
 		return
 	}
 	userID := userUUID.String()
+	ctx := c.Request.Context()
 
-	u, err := ctl.userRepo.GetByID(userID)
+	u, err := ctl.userRepo.GetByID(ctx, userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		util.HandleError(c, constant.ErrUserNotFound)
+		return
+	}
 	if err != nil {
 		util.HandleError(c, err)
 		return
@@ -81,51 +88,39 @@ func (ctl *Controller) Me(c *gin.Context) {
 	}
 
 	// role global (boleh kosong), normalisasi ke UPPER
-	roleSlug, err := ctl.userRepo.GetUserRoleSlug(userID)
+	roleSlug, err := ctl.userRepo.GetUserRoleSlug(ctx, userID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
-	roleSlug = strings.ToUpper(roleSlug) // <=== added
+	roleSlug = strings.ToUpper(roleSlug)
 	dto := toMeDTO(u, roleSlug)
 
-	// Enrichment: kalau role cocok ATAU data memang ada
-	// PATIENT
-	if roleSlug == constant.RolePatient {
-		h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(userID)
-		if err != nil {
-			util.HandleError(c, err)
-			return
-		}
-		if h != nil || w != nil || a != nil || m != nil {
-			dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
-		}
-	} else {
-		// role bukan PATIENT, tapi kalau tabelnya ada, tetap boleh tampilkan (opsional)
-		if h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(userID); err == nil {
-			if h != nil || w != nil || a != nil || m != nil {
-				dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
-			}
-		}
+	h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
+	if err != nil {
+		util.HandleError(c, err)
+		return
 	}
-
-	// DOCTOR
-	if roleSlug == constant.RoleDoctor {
-		sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(userID)
-		if err != nil {
-			util.HandleError(c, err)
-			return
-		}
-		if sip != nil || spec != nil {
-			dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
-		}
-	} else {
-		// role bukan DOCTOR, tapi kalau profil ada, tetap boleh tampilkan (opsional)
-		if sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(userID); err == nil {
-			if sip != nil || spec != nil {
-				dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
-			}
-		}
+	if h != nil || w != nil || a != nil || m != nil {
+		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
+	}
+	sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
+	if err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	if sip != nil || spec != nil {
+		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
+	}
+	hospitals, err := ctl.userRepo.ListHospitalsByUserID(ctx, userID)
+	if err != nil {
+		util.HandleError(c, constant.ErrInternalServerError)
+		return
+	}
+	for _, hospital := range hospitals {
+		dto.Hospitals = append(dto.Hospitals, response.HospitalBrief{
+			ID: hospital.ID, Code: hospital.Code, Name: hospital.Name,
+		})
 	}
 
 	resp := response.NewResponseOK()
@@ -142,27 +137,37 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 	userID := userUUID.String()
+	ctx := c.Request.Context()
 
 	hintVal, ok := c.Get("hospital_hint")
 	if !ok {
 		util.HandleError(c, constant.ErrValidationFailed)
 		return
 	}
-	hint := strings.TrimSpace(hintVal.(string))
+	hint, ok := hintVal.(string)
+	if !ok {
+		util.HandleError(c, constant.ErrValidationFailed)
+		return
+	}
+	hint = strings.TrimSpace(hint)
 	if hint == "" {
 		util.HandleError(c, constant.ErrValidationFailed)
 		return
 	}
 
 	// resolve hospital
-	hosp, err := ctl.userRepo.ResolveHospitalHint(hint)
+	hosp, err := ctl.userRepo.ResolveHospitalHint(ctx, hint)
 	if err != nil {
-		util.HandleError(c, constant.ErrHospitalNotFound)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.HandleError(c, constant.ErrHospitalNotFound)
+		} else {
+			util.HandleError(c, constant.ErrInternalServerError)
+		}
 		return
 	}
 
 	// cek membership
-	isMember, err := ctl.userRepo.IsMemberOfHospital(userID, hosp.ID)
+	isMember, err := ctl.userRepo.IsMemberOfHospital(ctx, userID, hosp.ID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
@@ -172,7 +177,11 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 
-	u, err := ctl.userRepo.GetByID(userID)
+	u, err := ctl.userRepo.GetByID(ctx, userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		util.HandleError(c, constant.ErrUserNotFound)
+		return
+	}
 	if err != nil {
 		util.HandleError(c, err)
 		return
@@ -183,12 +192,12 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 	}
 
 	// role scoped hospital (UPPER)
-	roleSlug, err := ctl.userRepo.GetHospitalRoleSlug(userID, hosp.ID)
+	roleSlug, err := ctl.userRepo.GetHospitalRoleSlug(ctx, userID, hosp.ID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
-	roleSlug = strings.ToUpper(roleSlug) // <=== added
+	roleSlug = strings.ToUpper(roleSlug)
 	if roleSlug == "" {
 		util.HandleError(c, constant.ErrForbidden)
 		return
@@ -200,11 +209,21 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 	// Enrich sesuai role scoped
 	switch roleSlug {
 	case constant.RoleDoctor:
-		if sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(userID); err == nil && (sip != nil || spec != nil) {
+		sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
+		if err != nil {
+			util.HandleError(c, constant.ErrInternalServerError)
+			return
+		}
+		if sip != nil || spec != nil {
 			dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
 		}
 	case constant.RolePatient:
-		if h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(userID); err == nil && (h != nil || w != nil || a != nil || m != nil) {
+		h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
+		if err != nil {
+			util.HandleError(c, constant.ErrInternalServerError)
+			return
+		}
+		if h != nil || w != nil || a != nil || m != nil {
 			dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
 		}
 	}

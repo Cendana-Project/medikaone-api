@@ -2,19 +2,20 @@ package http
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
-	"github.com/api-monolith-template/internal/constant"
-	authCtrl "github.com/api-monolith-template/internal/transport/http/auth"
-	hospCtrl "github.com/api-monolith-template/internal/transport/http/hospital"
-	userCtrl "github.com/api-monolith-template/internal/transport/http/user"
-	warmupCtrl "github.com/api-monolith-template/internal/transport/http/warmup"
-	transportmw "github.com/api-monolith-template/internal/transport/middleware"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/config"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	authCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
+	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
+	userCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
+	warmupCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
+	transportmw "github.com/Cendana-Project/medikaone-api/internal/transport/middleware"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 
-	hospRepo "github.com/api-monolith-template/internal/repository/hospital"
-	roleRepo "github.com/api-monolith-template/internal/repository/role"
-
-	"github.com/api-monolith-template/internal/infrastructure" // <=== added (to get Redis client here)
+	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
+	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
+	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 )
 
 type Transport struct {
@@ -26,6 +27,8 @@ type Transport struct {
 
 	roleRepo *roleRepo.Repository
 	hospRepo *hospRepo.Repository
+	userRepo *userRepo.Repository
+	rdb      *redis.Client
 }
 
 func NewTransport() *Transport                              { return new(Transport) }
@@ -50,6 +53,14 @@ func (t *Transport) WithHospitalRepository(repo *hospRepo.Repository) *Transport
 	t.hospRepo = repo
 	return t
 }
+func (t *Transport) WithUserRepository(repo *userRepo.Repository) *Transport {
+	t.userRepo = repo
+	return t
+}
+func (t *Transport) WithRedisClient(rdb *redis.Client) *Transport {
+	t.rdb = rdb
+	return t
+}
 func (t *Transport) WithWarmupController(c *warmupCtrl.Controller) *Transport {
 	t.warmupController = c
 	return t
@@ -59,6 +70,7 @@ func (t *Transport) InitRoute() {
 	if t.router == nil {
 		panic("gin engine is nil")
 	}
+	t.router.Use(transportmw.RejectDuringMaintenance(t.rdb))
 	// ========== WARMUP — PUBLIC ==========
 	t.router.GET("/ping", func(c *gin.Context) { t.warmupController.Ping(c) })
 
@@ -66,6 +78,12 @@ func (t *Transport) InitRoute() {
 
 	// ========== AUTH — PUBLIC ==========
 	auth := v1.Group("/auth")
+	auth.Use(transportmw.RateLimitPublicAuthByIP(
+		t.rdb,
+		config.Env.Auth.PublicIPRateLimit,
+		config.Env.Auth.PublicIPRateWindow,
+		config.Env.Server.ClientIPHeader,
+	))
 	{
 		auth.POST("/register", t.authController.Register)
 		auth.POST("/resend-pin", t.authController.ResendPIN)
@@ -79,14 +97,11 @@ func (t *Transport) InitRoute() {
 		auth.POST("/password/reset", t.authController.PasswordReset)
 	}
 
-	// Prepare Redis client for auth middleware (one instance here). // <=== added
-	rdb := infrastructure.NewRedisClient() // <=== added
-
 	// === PROTECTED — USER-LEVEL ===
 	protected := v1.Group("/")
-	protected.Use(transportmw.AuthRequired(rdb)) // <=== changed: pass rdb
+	protected.Use(transportmw.AuthRequired(t.rdb, t.userRepo))
 	{
-		protected.GET("/me", t.userController.Me) // <=== added
+		protected.GET("/me", t.userController.Me)
 
 		protected.POST("/auth/choose-role", t.authController.ChooseRole)
 
@@ -98,12 +113,12 @@ func (t *Transport) InitRoute() {
 		protected.PUT("/auth/password", t.authController.PasswordChange)
 
 		protected.PUT("/profile/doctor",
-			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorEdit),
+			transportmw.RequireDoctor(t.roleRepo),
 			t.userController.UpdateDoctorProfile,
 		)
 
 		protected.POST("/hospitals",
-			transportmw.RequirePermissions(t.roleRepo, constant.PermissionUserCreate, constant.PermissionRoleAssign),
+			transportmw.RequireSuperAdmin(t.roleRepo),
 			t.hospitalController.CreateHospital,
 		)
 
@@ -111,23 +126,24 @@ func (t *Transport) InitRoute() {
 
 		// === NEW: Logout endpoints ===
 		protected.POST("/auth/logout", t.authController.Logout)
+		protected.POST("/auth/logout-all", t.authController.LogoutAll)
 	}
 
 	// === PROTECTED — HOSPITAL SCOPED (JWT + Tenant) ===
 	tenant := v1.Group("/")
-	tenant.Use(transportmw.AuthRequired(rdb), transportmw.TenantContext()) // <=== changed: pass rdb
+	tenant.Use(transportmw.AuthRequired(t.rdb, t.userRepo), transportmw.TenantContext())
 	{
 		tenant.POST("/hospitals/:hospital_id/admins",
-			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionRoleAssign),
+			transportmw.RequireSuperAdmin(t.roleRepo),
 			t.hospitalController.CreateHospitalAdmin,
 		)
 
 		tenant.POST("/hospitals/:hospital_id/staff",
-			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), // <=== changed: enforce hospital admin or super admin
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
 			t.hospitalController.CreateHospitalStaff,
 		)
 
-		tenant.GET("/tenant/me", t.userController.TenantMe) // <=== added
+		tenant.GET("/tenant/me", t.userController.TenantMe)
 	}
 
 	// 404

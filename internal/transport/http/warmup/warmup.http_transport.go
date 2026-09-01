@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/api-monolith-template/internal/model/response"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 	"github.com/gin-gonic/gin"
 )
 

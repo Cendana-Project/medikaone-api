@@ -1,11 +1,13 @@
 package util
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 	"time"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 )
@@ -19,8 +21,8 @@ func HandleError(ctx *gin.Context, err error) {
 		ctx.JSON(resp.StatusCode, resp)
 
 	case validator.ValidationErrors:
-		// === Smart mapping untuk error validasi field === // <=== added
-		custom := mapValidationErrors(cErr) // <=== added
+		// Smart mapping untuk error validasi field.
+		custom := mapValidationErrors(cErr)
 		resp := custom.ToResponse()
 		resp.TraceID = GetTraceID(ctx)
 		resp.Timestamp = time.Now().UTC()
@@ -28,6 +30,14 @@ func HandleError(ctx *gin.Context, err error) {
 		// ================================================
 
 	default:
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			resp := constant.ErrRequestTooLarge.ToResponse()
+			resp.TraceID = GetTraceID(ctx)
+			resp.Timestamp = time.Now().UTC()
+			ctx.JSON(resp.StatusCode, resp)
+			return
+		}
 		errStr := err.Error()
 		if strings.Contains(errStr, "json") || strings.Contains(errStr, "unmarshal") {
 			jsonErr := constant.ErrValidationError.ToResponse()
@@ -78,8 +88,8 @@ func coalesce(a, b string) string {
 	return a
 }
 
-// mapValidationErrors berusaha memetakan ValidationErrors ke CustomError yang paling spesifik. // <=== added
-func mapValidationErrors(ve validator.ValidationErrors) response.CustomError { // <=== added
+// mapValidationErrors berusaha memetakan ValidationErrors ke CustomError yang paling spesifik.
+func mapValidationErrors(ve validator.ValidationErrors) response.CustomError {
 	// Urutkan prioritas: duplikat -> role invalid -> tanggal -> UUID -> password -> len/format -> default
 	for _, fe := range ve {
 		field := strings.ToLower(fe.Field())

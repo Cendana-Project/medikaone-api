@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 )
 
 // SeedPermissions:
@@ -46,9 +46,13 @@ func SeedPermissions(db *gorm.DB) error {
 	// upsert per slug (idempotent)
 	for _, p := range toCreate {
 		if err := db.Exec(`
-			INSERT INTO permissions (name, slug, is_active, created_at)
-			VALUES (?, ?, TRUE, NOW())
-			ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE;
+			INSERT INTO permissions (name, slug, is_active, created_at, updated_at, deleted_at)
+			VALUES (?, ?, TRUE, NOW(), NOW(), NULL)
+			ON CONFLICT (slug) DO UPDATE SET
+				name = EXCLUDED.name,
+				is_active = TRUE,
+				updated_at = NOW(),
+				deleted_at = NULL;
 		`, p.Name, p.Slug).Error; err != nil {
 			return fmt.Errorf("insert permission %s: %w", p.Slug, err)
 		}
@@ -81,6 +85,18 @@ func SeedPermissions(db *gorm.DB) error {
 		rid, err := getRoleID(roleSlug)
 		if err != nil {
 			return err
+		}
+		// Synchronize only permissions managed by this seeder. Custom permission
+		// mappings are intentionally preserved.
+		if err := db.Exec(`
+			DELETE FROM role_permissions rp
+			USING permissions p
+			WHERE rp.role_id = ?
+			  AND rp.permission_id = p.id
+			  AND p.slug IN ?
+			  AND p.slug NOT IN ?
+		`, rid, uniquePermSlugsFromDefaults(), permSlugs).Error; err != nil {
+			return fmt.Errorf("sync permissions for %s: %w", roleSlug, err)
 		}
 		for _, ps := range permSlugs {
 			pid, err := getPermID(ps)

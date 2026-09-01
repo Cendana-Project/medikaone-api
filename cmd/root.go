@@ -1,67 +1,84 @@
-/*
-Copyright © 2024 Michael Putera Wardana <michaelputeraw@gmail.com>
-*/
 package cmd
 
 import (
 	"os"
+	"strings"
+	"sync"
 
-	"github.com/api-monolith-template/internal/config"
-	"github.com/api-monolith-template/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/config"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "api-monolith-template",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+var (
+	runtimeConfigOnce sync.Once
+	runtimeConfigErr  error
+)
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+var rootCmd = &cobra.Command{
+	Use:           "medikaone-api",
+	Short:         "MedikaOne API administration and server",
+	SilenceErrors: true,
+	SilenceUsage:  true,
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		return initializeRuntimeConfig(validationScopeForCommand(cmd))
+	},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
+		logrus.WithError(err).Error("command failed")
 		os.Exit(1)
 	}
 }
 
-func init() {
-	err := config.LoadConfig()
-	if err != nil {
-		logrus.Fatal(err)
+func validationScopeForCommand(cmd *cobra.Command) config.ValidationScope {
+	switch cmd.Name() {
+	case "database-fingerprint":
+		return config.ValidationDatabaseTarget
+	case "seed":
+		return config.ValidationDatabase
+	case "staging-reset-all", "staging-reset-seed":
+		return config.ValidationMaintenance
+	case "migrate":
+		action, _ := cmd.Flags().GetString("action")
+		action = strings.ToLower(strings.TrimSpace(action))
+		switch action {
+		case "create":
+			return config.ValidationLocalFileCommand
+		case "status":
+			return config.ValidationDatabase
+		default:
+			return config.ValidationMigration
+		}
+	default:
+		return config.ValidationServer
 	}
+}
 
-	logrus.SetReportCaller(true)
+func initializeRuntimeConfig(scope config.ValidationScope) error {
+	runtimeConfigOnce.Do(func() {
+		if err := config.LoadConfigFor(scope); err != nil {
+			runtimeConfigErr = err
+			return
+		}
 
-	if config.Env.Env == constant.ProductionEnvironment {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
-	} else {
+		level, err := logrus.ParseLevel(config.Env.LogLevel)
+		if err != nil {
+			runtimeConfigErr = err
+			return
+		}
+		logrus.SetLevel(level)
+		logrus.SetReportCaller(config.Env.Env == "development" && level == logrus.DebugLevel)
+		if config.Env.Env == constant.ProductionEnvironment {
+			logrus.SetFormatter(&logrus.JSONFormatter{})
+			return
+		}
 		logrus.SetFormatter(&logrus.TextFormatter{
 			DisableColors: false,
 			FullTimestamp: true,
 		})
-	}
-
-	// Set default log level if empty
-	logLevelStr := config.Env.LogLevel
-	if logLevelStr == "" {
-		logLevelStr = "info"
-	}
-
-	logLevel, err := logrus.ParseLevel(logLevelStr)
-	if err != nil {
-		logrus.Fatal(err)
-	}
-	logrus.SetLevel(logLevel)
+	})
+	return runtimeConfigErr
 }

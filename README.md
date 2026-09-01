@@ -1,804 +1,266 @@
-# Monolith Service
+# MedikaOne API
 
-## Response
-```json
-{
-	"message": "validation error", // string
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username17",
-		"email": "email17@gmail.com",
-		"level": "USER",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	}, // object | array of object | null
-	"validationErrors": [
-		{
-			"field": "username",
-			"tag": "required",
-			"message": "Key: 'RegisterReq.Username' Error:Field validation for 'username' failed on the 'required' tag"
-		}
-	] // array of object | null
-}
-```
+Backend monolitik MedikaOne berbasis Go, Gin, PostgreSQL, Redis, dan SMTP. PostgreSQL menyimpan data utama dan relasi tenant rumah sakit; Redis wajib tersedia untuk challenge PIN, rate limit, rotasi refresh token, session version, dan blacklist access token.
 
-## API Contract
+## Menjalankan secara lokal
 
-### Register
-#### Request
+Prasyarat:
 
-**Method:** `POST`
+- Go sesuai versi pada `go.mod`;
+- PostgreSQL;
+- Redis lokal atau Redis Cloud;
+- akun SMTP jika alur registrasi/reset password ingin digunakan;
+- GNU Make dan shell yang menyediakan `cp` jika memakai contoh command singkat di bawah.
 
-**URL:** `${{HOST}}/v1/auth/register`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Body:**
-```json
-{
-	"username":"username",
-	"email": "email@gmail.com",
-	"password": "strongpassword"
-}
-```
-
-**Example cURL Command:**
+Salin konfigurasi contoh:
 
 ```bash
-curl --request POST \
-  --url ${{HOST}}/v1/auth/register \
-  --header 'Content-Type: application/json' \
-  --data '{
-	"username":"username",
-	"email": "email@gmail.com",
-	"password": "strongpassword"
-}'
+cp config.yml.example config.yml
 ```
 
-**Example Response:**
-```json
-{
-	"message": "validation error",
-	"data": null,
-	"validationErrors": [
-		{
-			"field": "username",
-			"tag": "unique_db",
-			"message": "username already taken"
-		},
-		{
-			"field": "email",
-			"tag": "unique_db",
-			"message": "email already taken"
-		}
-	]
-}
-```
-
-```json
-{
-	"message": "ok",
-	"data": null,
-	"validationErrors": null
-}
-```
-
-### Login
-#### Request
-
-**Method:** `POST`
-
-**URL:** `${{HOST}}/v1/auth/login`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Body:**
-```json
-{
-	"identifier":"username",
-	"password": "strongpassword"
-}
-```
-
-**Example cURL Command:**
+Sesuaikan DSN PostgreSQL dan Redis, lalu jalankan:
 
 ```bash
-curl --request POST \
-  --url ${{HOST}}/v1/auth/login \
-  --header 'Content-Type: application/json' \
-  --data '{
-	"identifier":"username",
-	"password": "strongpassword"
-}'
+make migrate-up
+make seed
+make run
 ```
 
-**Example Response:**
-```json
-{
-	"message": "user not found",
-	"data": null,
-	"validationErrors": null
-}
+Alternatif PowerShell tanpa GNU Make:
+
+```powershell
+Copy-Item config.yml.example config.yml
+go run . migrate --action up
+go run . seed
+go run . server
 ```
 
-```json
-{
-	"message": "ok",
-	"data": {
-		"accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5ZTU2YS1mYTdjLTQ5ZWUtOTg1NC1mMzJhYjM4MDgzYWUiLCJleHAiOjE3MTg2MTk3ODQsImlhdCI6MTcxODYxNjE4NCwianRpIjoiYzViZjAyZTctNmNkMy00MjZiLThiMjctYzk2MTUyZjc2NmU4In0.aaUAM7Hl6Z-H8kzdnrLedVmmVJEuglxes7xQYHt1HKI",
-		"accessTokenExpiredAt": "2024-06-17T09:23:04Z",
-		"refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5ZTU2YS1mYTdjLTQ5ZWUtOTg1NC1mMzJhYjM4MDgzYWUiLCJleHAiOjE3MTg3MjQxODQsImlhdCI6MTcxODYxNjE4NCwianRpIjoiNzllNTVkZDgtMzczMS00OWU2LThjZDItNzMxNDI0MzYzZjZjIn0.KQOZGZxz8-8JiJv68Xpdj-7z1Dp6dLe0a4IC0nZ5WcA",
-		"refreshTokenExpiredAt": "2024-06-17T09:23:04Z"
-	},
-	"validationErrors": null
-}
+DBeaver hanya berfungsi sebagai client database. Buat/connect database PostgreSQL melalui DBeaver, tetapi migration dan seeder tetap dijalankan dari command aplikasi di atas.
+
+Server default berjalan pada `http://localhost:8080`. Endpoint operasional:
+
+- `GET /ping` - pemeriksaan HTTP sederhana;
+- `GET /_internal/livez` - liveness;
+- `GET /_internal/readyz` - readiness PostgreSQL dan Redis;
+- `GET /_internal/healthz` - alias readiness untuk hosting lama.
+
+## Konfigurasi
+
+Untuk development gunakan `config.yml.example`. `config.yml` dan file `.env*` diabaikan Git agar secret tidak ikut ter-commit.
+
+Environment variable utama untuk deployment:
+
+| Variable | Keterangan |
+| --- | --- |
+| `ENV` | `development`, `test`, `staging`, atau `production` |
+| `SERVER_PORT` | Port HTTP; jika kosong aplikasi juga menerima `PORT` dari hosting |
+| `SERVER_CORS_ALLOWED_ORIGINS` | Origin frontend eksak, dipisahkan koma; wildcard ditolak |
+| `SERVER_CLIENT_IP_HEADER` | Header IP dari reverse proxy tepercaya; gunakan `X-Forwarded-For` pada Render |
+| `DATABASE_DSN` | DSN proses web dengan user runtime least-privilege; boleh memakai endpoint Neon pooled, dan staging/production wajib `sslmode=verify-full` |
+| `DATABASE_ADMIN_DSN` | DSN owner/migration direct khusus command migration/reset; tidak diperlukan dan jangan diberikan kepada proses web |
+| `STAGING_DATABASE_FINGERPRINT` | Fingerprint `DATABASE_ADMIN_DSN` yang wajib cocok sebelum reset staging |
+| `REDIS_CACHE_DSN` | Redis DSN; staging/production wajib `rediss://` dengan password/ACL dan server Redis wajib memakai `maxmemory-policy=noeviction` |
+| `JWT_SECRET` | Secret acak minimal 32 karakter |
+| `JWT_ACCESS_TTL` | Default `15m` |
+| `JWT_REFRESH_TTL` | Default `720h` dan harus lebih panjang dari access TTL |
+| `SMTP_ENABLED` | `true` untuk mengirim PIN |
+| `SMTP_HOST`, `SMTP_PORT` | Endpoint SMTP |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | Kredensial SMTP |
+| `SMTP_FROM`, `SMTP_FROM_NAME` | Sender yang telah diverifikasi oleh provider |
+| `SMTP_TIMEOUT` | Batas satu percobaan SMTP; default `15s` dan harus menyisakan headroom minimal `5s` terhadap `SERVER_WRITE_TIMEOUT` |
+| `AUTH_PIN_TTL`, `AUTH_PIN_MAX_ATTEMPTS` | Masa berlaku dan batas percobaan PIN |
+| `AUTH_PIN_RESEND_COOLDOWN` | Cooldown registrasi/resend PIN |
+| `AUTH_MAX_ACTIVE_SESSIONS` | Batas refresh-session aktif per akun (default `10`) |
+| `AUTH_PUBLIC_IP_RATE_LIMIT`, `AUTH_PUBLIC_IP_RATE_WINDOW` | Batas gabungan endpoint auth publik per alamat IP |
+| `AUTH_LOGIN_RATE_LIMIT`, `AUTH_LOGIN_RATE_WINDOW` | Batas login per identity |
+| `AUTH_FORGOT_PASSWORD_RATE_LIMIT`, `AUTH_FORGOT_PASSWORD_RATE_WINDOW` | Batas permintaan reset password |
+
+Nilai pool, timeout server, dan timeout SMTP lain tersedia di `config.yml.example`. AWS dan Stripe tidak dikonfigurasi karena tidak digunakan repo ini.
+
+Validasi konfigurasi mengikuti command: `server` memerlukan konfigurasi web lengkap; `seed`/migration lokal hanya memerlukan bagian database; migration/reset staging juga memerlukan Redis dan write timeout untuk drain; `database-fingerprint` hanya memerlukan admin DSN; dan `migrate --action=create` hanya membuat file lokal tanpa membuka koneksi database. Karena email bersifat opt-in, deployment env-only harus menetapkan `SMTP_ENABLED=true` secara eksplisit saat ingin mengirim PIN. Alias lama `JWT_ACCESS_TTL_MINUTES` dan `JWT_REFRESH_TTL_DAYS` tetap diterima bila nilai duration baru tidak diisi, tetapi sebaiknya migrasikan ke `JWT_ACCESS_TTL` dan `JWT_REFRESH_TTL`.
+
+### Pemisahan koneksi database
+
+Proses web harus menggunakan user PostgreSQL yang hanya mempunyai hak DML per tabel yang benar-benar diperlukan dan **tidak** mempunyai hak `CREATE`, `TRUNCATE`, kepemilikan tabel, atau keanggotaan role owner pada schema `public`. Riwayat migration `goose_db_version` wajib read-only. Pada `ENV=staging` atau `ENV=production`, startup memverifikasi target database/user/schema dan batas privilege tersebut; server gagal menyala jika role runtime terlalu kuat.
+
+Jalankan migration sebagai owner terlebih dahulu, lalu buat/grant user runtime melalui DBeaver. Contoh berikut tidak mengandung credential nyata; sesuaikan nama database dan role owner:
+
+```sql
+CREATE ROLE medikaone_app LOGIN PASSWORD 'GANTI_DENGAN_SECRET_ACAK_PANJANG';
+
+GRANT CONNECT ON DATABASE medikaone TO medikaone_app;
+GRANT USAGE ON SCHEMA public TO medikaone_app;
+
+-- Bersihkan grant lama yang terlalu luas sebelum memberi allowlist runtime.
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM medikaone_app;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM medikaone_app;
+
+GRANT SELECT, INSERT, UPDATE ON TABLE public.users TO medikaone_app;
+GRANT SELECT ON TABLE public.roles, public.permissions, public.role_permissions TO medikaone_app;
+GRANT SELECT, INSERT ON TABLE public.user_roles TO medikaone_app;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.patient_profiles, public.doctor_profiles TO medikaone_app;
+GRANT SELECT, INSERT ON TABLE public.hospitals, public.hospital_user_roles TO medikaone_app;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.user_hospitals TO medikaone_app;
+GRANT SELECT ON TABLE public.goose_db_version TO medikaone_app;
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.goose_db_version FROM medikaone_app;
+REVOKE CREATE ON SCHEMA public FROM medikaone_app;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+SELECT has_schema_privilege('medikaone_app', 'public', 'CREATE') AS must_be_false;
 ```
 
-### Refresh Token
-#### Request
+Jalankan blok tersebut sebagai `migration_owner`/owner database dan pastikan `medikaone_app` bukan anggota role owner mana pun. Grant sengaja berupa allowlist tanpa `ALTER DEFAULT PRIVILEGES`: setiap migration yang menambah tabel harus disertai review lalu grant minimum eksplisit untuk tabel baru. Struktur saat ini memakai UUID sehingga proses web tidak memerlukan privilege sequence.
 
-**Method:** `POST`
+Pada Neon gunakan dua connection string yang menuju branch/database yang sama:
 
-**URL:** `${{HOST}}/v1/auth/refresh`
+- `DATABASE_DSN`: endpoint **pooled** (hostname biasanya berakhiran `-pooler`) dengan user `medikaone_app`;
+- `DATABASE_ADMIN_DSN`: endpoint **direct/non-pooler** dengan role owner, dan hanya tersedia pada proses migration/reset.
 
-**Headers:**
-- `Content-Type: application/json`
-- `Authorization: Bearer <REFRESH_TOKEN>`
+Keduanya harus memakai satu host target, tanpa daftar multi-host/fallback, serta `sslmode=verify-full` pada staging/production. Guard migration/reset menolak DSN admin dengan hostname yang dikenali sebagai pooled (`-pooler` atau `pgbouncer`) maupun DSN fallback, lalu memastikan target efektifnya sama dengan DSN aplikasi. Karena provider lain dapat memakai pola hostname berbeda, operator tetap wajib memilih endpoint direct. Penanda `-pooler` Neon saja yang dinormalisasi saat membandingkan host. Neon juga [merekomendasikan koneksi direct untuk migration](https://neon.com/docs/connect/connection-pooling).
 
-**Example cURL Command:**
+### Redis
 
-```bash
-curl --request POST \
-  --url ${{HOST}}/v1/auth/refresh \
-  --header 'Content-Type: application/json' \
-  --header 'Authorization: Bearer <REFRESH_TOKEN>'
-```
+Untuk Redis Cloud, aktifkan TLS pada database Redis dan gunakan connection string `rediss://...`. Jangan mengganti skema menjadi `rediss://` jika TLS belum diaktifkan pada provider. Atur **Data eviction policy** menjadi `noeviction`; pada staging/production aplikasi membaca `INFO memory` saat startup dan gagal tertutup jika policy tidak dapat diverifikasi atau nilainya berbeda. Tetap pasang alarm kapasitas: dengan `noeviction`, Redis yang penuh akan menolak write baru dan alur login/challenge/session dapat terganggu.
 
-**Example Response:**
-```json
-{
-	"message": "invalid token",
-	"data": null,
-	"validationErrors": null
-}
-```
+Database gratis Redis Cloud ditujukan untuk development/prototipe, dibatasi sekitar 30 MB, dan tidak menyediakan persistence. Kehilangan data Redis akan membatalkan challenge, rate-limit state, dan sesi/refresh token aktif sehingga pengguna perlu login ulang. Gunakan ini untuk staging gratis, bukan sebagai jaminan availability atau durability production. Lihat dokumentasi resmi tentang [free database](https://redis.io/docs/latest/operate/rc/databases/create-database/create-free-database/), [eviction policy](https://redis.io/docs/latest/operate/rc/databases/configuration/data-eviction-policies/), dan [persistence](https://redis.io/docs/latest/operate/rc/databases/configuration/data-persistence/).
 
-```json
-{
-	"message": "ok",
-	"data": {
-		"accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5ZTU2YS1mYTdjLTQ5ZWUtOTg1NC1mMzJhYjM4MDgzYWUiLCJleHAiOjE3MTg2MTk3ODQsImlhdCI6MTcxODYxNjE4NCwianRpIjoiYzViZjAyZTctNmNkMy00MjZiLThiMjctYzk2MTUyZjc2NmU4In0.aaUAM7Hl6Z-H8kzdnrLedVmmVJEuglxes7xQYHt1HKI",
-		"accessTokenExpiredAt": "2024-06-17T09:23:04Z",
-		"refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5ZTU2YS1mYTdjLTQ5ZWUtOTg1NC1mMzJhYjM4MDgzYWUiLCJleHAiOjE3MTg3MjQxODQsImlhdCI6MTcxODYxNjE4NCwianRpIjoiNzllNTVkZDgtMzczMS00OWU2LThjZDItNzMxNDI0MzYzZjZjIn0.KQOZGZxz8-8JiJv68Xpdj-7z1Dp6dLe0a4IC0nZ5WcA",
-		"refreshTokenExpiredAt": "2024-06-17T09:23:04Z"
-	},
-	"validationErrors": null
-}
-```
+Namespace Redis dipisahkan berdasarkan environment serta host, port, database, dan `search_path` PostgreSQL tanpa memasukkan credential. Perubahan dari versi lama menambahkan port ke identitas namespace, sehingga deploy upgrade ini sengaja membuat sesi/challenge lama tidak terlihat dan pengguna perlu login ulang. Karena free Redis tidak persistent, restart provider saat maintenance dapat menghilangkan sentinel; jangan menjalankan reset ketika Redis tidak stabil, dan ulangi command sejenis bila readiness atau proses reset terputus.
 
-### Logout
-#### Request
+Jika `SMTP_ENABLED=false`, server tetap dapat dijalankan untuk endpoint non-email, tetapi registrasi akan gagal mengirim challenge dan alur forgot-password tidak akan mengirim PIN. PIN hanya disimpan sebagai hash sehingga tidak dapat diambil dari Redis untuk pengujian manual.
 
-**Method:** `POST`
+## Alur registrasi
 
-**URL:** `${{HOST}}/v1/auth/logout`
+Registrasi tidak lagi membuat row user sebelum pemilik email membuktikan PIN. Ini mencegah password dari registrasi palsu tertinggal pada akun `pending`.
 
-**Headers:**
-- `Content-Type: application/json`
-- `Authorization: Bearer <ACCESS_TOKEN>`
+1. `POST /v1/auth/register` menerima `email`, `username`, `phone`, dan `password`, lalu mengembalikan `challenge_id`.
+2. `POST /v1/auth/verify-pin` menerima `email`, `challenge_id`, dan `pin`. User baru dibuat dan token diterbitkan hanya jika PIN valid.
+3. `POST /v1/auth/resend-pin` menerima `email` dan `challenge_id` yang sama.
 
-**Example cURL Command:**
-
-```bash
-curl --request POST \
-  --url ${{HOST}}/v1/auth/logout \
-  --header 'Content-Type: application/json' \
-  --header 'Authorization: Bearer <ACCESS_TOKEN>'
-```
-
-**Example Response:**
-```json
-{
-	"message": "invalid token",
-	"data": null,
-	"validationErrors": null
-}
-```
-
-```json
-{
-	"message": "ok",
-	"data": null,
-	"validationErrors": null
-}
-```
-
-### User Info
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/auth/info`
-
-**Headers:**
-- `Content-Type: application/json`
-- `Authorization: Bearer <ACCESS_TOKEN>`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/auth/info \
-  --header 'Authorization: Bearer <ACCESS_TOKEN>'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username",
-		"email": "email@gmail.com",
-		"level": "USER",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
-}
-```
-
-### User Management Endpoints
-
-### Get All Users
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/users`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/users \
-  --header 'Content-Type: application/json'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"users": [
-			{
-				"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-				"username": "username",
-				"firstName": "First",
-				"lastName": "Last",
-				"email": "email@gmail.com",
-				"phone": "1234567890",
-				"location": "Jakarta",
-				"createdAt": "2024-06-16T10:46:25Z",
-				"updatedAt": "2024-06-16T10:46:25Z"
-			}
-		],
-		"total": 1
-	},
-	"validationErrors": null
-}
-```
-
-### Get User by ID
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/users/:id`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/users/6759e56a-fa7c-49ee-9854-f32ab38083ae \
-  --header 'Content-Type: application/json'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username",
-		"firstName": "First",
-		"lastName": "Last",
-		"email": "email@gmail.com",
-		"phone": "1234567890",
-		"location": "Jakarta",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
-}
-```
-
-### Find User by Email
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/users/email/:email`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/users/email/email@gmail.com \
-  --header 'Content-Type: application/json'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username",
-		"firstName": "First",
-		"lastName": "Last",
-		"email": "email@gmail.com",
-		"phone": "1234567890",
-		"location": "Jakarta",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
-}
-```
-
-### Find User by Username
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/users/username/:username`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/users/username/username \
-  --header 'Content-Type: application/json'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username",
-		"firstName": "First",
-		"lastName": "Last",
-		"email": "email@gmail.com",
-		"phone": "1234567890",
-		"location": "Jakarta",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
-}
-```
-
-### Find User by Identifier
-#### Request
-
-**Method:** `GET`
-
-**URL:** `${{HOST}}/v1/users/identifier/:identifier`
-
-**Headers:**
-- `Content-Type: application/json`
-
-**Example cURL Command:**
-
-```bash
-curl --request GET \
-  --url ${{HOST}}/v1/users/identifier/username \
-  --header 'Content-Type: application/json'
-```
-
-**Example Response:**
-```json
-{
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "username",
-		"firstName": "First",
-		"lastName": "Last",
-		"email": "email@gmail.com",
-		"phone": "1234567890",
-		"location": "Jakarta",
-		"createdAt": "2024-06-16T10:46:25Z",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
-}
-```
-
-### Update User
-#### Request
-
-**Method:** `POST`
-
-**URL:** `${{HOST}}/v1/users`
-
-**Headers:**
-- `Content-Type: application/json`
-- `Authorization: Bearer <ACCESS_TOKEN>`
-
-**Body:**
-```json
-{
-	"username": "newusername",
-	"firstName": "New",
-	"lastName": "Name",
-	"email": "newemail@gmail.com",
-	"phone": "1234567890",
-	"location": "Jakarta"
-}
-```
-
-**Example cURL Command:**
-
-```bash
-curl --request POST \
-  --url ${{HOST}}/v1/users \
-  --header 'Content-Type: application/json' \
-  --header 'Authorization: Bearer <ACCESS_TOKEN>' \
-  --data '{
-	"username": "newusername",
-	"firstName": "New",
-	"lastName": "Name",
-	"email": "newemail@gmail.com",
-	"phone": "1234567890",
-	"location": "Jakarta"
-}'
-```
-
-**Example Response:**
-```json
-{
-	"message": "Username or email already exists",
-	"data": null,
-	"validationErrors": null
-}
-```
+Contoh request verifikasi:
 
 ```json
 {
-	"message": "ok",
-	"data": {
-		"id": "6759e56a-fa7c-49ee-9854-f32ab38083ae",
-		"username": "newusername",
-		"email": "newemail@gmail.com",
-		"updatedAt": "2024-06-16T10:46:25Z"
-	},
-	"validationErrors": null
+  "email": "user@example.com",
+  "challenge_id": "challenge-dari-register",
+  "pin": "123456"
 }
 ```
 
-## Create new domain
+`challenge_id` wajib dikirim pada verify dan resend. Challenge terikat pada payload registrasi tertentu sehingga PIN tidak dapat dipakai untuk payload registrasi lain.
 
-### Define contract
+Endpoint auth lain:
 
-Define your contract domain (repository and service) on /internal/model/contract/<DOMAIN>.contract.go, example:
+- `POST /v1/auth/login`
+- `POST /v1/auth/login/hospital`
+- `POST /v1/auth/refresh`
+- `POST /v1/auth/password/forgot`
+- `POST /v1/auth/password/reset`
+- `PUT /v1/auth/password` (Bearer access token)
+- `POST /v1/auth/logout` (Bearer access token; mencabut satu keluarga sesi, body `refresh_token` opsional sebagai pemeriksaan konsistensi)
+- `POST /v1/auth/logout-all` (Bearer access token)
 
-```go
-package contract
+`POST /v1/auth/password/forgot` selalu mengembalikan bentuk respons yang sama, termasuk `challenge_id`, agar keberadaan akun tidak bocor. Kirim `challenge_id` tersebut bersama `email`, `pin`, dan `new_password` ke `POST /v1/auth/password/reset`:
 
-import (
-	"context"
-
-	"github.com/api-monolith-template/internal/model/entity"
-    "github.com/api-monolith-template/internal/model/request"
-	"github.com/api-monolith-template/internal/model/response"
-	"github.com/google/uuid"
-)
-
-type UserRepository interface {
-	FindByEmail(ctx context.Context, email string) (*entity.User, error)
-	FindByUsername(ctx context.Context, username string) (*entity.User, error)
-	FindByIdentifier(ctx context.Context, identifier string) (*entity.User, error)
-	FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error)
-	Upsert(ctx context.Context, user *entity.User) error
-}
-
-type AuthService interface {
-	Register(ctx context.Context, req *request.RegisterReq) (*response.BaseResponse, error)
-	Login(ctx context.Context, req *request.LoginReq) (*response.BaseResponse, error)
-	RefreshToken(ctx context.Context, req *request.AuthRefreshReq) (*response.BaseResponse, error)
-	Info(ctx context.Context, req *request.AuthInfoReq) (*response.BaseResponse, error)
-	Logout(ctx context.Context, req *request.AuthLogoutReq) (*response.BaseResponse, error)
-}
-
-```
-
-### Create your repository
-
-Create your base repository on /internal/repository/<DOMAIN>/<DOMAIN>.repository.go, example:
-
-```go
-package user
-
-import (
-	"github.com/api-monolith-template/internal/model/contract"
-	"gorm.io/gorm"
-)
-
-type Repository struct {
-	db        *gorm.DB
-	cacheRepo contract.CacheRepository
-}
-
-func NewRepository() *Repository {
-	return new(Repository)
-}
-
-func (r *Repository) WithGormDB(db *gorm.DB) *Repository {
-	r.db = db
-	return r
-}
-
-func (r *Repository) WithCacheRepository(repo contract.CacheRepository) *Repository {
-	r.cacheRepo = repo
-	return r
+```json
+{
+  "challenge_id": "challenge-dari-password-forgot",
+  "email": "user@example.com",
+  "pin": "123456",
+  "new_password": "Password-Baru-Yang-Kuat!"
 }
 ```
 
-### Create your service
+Refresh token bersifat one-time-use. Setiap operasi refresh wajib membawa `idempotency_key` berupa UUIDv4 acak yang baru:
 
-Create your base service on /internal/service/<DOMAIN>/<DOMAIN>.service.go, example:
-
-```go
-package auth
-
-import "github.com/api-monolith-template/internal/model/contract"
-
-type Service struct {
-	userRepository  contract.UserRepository
-	cacheRepository contract.CacheRepository
-}
-
-func NewService() *Service {
-	return new(Service)
-}
-
-func (s *Service) WithUserRepository(repo contract.UserRepository) *Service {
-	s.userRepository = repo
-	return s
-}
-
-func (s *Service) WithCacheRepository(repo contract.CacheRepository) *Service {
-	s.cacheRepository = repo
-	return s
+```json
+{
+  "refresh_token": "refresh-token-saat-ini",
+  "idempotency_key": "0f2663f8-8151-48f1-8aa2-0b99ebfbd86d"
 }
 ```
 
-### Create your transport layer
+Client harus memakai key yang **sama** ketika mengulang operasi refresh yang responsnya tidak diterima, tetapi membuat UUIDv4 baru untuk refresh berikutnya. Key berbeda untuk refresh token lama yang sama diperlakukan sebagai replay dan dapat mencabut keluarga sesi. Refresh dan access token lama yang diterbitkan sebelum claim family `fid` tersedia sengaja tidak kompatibel untuk refresh/logout setelah upgrade; lakukan login ulang. Logout biasa mencabut seluruh refresh token pada keluarga perangkat tersebut secara atomik, sedangkan password reset/change dan logout-all menaikkan session version sehingga seluruh access/refresh token lama tidak berlaku lagi.
 
-Create base http transport layer on /internal/transport/http/<DOMAIN>/<DOMAIN>.http_transport.go, example:
+Pengiriman email forgot-password memakai antrean terbatas di dalam proses aplikasi. Antrean ini tidak durable: respons `pin_sent` berarti pekerjaan diterima tanpa menjamin SMTP telah mengirimnya, dan restart/crash dapat menghilangkan pekerjaan yang belum diproses. Untuk production, pindahkan pekerjaan email ke transactional outbox atau antrean durable dengan worker terpisah.
 
-```go
-package auth
+## Tenant rumah sakit
 
-import "github.com/api-monolith-template/internal/model/contract"
+Operasi tenant menggunakan `:hospital_id` pada path atau header `X-Hospital-ID`/`X-Hospital-Code` untuk endpoint yang mendukungnya. Nilai `hospital_id` pada JSON diabaikan; server selalu menggunakan tenant yang telah diotorisasi.
 
-type Controller struct {
-	authService contract.AuthService
-}
+- Hanya `SUPER_ADMIN` aktif yang dapat membuat hospital atau hospital admin.
+- Hospital admin aktif hanya dapat membuat staff pada hospital tempat ia masih menjadi member aktif.
+- Endpoint staff menerima `DOCTOR`, `NURSE`, `RECEPTIONIST`, atau `BOD`; role `ADMIN` harus melalui endpoint khusus super admin.
 
-func NewController() *Controller {
-	return new(Controller)
-}
+## Seeder dan reset staging
 
-func (c *Controller) WithAuthService(svc contract.AuthService) *Controller {
-	c.authService = svc
-	return c
-}
-```
+Credential akun fixture privileged memang sengaja hardcoded untuk mempermudah development/staging saat ini. Ini adalah keputusan desain sementara, bukan secret production; command `seed` menolak berjalan pada `ENV=production`.
 
-inject all your transport domain on /internal/transport/http/http.transport.go
+Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
-```go
-package http
-
-import (
-	"github.com/api-monolith-template/internal/transport/http/auth"
-	"github.com/api-monolith-template/internal/transport/http/middleware"
-	"github.com/gin-gonic/gin"
-)
-
-type Transport struct {
-	router *gin.Engine
-
-	authController       *auth.Controller
-	middlewareController *middleware.Controller
-}
-
-func NewTransport() *Transport {
-	return new(Transport)
-}
-
-func (t *Transport) WithGinEngine(r *gin.Engine) *Transport {
-	t.router = r
-	return t
-}
-
-func (t *Transport) WithAuthController(c *auth.Controller) *Transport {
-	t.authController = c
-	return t
-}
-
-func (t *Transport) WithMiddlewareController(c *middleware.Controller) *Transport {
-	t.middlewareController = c
-	return t
-}
-
-```
-
-after create http transport layer, create http route on /internal/transport/http/route.transport.go
-
-```go
-authGroup := v1Group.Group("/auth")
-authGroup.POST("/register", t.authController.Register)
-authGroup.POST("/login", t.authController.Login)
-authRefreshToken := authGroup.Group("/refresh", t.middlewareController.AuthMiddleware(constant.RefreshTokenType))
-authRefreshToken.POST("/", t.authController.RefreshToken)
-
-authProtected := authGroup.Use(t.middlewareController.AuthMiddleware(constant.AccessTokenType))
-authProtected.GET("/info", t.authController.Info)
-```
-
-### Inject all new depedency
-
-after create a domain for each layer, now init new domain and inject to all layer
-
-```go
-// init repository
-cacheRepository := cacheRepo.
-    NewRepository().
-    WithRedisDB(rdb)
-userRepository := userRepo.
-    NewRepository().
-    WithGormDB(infrastructure.DB).
-    WithCacheRepository(cacheRepository)
-
-// init service
-authService := authSvc.
-    NewService().
-    WithUserRepository(userRepository).
-    WithCacheRepository(cacheRepository)
-
-// init controller
-middlewareController := middlewareCtrl.
-    NewController().
-    WithAuthService(authService).
-    WithCacheRepository(cacheRepository)
-authController := authCtrl.
-    NewController().
-    WithAuthService(authService)
-
-// init http transport
-httpTransport.
-    NewTransport().
-    WithGinEngine(r).
-    WithMiddlewareController(middlewareController).
-    WithAuthController(authController).
-    InitRoute()
-```
-
-# Role-Based Access Control API
-
-This repository implements a role-based access control (RBAC) system for a Go application, allowing for fine-grained permission management based on user roles within specific buildings.
-
-## Features
-
-- User authentication (register, login, logout)
-- Role management (create, update, delete roles)
-- Building-specific role assignments (assign/remove roles to users in specific buildings)
-- Permission-based access control with granular permissions (e.g., "owner:show", "owner:create")
-- Role hierarchy (Admin, Manager, User)
-
-## Testing the API
-
-### Prerequisites
-
-- Ensure PostgreSQL is installed and running
-- Create a database named "Medikaone"
-- Set up the configuration in `config.yml`
-
-### Setup
-
-1. Initialize and seed the database:
+Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command menolak DSN non-loopback/fallback agar label environment yang salah tidak memasang akun demo pada database remote:
 
 ```bash
 make seed
 ```
 
-This creates:
-- Default roles (Admin, Manager, User)
-- Default permissions (owner:show, owner:create, user:list)
-- Test users with passwords "password123":
-  - admin@example.com (Admin role)
-  - manager@example.com (Manager role)
-  - user@example.com (User role)
-- Test buildings (Building A, Building B)
-- Role assignments for users in buildings
-
-2. Start the server:
+Reset seluruh staging menghapus seluruh data aplikasi, menjalankan migration `Up`, lalu seed ulang:
 
 ```bash
-make run
+make staging-reset-all CONFIRM=RESET-ALL-STAGING-DATA
 ```
 
-### Testing with Postman
+Reset fixture demo saja:
 
-Import the provided Postman collection:
+```bash
+make staging-reset-seed CONFIRM=RESET-DEMO-STAGING-DATA
+```
 
-1. Open Postman
-2. Click "Import" and select the `role_management_api.postman_collection.json` file
-3. Create a Postman environment with the variables:
-   - `access_token` (leave it empty, it will be filled automatically)
-   - `refresh_token` (leave it empty, it will be filled automatically)
-   - `user_id` (default: bf7ad1c8-a873-4915-9e60-2cd15b451292)
-   - `role_id` (default: e52b1dac-7751-451c-98d5-f81401926cf7)
-   - `building_id` (default: e0ffcd6c-a2f2-453f-801e-cbb351850932)
-4. Start with the "Login" request to get an access token
-5. After successful login, the environment variables will be automatically updated
-6. Test the other endpoints as needed
+Nilai `CONFIRM` wajib ditulis pada command line invocation yang sama. Makefile menolak nilai yang berasal dari environment, jadi jangan menyimpan atau mengekspor `CONFIRM` pada service maupun job.
 
-### Testing Flow
+Reset demo hanya menghapus user yang memiliki `seed_key` internal milik fixture; email atau code publik tidak pernah dipakai sebagai bukti kepemilikan. Data turunan akun fixture ikut terhapus melalui foreign key, sedangkan user nyata, role assignment mereka, membership mereka, dan hospital tetap dipertahankan. Hospital/RBAC bawaan disinkronkan berdasarkan identitas internal yang sama.
 
-1. Login as admin user
-2. Create a new role
-3. Assign the role to a user in a building
-4. Verify the role assignment by fetching user roles for that building
-5. Remove the role from the user
-6. Verify the role was removed
+Migration tidak menandai fixture lama berdasarkan email/code karena itu dapat salah mengklaim data nyata. Setelah upgrade database lama, lakukan satu kali `staging-reset-all` untuk membentuk provenance fixture dari keadaan kosong. `staging-reset-seed` akan gagal aman jika menemukan row lama tanpa `seed_key` yang memakai identitas fixture; selesaikan konflik secara manual atau lakukan full reset jika staging memang boleh dikosongkan.
 
-## Test Users and Default IDs
+Sebelum reset pertama, hitung fingerprint menggunakan konfigurasi staging lalu simpan hasilnya sebagai environment variable `STAGING_DATABASE_FINGERPRINT` pada job/operator reset terpisah, bukan pada proses web:
 
-After seeding, the following entities are available:
+```bash
+make staging-db-fingerprint
+```
 
-### Users
-- Admin User: `bf7ad1c8-a873-4915-9e60-2cd15b451292`
-- Manager User: `9eff1130-2aa4-40f8-a3f1-cb3d461b6682`
-- Regular User: `40a91ed3-5057-4bca-be65-91c7da59feca`
+Kedua reset staging menolak berjalan kecuali `ENV=staging`, `DATABASE_DSN` dan `DATABASE_ADMIN_DSN` menunjuk lokasi/database/routing efektif yang sama, fingerprint pgx admin (host, database, user admin, dan runtime parameter) cocok, koneksi aktual berada pada schema `public` dengan user admin yang dikonfigurasi, dan frasa konfirmasinya cocok persis. User database aplikasi boleh berbeda dari user migration agar runtime tetap least-privilege. Untuk Neon, perbandingan endpoint hanya menormalkan penanda hostname `-pooler`; database, port, dan runtime parameter tetap harus sama. DSN admin wajib mempunyai tepat satu target tanpa fallback. Ini mencegah query DSN mengalihkan target maupun DSN production yang tidak sengaja ditempel pada service staging.
 
-### Roles
-- Admin Role: `e52b1dac-7751-451c-98d5-f81401926cf7`
-- Manager Role: `63de13e6-9847-4b6c-bcc4-20145d0e1bec`
-- User Role: `b7efdfce-bc6a-451a-9b92-28b42e6eb3bc`
+`staging-reset-all` mempertahankan schema dan riwayat Goose. Ia menjalankan clear transaksional atas allowlist tabel aplikasi, migration `Up`, lalu satu transaksi final yang melakukan `TRUNCATE` lagi dan seed ulang. Truncate kedua membuang write dari client database langsung atau deployment lama yang masih sempat masuk selama migration. Setelah seed berhasil dan maintenance masih aktif, seluruh challenge, rate limit, session, blacklist, dan refresh state dalam namespace autentikasi Redis target dibersihkan; semua client harus login ulang dan challenge lama tidak dapat membuat ulang user. Dependency tabel yang tidak dikenal membuat truncate gagal; reset tidak memperluas penghapusan secara diam-diam. Urutan clear-before-migrate dapat memulihkan staging lama yang migration uniqueness-nya terhalang data duplikat. Keseluruhan urutan tidak atomik sebagai satu unit, sehingga staging dapat kosong bila proses terputus setelah clear.
 
-### Buildings
-- Building A: `e0ffcd6c-a2f2-453f-801e-cbb351850932`
-- Building B: `1f66bcdc-8e1e-40a0-a037-1b364c70ac79`
+Sebelum operasi pertama yang dapat commit, migration production/staging dan kedua reset mengubah maintenance lease menjadi sentinel Redis bertipe tanpa TTL. Jika operasi gagal atau proses mati, readiness tetap HTTP 503 dan request aplikasi tetap ditolak selama Redis mempertahankan data sentinel tersebut. Redis tanpa persistence tidak dapat memberi jaminan fail-closed lintas restart provider; setelah gangguan Redis saat maintenance, periksa keadaan database dan ulangi command sejenis sebelum membuka traffic. Rerun command sejenis (`migrate`, `staging-reset-all`, atau `staging-reset-seed`) dapat mengambil alih sentinel jenisnya setelah memperoleh lock database. Sebagai jalur pemulihan eksplisit dengan konfirmasi paling kuat, `staging-reset-all` juga boleh mengambil alih kegagalan migration/reset-seed agar data legacy yang menghalangi migration dapat dibersihkan; arah sebaliknya tetap ditolak. Jangan menghapus key maintenance secara manual. Perubahan data `staging-reset-seed` sendiri tetap atomik sehingga kegagalan seed me-rollback data fixture.
 
-Note: The actual UUIDs may vary based on your seeded data.
+Migration `Up` pada staging/production dan kedua reset staging terlebih dahulu mengambil maintenance lease Redis yang diperbarui berkala. Semua instance yang memakai namespace environment/database Redis yang sama menolak request aplikasi baru dengan HTTP 503, lalu command menunggu request aktif (yang juga memperbarui TTL counter) selesai sebelum menyentuh database. Endpoint `/ping` dan `/_internal/livez` tetap tersedia, sedangkan readiness `/_internal/readyz` dan `/_internal/healthz` bernilai 503 selama maintenance. Setelah itu operasi memakai transaction-scoped advisory lock yang sama pada satu koneksi direct khusus; heartbeat membatalkan operasi jika koneksi penjaga (dan karena itu lock) hilang, dan operasi paralel gagal cepat. Pastikan command terpisah memakai `REDIS_CACHE_DSN` yang sama dengan web staging agar proses drain benar-benar mencakup semua instance.
+
+Migration hardening memasang trigger database yang membuat `seed_key` immutable dan hanya dapat dibuat oleh owner/migration role. Dengan demikian role web tidak dapat menandai user atau hospital nyata sebagai fixture agar ikut terhapus oleh reset demo.
+
+Migration hardening terbaru sengaja irreversible. Command `migrate down`, `down-to`, dan `reset` generik ditolak, dan bagian Goose `Down` migration tersebut juga gagal dengan pesan eksplisit karena mengembalikan constraint lama dapat merusak data soft-delete yang valid.
+
+## Quality checks
+
+```bash
+make fmt
+make check
+make test-race
+make vuln
+```
+
+CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integration test pada service PostgreSQL disposable. Test database destruktif hanya aktif dengan DSN test dan token konfirmasi khusus. Regression test migration juga menolak operasi penghancur schema/table di bagian Goose `Up`.
+
+## Catatan deployment
+
+- Jangan memasukkan credential ke Git atau log.
+- Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
+- Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
+- Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
+- Kode baru membaca kolom dari migration `20260901010000_harden_user_hospitals.sql`, jadi migration wajib selesai sebelum server baru menerima traffic.
+- Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
+- Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
+- Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.
+- Migration tersebut sengaja berhenti bila menemukan email/username/NIK aktif atau code/name hospital aktif yang duplikat menurut aturan uniqueness barunya. Perbaiki konflik data secara eksplisit lalu ulangi migration; migration tidak memilih row secara diam-diam. Identifier milik row yang sudah soft-delete dapat dipakai ulang.
+- Render Free memblok koneksi SMTP keluar pada port `25`, `465`, dan `587`; untuk SendGrid gunakan port `2525`. Nilai `587` di `config.yml.example` hanya contoh umum untuk development/provider lain. Gunakan `SMTP_TIMEOUT=15s` dengan `SERVER_WRITE_TIMEOUT=30s` atau kombinasi lain yang menyisakan headroom minimal lima detik.
+- Pada Render set `SERVER_CLIENT_IP_HEADER=X-Forwarded-For`. Jangan mengaktifkan pembacaan header ini bila aplikasi juga dapat diakses langsung tanpa reverse proxy tepercaya.

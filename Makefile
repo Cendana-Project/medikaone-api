@@ -1,53 +1,67 @@
-.PHONY: run test build clean seed migrate seed-flush db-reset
+GO ?= go
+APP_NAME ?= medikaone
+CONFIRM ?=
+GOVULNCHECK_VERSION ?= v1.7.0
 
-# Default Go command
-GO=go
+.PHONY: run build clean fmt vet test test-race check vuln \
+	seed migrate-up migrate-create migrate-status \
+	staging-db-fingerprint staging-reset-all staging-reset-seed
 
-# Application name
-APP_NAME=medikaone
-
-DB_URL ?= postgres://medikaone:dayak1352@localhost:5432/medikaone?sslmode=disable
-
-# Run the application
 run:
-	$(GO) run main.go server
+	$(GO) run . server
 
-# Build the application
 build:
-	$(GO) build -o $(APP_NAME) main.go
+	$(GO) build -o $(APP_NAME) .
 
-# Clean build artifacts
 clean:
-	rm -f $(APP_NAME)
+	$(RM) $(APP_NAME) $(APP_NAME).exe
 
-# Seed the database
+fmt:
+	$(GO) fmt ./...
+
+vet:
+	$(GO) vet ./...
+
+test:
+	$(GO) test ./...
+
+test-race:
+	$(GO) test -race ./...
+
+check: vet test
+
+vuln:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+# Idempotent seed for local development. Staging resets must use one of the
+# guarded targets below so an explicit environment and confirmation are checked.
 seed:
-	$(GO) run main.go seed
+	$(GO) run . seed
 
-# Run database migration
 migrate-up:
-	$(GO) run main.go migrate --action up
+	$(GO) run . migrate --action up
 
-# Create new migration
-# make migrate-create name=nama_migrasi
+# Usage: make migrate-create name=add_example_table
 migrate-create:
-	$(GO) run main.go migrate --action create --name $(name)
+	$(GO) run . migrate --action create --name "$(name)"
 
-# Reset database (down and up)
-migrate-reset:
-	$(GO) run main.go migrate --action reset
-
-# Show migration status
 migrate-status:
-	$(GO) run main.go migrate --action status
+	$(GO) run . migrate --action status
 
-# Database reset (PostgreSQL)
-db-reset:
-	@echo "⚠️  Resetting database schema..."
-	@echo "Using DB_URL: $(DB_URL)"
-	@psql "$(DB_URL)" -f scripts/reset-db.sql
-	@echo "✅ Database schema reset complete"
+# Store this value as STAGING_DATABASE_FINGERPRINT on the dedicated reset
+# job/operator environment, never on the staging web process.
+staging-db-fingerprint:
+	$(GO) run . database-fingerprint
 
-# Seed flush
-seed-flush:
-	$(GO) run main.go seed-flush
+# Destructive: clears all known application data, applies Up migrations, then seeds.
+# Usage: make staging-reset-all CONFIRM=RESET-ALL-STAGING-DATA
+staging-reset-all:
+	$(if $(filter command line,$(origin CONFIRM)),,$(error CONFIRM must be supplied explicitly on this make command line))
+	$(GO) run . staging-reset-all --confirm="$(CONFIRM)"
+
+# Recreates known demo users and restores seeded hospital/RBAC definitions.
+# Real users, their role assignments, memberships, and hospitals are preserved.
+# Usage: make staging-reset-seed CONFIRM=RESET-DEMO-STAGING-DATA
+staging-reset-seed:
+	$(if $(filter command line,$(origin CONFIRM)),,$(error CONFIRM must be supplied explicitly on this make command line))
+	$(GO) run . staging-reset-seed --confirm="$(CONFIRM)"

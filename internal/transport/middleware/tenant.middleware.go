@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 // TenantContext: resolve hospital ID dari:

@@ -3,8 +3,7 @@ package util
 import (
 	"context"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/goccy/go-json"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,22 +15,10 @@ func NewDefaultLogger(ctx context.Context) *logrus.Entry {
 	})
 }
 
-// Helper JSON dump (debug)
-func ToByte(i any) []byte {
-	bt, _ := json.Marshal(i)
-	return bt
-}
-func Dump(i any) string {
-	return string(ToByte(i))
-}
-
 // Convenience wrappers
 func Infof(ctx context.Context, format string, args ...any) {
 	NewDefaultLogger(ctx).Infof(format, args...)
 }
 func Errorf(ctx context.Context, format string, args ...any) {
 	NewDefaultLogger(ctx).Errorf(format, args...)
-}
-func WithFields(ctx context.Context, fields logrus.Fields) *logrus.Entry {
-	return NewDefaultLogger(ctx).WithFields(fields)
 }

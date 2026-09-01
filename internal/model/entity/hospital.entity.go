@@ -4,7 +4,8 @@ import "time"
 
 type Hospital struct {
 	ID          string     `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Code        *string    `gorm:"type:varchar(40);uniqueIndex" json:"code,omitempty"`
+	SeedKey     *string    `gorm:"type:varchar(128)" json:"-"`
+	Code        *string    `gorm:"type:varchar(40)" json:"code,omitempty"`
 	Name        string     `gorm:"type:varchar(160);not null" json:"name"`
 	Address     *string    `gorm:"type:text" json:"address,omitempty"`
 	City        *string    `gorm:"type:varchar(100)" json:"city,omitempty"`

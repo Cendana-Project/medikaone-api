@@ -2,28 +2,29 @@ package seeder
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 )
 
-func SeedSampleUsers(db *gorm.DB) error {
-	type sample struct {
-		Email     string
-		FirstName string
-		LastName  string
-		Password  string
-		RoleSlug  string
-		Phone     string
-		Gender    string // L|P
-		NIK       string // 16 digit
-		DOB       string // YYYY-MM-DD
-		Address   string
-	}
+type sampleUserSeed struct {
+	Email     string
+	FirstName string
+	LastName  string
+	Password  string
+	RoleSlug  string
+	Phone     string
+	Gender    string
+	NIK       string
+	DOB       string
+	Address   string
+}
 
+func sampleUserSeeds() []sampleUserSeed {
 	genNIK := func(prefix string, i int) string {
 		base := fmt.Sprintf("%s%012d", prefix, i)
 		if len(base) > 16 {
@@ -32,10 +33,7 @@ func SeedSampleUsers(db *gorm.DB) error {
 		return base
 	}
 
-	var users []sample
-
-	// super_admin (1)
-	users = append(users, sample{
+	users := []sampleUserSeed{{
 		Email:     "superadmin@medikaone.id",
 		FirstName: "Super",
 		LastName:  "Admin",
@@ -46,11 +44,10 @@ func SeedSampleUsers(db *gorm.DB) error {
 		NIK:       genNIK("1001", 1),
 		DOB:       "1970-01-01",
 		Address:   "Jl. Pusat No. 1, Jakarta",
-	})
+	}}
 
-	// patient (3)
 	for i := 1; i <= 3; i++ {
-		users = append(users, sample{
+		users = append(users, sampleUserSeed{
 			Email:     fmt.Sprintf("patient%03d@medikaone.id", i),
 			FirstName: "Patient",
 			LastName:  fmt.Sprintf("%03d", i),
@@ -64,9 +61,8 @@ func SeedSampleUsers(db *gorm.DB) error {
 		})
 	}
 
-	// doctor (3)
 	for i := 1; i <= 3; i++ {
-		users = append(users, sample{
+		users = append(users, sampleUserSeed{
 			Email:     fmt.Sprintf("doctor%03d@medikaone.id", i),
 			FirstName: "Doctor",
 			LastName:  fmt.Sprintf("%03d", i),
@@ -80,41 +76,73 @@ func SeedSampleUsers(db *gorm.DB) error {
 		})
 	}
 
-	// staff (admin, nurse, receptionist, bod) masing-masing 1
 	users = append(users,
-		sample{Email: "admin001@medikaone.id", FirstName: "Admin", LastName: "001", Password: "Password123", RoleSlug: constant.RoleAdmin, Phone: "081230000001", Gender: "L", NIK: genNIK("1301", 1), DOB: "1980-03-03", Address: "Jl. Klinik No. 1, Jakarta"},
-		sample{Email: "nurse001@medikaone.id", FirstName: "Nurse", LastName: "001", Password: "Password123", RoleSlug: constant.RoleNurse, Phone: "081240000001", Gender: "P", NIK: genNIK("1401", 1), DOB: "1992-04-04", Address: "Jl. Perawat No. 7, Jakarta"},
-		sample{Email: "receptionist001@medikaone.id", FirstName: "Receptionist", LastName: "001", Password: "Password123", RoleSlug: constant.RoleReceptionist, Phone: "081250000001", Gender: "P", NIK: genNIK("1501", 1), DOB: "1993-05-05", Address: "Jl. Lobi No. 2, Jakarta"},
-		sample{Email: "bod001@medikaone.id", FirstName: "BOD", LastName: "001", Password: "Password123", RoleSlug: constant.RoleBOD, Phone: "081260000001", Gender: "L", NIK: genNIK("1601", 1), DOB: "1975-06-06", Address: "Jl. Direktur No. 9, Jakarta"},
+		sampleUserSeed{Email: "admin001@medikaone.id", FirstName: "Admin", LastName: "001", Password: "Password123", RoleSlug: constant.RoleAdmin, Phone: "081230000001", Gender: "L", NIK: genNIK("1301", 1), DOB: "1980-03-03", Address: "Jl. Klinik No. 1, Jakarta"},
+		sampleUserSeed{Email: "nurse001@medikaone.id", FirstName: "Nurse", LastName: "001", Password: "Password123", RoleSlug: constant.RoleNurse, Phone: "081240000001", Gender: "P", NIK: genNIK("1401", 1), DOB: "1992-04-04", Address: "Jl. Perawat No. 7, Jakarta"},
+		sampleUserSeed{Email: "receptionist001@medikaone.id", FirstName: "Receptionist", LastName: "001", Password: "Password123", RoleSlug: constant.RoleReceptionist, Phone: "081250000001", Gender: "P", NIK: genNIK("1501", 1), DOB: "1993-05-05", Address: "Jl. Lobi No. 2, Jakarta"},
+		sampleUserSeed{Email: "bod001@medikaone.id", FirstName: "BOD", LastName: "001", Password: "Password123", RoleSlug: constant.RoleBOD, Phone: "081260000001", Gender: "L", NIK: genNIK("1601", 1), DOB: "1975-06-06", Address: "Jl. Direktur No. 9, Jakarta"},
 	)
 
-	for i, u := range users {
-		created, err := CreateUserActiveWithRole(db, u.Email, u.FirstName, u.LastName, u.Password, u.RoleSlug)
+	return users
+}
+
+func demoUserEmails() []string {
+	users := sampleUserSeeds()
+	emails := make([]string, 0, len(users))
+	for _, user := range users {
+		emails = append(emails, user.Email)
+	}
+	return emails
+}
+
+func demoUserSeedKey(email string) string {
+	return "medikaone:user:" + strings.ToLower(strings.TrimSpace(email))
+}
+
+func demoUserSeedKeys() []string {
+	users := sampleUserSeeds()
+	keys := make([]string, 0, len(users)+1)
+	for _, user := range users {
+		keys = append(keys, demoUserSeedKey(user.Email))
+	}
+	// A SUPERADMIN_EMAIL fixture uses one stable key even if its configured
+	// address changes between deployments.
+	keys = append(keys, envSuperadminSeedKey)
+	return keys
+}
+
+func SeedSampleUsers(db *gorm.DB) error {
+	for i, user := range sampleUserSeeds() {
+		created, err := CreateDemoUserActive(
+			db,
+			demoUserSeedKey(user.Email),
+			user.Email,
+			user.FirstName,
+			user.LastName,
+			user.Password,
+			user.RoleSlug,
+		)
 		if err != nil {
 			return err
 		}
-		var dobPtr *time.Time
-		if u.DOB != "" {
-			if tm, err := time.Parse("2006-01-02", u.DOB); err == nil {
-				dobPtr = &tm
+
+		var dob *time.Time
+		if user.DOB != "" {
+			parsed, parseErr := time.Parse("2006-01-02", user.DOB)
+			if parseErr != nil {
+				return fmt.Errorf("parse DOB for %s: %w", user.Email, parseErr)
 			}
+			dob = &parsed
 		}
 		updates := map[string]any{
-			"phone":   u.Phone,
-			"address": u.Address,
+			"phone":   user.Phone,
+			"address": user.Address,
+			"gender":  user.Gender,
+			"nik":     user.NIK,
+			"dob":     dob,
 		}
-		if u.Gender == "L" || u.Gender == "P" {
-			updates["gender"] = u.Gender
-		}
-		if len(u.NIK) == 16 {
-			updates["nik"] = u.NIK
-		}
-		if dobPtr != nil {
-			updates["dob"] = dobPtr
-		}
-
 		if err := db.Model(&entity.User{}).Where("id = ?", created.ID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("update user idx %d (%s): %w", i, u.Email, err)
+			return fmt.Errorf("update demo user %d (%s): %w", i, user.Email, err)
 		}
 	}
 	return nil

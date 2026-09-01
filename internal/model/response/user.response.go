@@ -1,7 +1,7 @@
 package response
 
 // MeResponse adalah payload untuk GET /v1/me.
-type MeResponse struct { // <=== added
+type MeResponse struct {
 	ID         string  `json:"id"`
 	Email      string  `json:"email"`
 	Username   *string `json:"username,omitempty"`
@@ -23,7 +23,7 @@ type MeResponse struct { // <=== added
 }
 
 // PatientProfile untuk user berperan PATIENT.
-type PatientProfile struct { // <=== added
+type PatientProfile struct {
 	HeightCM    *int    `json:"height_cm,omitempty"`
 	WeightKG    *int    `json:"weight_kg,omitempty"`
 	Allergies   *string `json:"allergies,omitempty"`
@@ -31,13 +31,13 @@ type PatientProfile struct { // <=== added
 }
 
 // DoctorProfile untuk user berperan DOCTOR.
-type DoctorProfile struct { // <=== added
+type DoctorProfile struct {
 	SIPNumber *string `json:"sip_number"`
 	Specialty *string `json:"specialty,omitempty"`
 }
 
 // HospitalBrief untuk ringkas info keanggotaan hospital user (multi-tenant).
-type HospitalBrief struct { // <=== added
+type HospitalBrief struct {
 	ID   string `json:"id"`
 	Code string `json:"code"`
 	Name string `json:"name"`

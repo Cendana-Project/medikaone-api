@@ -8,6 +8,7 @@ import (
 )
 
 type hospitalSeed struct {
+	SeedKey     string
 	Code        string
 	Name        string
 	Address     string
@@ -28,6 +29,7 @@ func SeedHospitals(db *gorm.DB) error {
 
 	items := []hospitalSeed{
 		{
+			SeedKey:     "medikaone:hospital:general-jakarta",
 			Code:        "HSP-MO-001",
 			Name:        "MedikaOne General Hospital",
 			Address:     "Jl. Kesehatan No. 1",
@@ -40,6 +42,7 @@ func SeedHospitals(db *gorm.DB) error {
 			Description: "Rumah sakit umum MedikaOne",
 		},
 		{
+			SeedKey:     "medikaone:hospital:clinic-bandung",
 			Code:        "HSP-MO-002",
 			Name:        "MedikaOne Clinic Bandung",
 			Address:     "Jl. Sehat No. 2",
@@ -54,25 +57,44 @@ func SeedHospitals(db *gorm.DB) error {
 	}
 
 	for _, h := range items {
-		// upsert by code
+		// Fixture ownership is tracked by an internal immutable seed key. Never
+		// adopt a row merely because it currently owns the canonical code.
+		updated := db.Exec(`
+			UPDATE hospitals
+			SET seed_key = ?,
+				code = ?,
+				name = ?,
+				address = ?,
+				city = ?,
+				province = ?,
+				country = ?,
+				latitude = ?,
+				longitude = ?,
+				phone = ?,
+				description = ?,
+				is_active = TRUE,
+				updated_at = ?,
+				deleted_at = NULL
+			WHERE seed_key = ?
+		`, h.SeedKey, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude,
+			h.Phone, h.Description, now, h.SeedKey)
+		if updated.Error != nil {
+			return fmt.Errorf("restore hospital %s: %w", h.Code, updated.Error)
+		}
+		if updated.RowsAffected > 0 {
+			continue
+		}
+
 		if err := db.Exec(`
-			INSERT INTO hospitals (id, code, name, address, city, province, country, latitude, longitude, phone, description, is_active, created_at, updated_at)
-			VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?)
-			ON CONFLICT (code) DO UPDATE
-			SET name = EXCLUDED.name,
-				address = EXCLUDED.address,
-				city = EXCLUDED.city,
-				province = EXCLUDED.province,
-				country = EXCLUDED.country,
-				latitude = EXCLUDED.latitude,
-				longitude = EXCLUDED.longitude,
-				phone = EXCLUDED.phone,
-				description = EXCLUDED.description,
-				is_active = true,
-				updated_at = EXCLUDED.updated_at
-		`, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude, h.Phone, h.Description, now, now).Error; err != nil {
+			INSERT INTO hospitals (id, seed_key, code, name, address, city, province, country, latitude, longitude, phone, description, is_active, created_at, updated_at)
+			VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?)
+		`, h.SeedKey, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude, h.Phone, h.Description, now, now).Error; err != nil {
 			return fmt.Errorf("upsert hospital %s: %w", h.Code, err)
 		}
 	}
 	return nil
+}
+
+func demoHospitalCodes() []string {
+	return []string{"hsp-mo-001", "hsp-mo-002"}
 }

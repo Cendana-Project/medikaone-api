@@ -3,7 +3,8 @@ package hospital
 import (
 	"context"
 	"errors"
-	"github.com/api-monolith-template/internal/model/entity"
+
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 
 	"gorm.io/gorm"
 )
@@ -21,6 +22,12 @@ type Repository struct {
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
+func (r *Repository) WithTx(tx *gorm.DB) *Repository { return &Repository{db: tx} }
+
+func (r *Repository) Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.db.WithContext(ctx).Transaction(fn)
+}
+
 func (r *Repository) Create(ctx context.Context, h *entity.Hospital) error {
 	return r.db.WithContext(ctx).Create(h).Error
 }
@@ -28,7 +35,7 @@ func (r *Repository) Create(ctx context.Context, h *entity.Hospital) error {
 func (r *Repository) FindByID(ctx context.Context, id string) (*Hospital, error) {
 	var row Hospital
 	if err := r.db.WithContext(ctx).
-		Raw(`SELECT id, code, name, is_active FROM hospitals WHERE id = ? AND deleted_at IS NULL LIMIT 1`, id).
+		Raw(`SELECT id, code, name, is_active FROM hospitals WHERE id::text = ? AND is_active = TRUE AND deleted_at IS NULL LIMIT 1`, id).
 		Scan(&row).Error; err != nil {
 		return nil, err
 	}
@@ -41,7 +48,7 @@ func (r *Repository) FindByID(ctx context.Context, id string) (*Hospital, error)
 func (r *Repository) FindByCode(ctx context.Context, code string) (*Hospital, error) {
 	var row Hospital
 	if err := r.db.WithContext(ctx).
-		Raw(`SELECT id, code, name, is_active FROM hospitals WHERE code = ? AND deleted_at IS NULL LIMIT 1`, code).
+		Raw(`SELECT id, code, name, is_active FROM hospitals WHERE LOWER(code) = LOWER(?) AND is_active = TRUE AND deleted_at IS NULL LIMIT 1`, code).
 		Scan(&row).Error; err != nil {
 		return nil, err
 	}
@@ -51,24 +58,29 @@ func (r *Repository) FindByCode(ctx context.Context, code string) (*Hospital, er
 	return &row, nil
 }
 
-// EnsureMembership: masukkan ke user_hospitals jika belum ada
+// EnsureMembership creates or reactivates a membership. A primary membership
+// is unique per user and is changed atomically.
 func (r *Repository) EnsureMembership(ctx context.Context, userID, hospitalID string, setPrimary bool) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// insert ignore
-		if err := tx.Exec(`
-			INSERT INTO user_hospitals (user_id, hospital_id, is_active, is_primary)
-			VALUES (?, ?, TRUE, ?)
-			ON CONFLICT (user_id, hospital_id) DO NOTHING
-		`, userID, hospitalID, setPrimary).Error; err != nil {
-			return err
-		}
 		if setPrimary {
-			// reset primary lain
 			if err := tx.Exec(`
-				UPDATE user_hospitals SET is_primary = FALSE WHERE user_id = ? AND hospital_id <> ?
+				UPDATE user_hospitals
+				SET is_primary = FALSE, updated_at = NOW()
+				WHERE user_id = ? AND hospital_id <> ? AND deleted_at IS NULL
 			`, userID, hospitalID).Error; err != nil {
 				return err
 			}
+		}
+		if err := tx.Exec(`
+			INSERT INTO user_hospitals (user_id, hospital_id, is_active, is_primary, created_at, updated_at, deleted_at)
+			VALUES (?, ?, TRUE, ?, NOW(), NOW(), NULL)
+			ON CONFLICT (user_id, hospital_id) DO UPDATE SET
+				is_active = TRUE,
+				is_primary = CASE WHEN EXCLUDED.is_primary THEN TRUE ELSE user_hospitals.is_primary END,
+				updated_at = NOW(),
+				deleted_at = NULL
+		`, userID, hospitalID, setPrimary).Error; err != nil {
+			return err
 		}
 		return nil
 	})
@@ -85,12 +97,19 @@ func (r *Repository) AssignHospitalRole(ctx context.Context, userID, hospitalID,
 
 // Helper: resolve hospital id dari id / code
 func (r *Repository) ResolveHospitalID(ctx context.Context, idOrCode string) (string, error) {
-	if len(idOrCode) == 36 {
-		h, err := r.FindByID(ctx, idOrCode)
-		return retID(h, err)
+	var h Hospital
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT id, code, name, is_active
+		FROM hospitals
+		WHERE (id::text = ? OR LOWER(code) = LOWER(?))
+		  AND is_active = TRUE
+		  AND deleted_at IS NULL
+		LIMIT 1
+	`, idOrCode, idOrCode).Scan(&h).Error
+	if err == nil && h.ID == "" {
+		err = gorm.ErrRecordNotFound
 	}
-	h, err := r.FindByCode(ctx, idOrCode)
-	return retID(h, err)
+	return retID(&h, err)
 }
 
 func retID(h *Hospital, err error) (string, error) {
@@ -106,8 +125,13 @@ func retID(h *Hospital, err error) (string, error) {
 func (r *Repository) IsUserLinkedToHospital(ctx context.Context, userID, hospitalID string) (bool, error) {
 	var cnt int64
 	if err := r.db.WithContext(ctx).
-		Table("user_hospitals").
-		Where("user_id = ? AND hospital_id = ? AND is_active = TRUE", userID, hospitalID).
+		Table("user_hospitals uh").
+		Joins("JOIN users u ON u.id = uh.user_id").
+		Joins("JOIN hospitals h ON h.id = uh.hospital_id").
+		Where(`uh.user_id = ? AND uh.hospital_id = ?
+			AND uh.is_active = TRUE AND uh.deleted_at IS NULL
+			AND u.status = 'active' AND u.deleted_at IS NULL
+			AND h.is_active = TRUE AND h.deleted_at IS NULL`, userID, hospitalID).
 		Count(&cnt).Error; err != nil {
 		return false, err
 	}

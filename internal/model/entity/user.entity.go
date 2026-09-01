@@ -8,8 +8,9 @@ import (
 
 type User struct {
 	ID           string         `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	Email        string         `json:"email" gorm:"type:varchar(190);uniqueIndex;not null"`
-	Username     *string        `json:"username" gorm:"type:varchar(64);uniqueIndex"`
+	SeedKey      *string        `json:"-" gorm:"type:varchar(128)"`
+	Email        string         `json:"email" gorm:"type:varchar(190);not null"`
+	Username     *string        `json:"username" gorm:"type:varchar(64)"`
 	FirstName    string         `json:"first_name"`
 	LastName     string         `json:"last_name"`
 	Phone        *string        `json:"phone"`

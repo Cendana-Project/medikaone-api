@@ -6,11 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/request"
-	"github.com/api-monolith-template/internal/model/response"
-	hs "github.com/api-monolith-template/internal/service/hospital"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	hs "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type Controller struct {
@@ -21,7 +21,7 @@ func NewController(s *hs.Service) *Controller { return &Controller{svc: s} }
 
 func (ctl *Controller) CreateHospital(c *gin.Context) {
 	var req request.CreateHospitalRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := util.BindAndValidate(c, &req); err != nil {
 		util.HandleError(c, err)
 		return
 	}
@@ -54,23 +54,17 @@ func (ctl *Controller) CreateHospital(c *gin.Context) {
 
 // POST /v1/hospitals/:hospital_id/admins
 func (ctl *Controller) CreateHospitalAdmin(c *gin.Context) {
-	// Bind URI ke struct kecil agar validasi tidak mengenai field JSON. // <=== changed
-	var uri struct {
-		HospitalID string `uri:"hospital_id" binding:"required"` // tambahkan ,uuid jika perlu
-	}
-	if err := c.ShouldBindUri(&uri); err != nil { // <=== changed
-		util.HandleError(c, err)
-		return
-	}
-
 	var req request.CreateHospitalAdminRequest
-	req.HospitalID = uri.HospitalID // ambil dari path // <=== changed
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := util.BindAndValidate(c, &req); err != nil {
 		util.HandleError(c, err)
 		return
 	}
+	req.HospitalID = hospitalHint(c)
+	if req.HospitalID == "" {
+		util.HandleError(c, constant.ErrValidationFailed)
+		return
+	}
 
-	// Normalisasi gender (opsional pengaman) // <=== changed
 	if req.Gender != nil {
 		g := strings.ToUpper(strings.TrimSpace(*req.Gender))
 		req.Gender = &g
@@ -90,24 +84,19 @@ func (ctl *Controller) CreateHospitalAdmin(c *gin.Context) {
 
 // POST /v1/hospitals/:hospital_id/staff
 func (ctl *Controller) CreateHospitalStaff(c *gin.Context) {
-	// 1) Bind hanya URI ke struct kecil → hindari validasi field JSON saat tahap ini. // <=== changed
-	var uri struct {
-		HospitalID string `uri:"hospital_id" binding:"required"` // tambahkan ,uuid jika perlu
-	}
-	if err := c.ShouldBindUri(&uri); err != nil { // <=== changed
-		util.HandleError(c, err)
-		return
-	}
-
-	// 2) Bind JSON ke DTO utama, isi HospitalID dari URI. // <=== changed
+	// Bind hanya URI ke struct kecil agar field JSON belum ikut divalidasi.
 	var req request.CreateHospitalStaffRequest
-	req.HospitalID = uri.HospitalID                // <=== changed
-	if err := c.ShouldBindJSON(&req); err != nil { // <=== changed
+	if err := util.BindAndValidate(c, &req); err != nil {
 		util.HandleError(c, err)
 		return
 	}
+	req.HospitalID = hospitalHint(c)
+	if req.HospitalID == "" {
+		util.HandleError(c, constant.ErrValidationFailed)
+		return
+	}
 
-	// 3) Normalisasi role & gender supaya konsisten dengan validator/DB. // <=== changed
+	// Normalisasi role dan gender agar konsisten dengan validator dan database.
 	req.Role = strings.ToUpper(strings.TrimSpace(req.Role))
 	if req.Gender != nil {
 		g := strings.ToUpper(strings.TrimSpace(*req.Gender))
@@ -124,4 +113,16 @@ func (ctl *Controller) CreateHospitalStaff(c *gin.Context) {
 	resp.StatusCode = http.StatusCreated
 	resp.Data = gin.H{"user_id": uid, "role": req.Role}
 	util.HandleResponse(c, resp, nil)
+}
+
+func hospitalHint(c *gin.Context) string {
+	if hospitalID := strings.TrimSpace(c.GetString("hospital_id")); hospitalID != "" {
+		return hospitalID
+	}
+	if hint, ok := c.Get("hospital_hint"); ok {
+		if value, ok := hint.(string); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return strings.TrimSpace(c.Param("hospital_id"))
 }

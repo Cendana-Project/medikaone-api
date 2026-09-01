@@ -4,18 +4,19 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	userrepo "github.com/api-monolith-template/internal/repository/user"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/request"
-	"github.com/api-monolith-template/internal/model/response"
-	"github.com/api-monolith-template/internal/service/auth"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	"github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type Controller struct {
@@ -37,14 +38,14 @@ func (ctl *Controller) Register(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	u, err := ctl.svc.RegisterLite(c.Request.Context(), &req)
+	result, err := ctl.svc.RegisterLite(c.Request.Context(), &req)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
 	resp := response.NewResponseOK()
 	resp.StatusCode = http.StatusOK
-	resp.Data = gin.H{"user_id": u.ID, "email": u.Email, "status": "pending"}
+	resp.Data = result
 	util.HandleResponse(c, resp, nil)
 }
 
@@ -55,13 +56,13 @@ func (ctl *Controller) ResendPIN(c *gin.Context) {
 		return
 	}
 	email := strings.TrimSpace(req.Email)
-	if err := ctl.svc.ResendPIN(c.Request.Context(), email); err != nil {
+	if err := ctl.svc.ResendPIN(c.Request.Context(), email, req.ChallengeID); err != nil {
 		util.HandleError(c, err)
 		return
 	}
 	resp := response.NewResponseOK()
 	resp.StatusCode = http.StatusOK
-	resp.Data = gin.H{"email": email, "status": "pending"}
+	resp.Data = gin.H{"challenge_id": req.ChallengeID, "email": email, "status": "pending"}
 	util.HandleResponse(c, resp, nil)
 }
 
@@ -73,18 +74,18 @@ func (ctl *Controller) VerifyPIN(c *gin.Context) {
 	}
 	email := strings.TrimSpace(req.Email)
 	pin := strings.TrimSpace(req.PIN)
-	tokens, aexp, rexp, err := ctl.svc.VerifyPIN(c.Request.Context(), email, pin)
+	tokens, aexp, rexp, err := ctl.svc.VerifyPIN(c.Request.Context(), email, req.ChallengeID, pin)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
 
-	// Samakan struktur dengan LoginPublic: gunakan response.LoginResponse  // <=== changed
-	roleSlug := "" // Jika ingin ada role, tambahkan pengambilan role di service VerifyPIN  // <=== changed
+	// A newly verified account has not selected a public role yet.
+	roleSlug := ""
 
 	resp := response.NewResponseOK()
 	resp.StatusCode = http.StatusOK
-	resp.Data = response.LoginResponse{ // <=== changed
+	resp.Data = response.LoginResponse{
 		AccessToken:           tokens.AccessToken,
 		RefreshToken:          tokens.RefreshToken,
 		Role:                  roleSlug,
@@ -105,7 +106,7 @@ func (ctl *Controller) LoginPublic(c *gin.Context) {
 		return
 	}
 	identity := strings.TrimSpace(req.Identity)
-	password := strings.TrimSpace(req.Password)
+	password := req.Password
 
 	tokens, roles, aexp, rexp, err := ctl.svc.Login(c.Request.Context(), identity, password)
 	if err != nil {
@@ -176,17 +177,20 @@ func (ctl *Controller) Refresh(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	tokens, aexp, rexp, err := ctl.svc.Refresh(c.Request.Context(), strings.TrimSpace(req.RefreshToken))
+	tokens, aexp, rexp, err := ctl.svc.Refresh(
+		c.Request.Context(), strings.TrimSpace(req.RefreshToken), strings.TrimSpace(req.IdempotencyKey),
+	)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
 
-	// --- Ambil user_id (sub) dari access token baru, lalu dapatkan role slug --- // <=== added
+	// The access token was just issued by this service; use its subject to load
+	// the response's current role.
 	userID, _ := extractSubFromJWT(tokens.AccessToken)
 	roleSlug := ""
 	if userID != "" && ctl.userRepo != nil {
-		if slug, err := ctl.userRepo.GetUserRoleSlug(userID); err == nil {
+		if slug, err := ctl.userRepo.GetUserRoleSlug(c.Request.Context(), userID); err == nil {
 			roleSlug = slug
 		}
 	}
@@ -196,7 +200,7 @@ func (ctl *Controller) Refresh(c *gin.Context) {
 	resp.Data = response.LoginResponse{
 		AccessToken:           tokens.AccessToken,
 		RefreshToken:          tokens.RefreshToken,
-		Role:                  roleSlug, // <=== now included
+		Role:                  roleSlug,
 		AccessTokenExpiredAt:  aexp.UTC().Format(time.RFC3339),
 		RefreshTokenExpiredAt: rexp.UTC().Format(time.RFC3339),
 	}
@@ -232,12 +236,13 @@ func (ctl *Controller) PasswordForgot(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	if err := ctl.svc.PasswordForgot(c.Request.Context(), &req); err != nil {
+	result, err := ctl.svc.PasswordForgot(c.Request.Context(), &req)
+	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
 	resp := response.NewResponseOK()
-	resp.Data = gin.H{"status": "pin_sent"}
+	resp.Data = result
 	util.HandleResponse(c, resp, nil)
 }
 
@@ -320,12 +325,24 @@ func (ctl *Controller) SetProfile(c *gin.Context) {
 // AUTH — LOGOUT (new)
 // =============================
 
-func (ctl *Controller) Logout(c *gin.Context) { // <=== added
-	// body optional: { "refresh_token": "..." }
-	var body struct {
-		RefreshToken string `json:"refresh_token"`
+func (ctl *Controller) Logout(c *gin.Context) {
+	var body request.LogoutRequest
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				util.HandleError(c, constant.ErrRequestTooLarge)
+				return
+			}
+			util.HandleError(c, constant.ErrValidationError)
+			return
+		}
+	} else if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		util.HandleError(c, constant.ErrValidationError)
+		return
 	}
-	_ = c.ShouldBindJSON(&body)
 
 	h := c.GetHeader("Authorization")
 	if !strings.HasPrefix(strings.ToLower(h), "bearer ") {
@@ -342,14 +359,32 @@ func (ctl *Controller) Logout(c *gin.Context) { // <=== added
 	resp := response.NewResponseOK()
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{
-		"status":          "logout_success",
-		"revoked_refresh": body.RefreshToken != "",
+		"status":         "logout_success",
+		"revoked_family": true,
 	}
 	util.HandleResponse(c, resp, nil)
 }
 
+func (ctl *Controller) LogoutAll(c *gin.Context) {
+	h := c.GetHeader("Authorization")
+	if !strings.HasPrefix(strings.ToLower(h), "bearer ") {
+		util.HandleError(c, constant.ErrUnauthorized)
+		return
+	}
+	access := strings.TrimSpace(h[7:])
+	if err := ctl.svc.LogoutAll(c.Request.Context(), access); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+
+	resp := response.NewResponseOK()
+	resp.StatusCode = http.StatusOK
+	resp.Data = gin.H{"status": "logout_all_success"}
+	util.HandleResponse(c, resp, nil)
+}
+
 // extractSubFromJWT mengekstrak claim "sub" dari JWT tanpa verifikasi signature.
-// Aman untuk use-case ini karena token baru saja kita terbitkan di sisi server.  // <=== added
+// Aman untuk use-case ini karena token baru saja diterbitkan di sisi server.
 func extractSubFromJWT(tok string) (string, error) {
 	parts := strings.Split(tok, ".")
 	if len(parts) < 2 {

@@ -5,18 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
-
-func ContinueOrFatal(err error) {
-	if err != nil {
-		logrus.Fatal(err.Error())
-	}
-}
 
 func GetUserIDFromContext(ctx *gin.Context) (*uuid.UUID, error) {
 	userIDVal, exists := ctx.Get(string(constant.UserID))
@@ -34,24 +27,6 @@ func GetUserIDFromContext(ctx *gin.Context) (*uuid.UUID, error) {
 		return nil, err
 	}
 	return &userID, nil
-}
-
-func GetTokenIDFromContext(ctx *gin.Context) (*uuid.UUID, error) {
-	tokenIDVal, exists := ctx.Get(string(constant.TokenID))
-	if !exists {
-		return nil, errors.New("token ID not found in context")
-	}
-
-	tokenIDStr, ok := tokenIDVal.(string)
-	if !ok {
-		return nil, errors.New("token ID in context is not a string")
-	}
-
-	tokenID, err := uuid.Parse(tokenIDStr)
-	if err != nil {
-		return nil, err
-	}
-	return &tokenID, nil
 }
 
 func GetTraceID(ctx *gin.Context) string {
@@ -116,9 +91,4 @@ func GetUserID(ctx *gin.Context) string {
 		return ""
 	}
 	return id.String()
-}
-
-// RFC3339UTC memformat waktu ke RFC3339 UTC (helper dipakai controller)
-func RFC3339UTC(t time.Time) string {
-	return t.UTC().Format(time.RFC3339)
 }
