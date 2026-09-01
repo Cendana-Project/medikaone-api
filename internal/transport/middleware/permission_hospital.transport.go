@@ -1,14 +1,16 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
-	hospRepo "github.com/api-monolith-template/internal/repository/hospital"
-	roleRepo "github.com/api-monolith-template/internal/repository/role"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
+	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repository, required ...string) gin.HandlerFunc {
@@ -35,10 +37,24 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 			c.Abort()
 			return
 		}
-		hint := hintVal.(string)
+		hint, ok := hintVal.(string)
+		if !ok || hint == "" {
+			resp := constant.ErrValidationFailed.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
 
 		hospitalID, err := hRepo.ResolveHospitalID(c.Request.Context(), hint)
-		if err != nil || hospitalID == "" {
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				resp := constant.ErrInternalServerError.ToResponse()
+				util.HandleResponse(c, &resp, nil)
+				c.Abort()
+				return
+			}
+		}
+		if hospitalID == "" {
 			resp := constant.ErrRecordNotFound.ToResponse()
 			resp.StatusCode = http.StatusNotFound
 			resp.Message = "hospital not found or inactive"
@@ -48,7 +64,14 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 		}
 		c.Set("hospital_id", hospitalID)
 
-		if isSuper, _ := rRepo.IsUserSuperAdmin(c.Request.Context(), userID); isSuper {
+		isSuper, err := rRepo.IsUserSuperAdmin(c.Request.Context(), userID)
+		if err != nil {
+			resp := constant.ErrInternalServerError.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+		if isSuper {
 			c.Next()
 			return
 		}
@@ -83,7 +106,7 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 }
 
 // Hanya izinkan SUPER_ADMIN global atau HOSPITAL_ADMIN pada hospital terkait.
-func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Repository) gin.HandlerFunc { // <=== added
+func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Repository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		if userID == "" {
@@ -107,10 +130,24 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 			c.Abort()
 			return
 		}
-		hint := hintVal.(string)
+		hint, ok := hintVal.(string)
+		if !ok || hint == "" {
+			resp := constant.ErrValidationFailed.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
 
 		hospitalID, err := hRepo.ResolveHospitalID(c.Request.Context(), hint)
-		if err != nil || hospitalID == "" {
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				resp := constant.ErrInternalServerError.ToResponse()
+				util.HandleResponse(c, &resp, nil)
+				c.Abort()
+				return
+			}
+		}
+		if hospitalID == "" {
 			resp := constant.ErrRecordNotFound.ToResponse()
 			resp.StatusCode = http.StatusNotFound
 			resp.Message = "hospital not found or inactive"
@@ -121,7 +158,14 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 		c.Set("hospital_id", hospitalID)
 
 		// SUPER_ADMIN global langsung lolos
-		if isSuper, _ := rRepo.IsUserSuperAdmin(c.Request.Context(), userID); isSuper {
+		isSuper, err := rRepo.IsUserSuperAdmin(c.Request.Context(), userID)
+		if err != nil {
+			resp := constant.ErrInternalServerError.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+		if isSuper {
 			c.Next()
 			return
 		}
@@ -136,7 +180,7 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 		}
 		if !isHospAdmin {
 			resp := constant.ErrForbidden.ToResponse()
-			resp.Message = "only hospital admin or super admin can access this resource" // <=== clearer
+			resp.Message = "only hospital admin or super admin can access this resource"
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return

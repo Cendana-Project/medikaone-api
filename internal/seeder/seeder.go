@@ -4,150 +4,210 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 )
 
-// Run: seed roles → permissions (+mapping) → optional super_admin → sample users → hospitals → user_hospitals
+const resetAllDataSQL = `
+	DO $$
+	DECLARE
+		table_list TEXT;
+	BEGIN
+		SELECT STRING_AGG(FORMAT('%I.%I', schema_name, table_name), ', ')
+		INTO table_list
+		FROM (VALUES
+			('public', 'hospital_user_roles'),
+			('public', 'user_hospitals'),
+			('public', 'doctor_profiles'),
+			('public', 'patient_profiles'),
+			('public', 'role_permissions'),
+			('public', 'user_roles'),
+			('public', 'hospitals'),
+			('public', 'permissions'),
+			('public', 'roles'),
+			('public', 'users')
+		) AS allowed(schema_name, table_name)
+		WHERE TO_REGCLASS(FORMAT('%I.%I', schema_name, table_name)) IS NOT NULL;
+
+		IF table_list IS NOT NULL THEN
+			-- An unknown table that references an application table must make the
+			-- reset fail instead of being silently emptied as a dependency.
+			EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY';
+		END IF;
+	END;
+	$$;
+`
+
+const envSuperadminSeedKey = "medikaone:user:env-superadmin"
+
+// Run idempotently synchronizes system RBAC definitions and development demo
+// data. The hardcoded demo credentials are intentional for the current stage.
 func Run(db *gorm.DB) error {
 	start := time.Now()
-
-	if err := db.Transaction(func(tx *gorm.DB) error {
-		// 1) roles
-		if err := SeedRoles(tx); err != nil {
-			return fmt.Errorf("seed roles: %w", err)
-		}
-		// 2) permissions + mapping
-		if err := SeedPermissions(tx); err != nil {
-			return fmt.Errorf("seed permissions: %w", err)
-		}
-		// 3) optional super_admin (aktif)
-		if email := os.Getenv("SUPERADMIN_EMAIL"); email != "" {
-			pass := os.Getenv("SUPERADMIN_PASSWORD")
-			if pass == "" {
-				return fmt.Errorf("env SUPERADMIN_PASSWORD required when SUPERADMIN_EMAIL set")
-			}
-			first := os.Getenv("SUPERADMIN_FIRST_NAME")
-			if first == "" {
-				first = "Super"
-			}
-			last := os.Getenv("SUPERADMIN_LAST_NAME")
-			if last == "" {
-				last = "Admin"
-			}
-			if _, err := CreateUserActiveWithRole(tx, email, first, last, pass, constant.RoleSuperAdmin); err != nil {
-				return fmt.Errorf("seed super_admin: %w", err)
-			}
-		}
-		// 4) sample users
-		if err := SeedSampleUsers(tx); err != nil {
-			return fmt.Errorf("seed sample users: %w", err)
-		}
-		// 5) hospitals
-		if err := SeedHospitals(tx); err != nil {
-			return fmt.Errorf("seed hospitals: %w", err)
-		}
-		// 6) link user ↔ hospital
-		if err := SeedUserHospitals(tx); err != nil {
-			return fmt.Errorf("seed user_hospitals: %w", err)
-		}
-
-		return nil
-	}); err != nil {
+	if err := db.Transaction(seedAll); err != nil {
 		return err
 	}
-
 	fmt.Printf("[seeder] done in %s\n", time.Since(start))
 	return nil
 }
 
-// Flush: bersihkan data hasil seeding (idempotent, tidak hapus user).
-func Flush(db *gorm.DB) error {
-	// role slugs yg kita seed
-	roleSlugs := []string{
-		constant.RoleSuperAdmin,
-		constant.RoleAdmin,
-		constant.RolePatient,
-		constant.RoleDoctor,
-		constant.RoleNurse,
-		constant.RoleReceptionist,
-		constant.RoleBOD,
+// ResetAllAndSeed atomically removes every row owned by the application and
+// recreates the declarative seed set. Migrations must be applied before this
+// function is called. PostgreSQL can roll TRUNCATE back, so a seed failure
+// leaves the previous staging data intact.
+func ResetAllAndSeed(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(resetAllDataSQL).Error; err != nil {
+			return fmt.Errorf("truncate application data: %w", err)
+		}
+		return seedAll(tx)
+	})
+}
+
+// ClearAllData is the destructive first phase of the guarded full staging
+// reset. It is kept separate from migrations so legacy duplicate data cannot
+// prevent the recovery command from applying new unique indexes.
+func ClearAllData(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(resetAllDataSQL).Error; err != nil {
+			return fmt.Errorf("truncate application data: %w", err)
+		}
+		return nil
+	})
+}
+
+func seedAll(tx *gorm.DB) error {
+	if err := SeedRoles(tx); err != nil {
+		return fmt.Errorf("seed roles: %w", err)
 	}
-
-	// kumpulkan semua permission slugs dari peta default
-	permSlugs := uniquePermSlugsFromDefaults()
-
-	// ambil role ids
-	type row struct{ ID string }
-	var roles []row
-	if err := db.Raw(`SELECT id FROM roles WHERE slug IN ?`, roleSlugs).Scan(&roles).Error; err != nil {
+	if err := SeedPermissions(tx); err != nil {
+		return fmt.Errorf("seed permissions: %w", err)
+	}
+	if err := SeedSampleUsers(tx); err != nil {
+		return fmt.Errorf("seed sample users: %w", err)
+	}
+	// Apply the environment-managed account after the built-in fixtures so an
+	// explicitly configured password and identity always win on a permitted
+	// collision with the canonical superadmin fixture.
+	if err := seedEnvironmentSuperadmin(tx); err != nil {
 		return err
 	}
-	roleIDs := make([]any, 0, len(roles))
-	for _, r := range roles {
-		roleIDs = append(roleIDs, r.ID)
+	if err := SeedHospitals(tx); err != nil {
+		return fmt.Errorf("seed hospitals: %w", err)
 	}
-
-	// ambil permission ids
-	var perms []row
-	if err := db.Raw(`SELECT id FROM permissions WHERE slug IN ?`, permSlugs).Scan(&perms).Error; err != nil {
-		return err
+	if err := SeedUserHospitals(tx); err != nil {
+		return fmt.Errorf("seed user hospitals: %w", err)
 	}
-	permIDs := make([]any, 0, len(perms))
-	for _, p := range perms {
-		permIDs = append(permIDs, p.ID)
-	}
-
-	// 1) hapus mapping role_permissions
-	if len(roleIDs) > 0 || len(permIDs) > 0 {
-		if err := db.Exec(`DELETE FROM role_permissions
-                           WHERE (role_id IN (?)) OR (permission_id IN (?))`, roleIDs, permIDs).Error; err != nil {
-			return err
-		}
-	}
-
-	// 2) putus mapping user_roles untuk role seeded (jangan hapus user)
-	if len(roleIDs) > 0 {
-		if err := db.Exec(`DELETE FROM user_roles WHERE role_id IN (?)`, roleIDs).Error; err != nil {
-			return err
-		}
-	}
-
-	// 3) hapus permissions hasil seed
-	if len(permIDs) > 0 {
-		if err := db.Exec(`DELETE FROM permissions WHERE id IN (?)`, permIDs).Error; err != nil {
-			return err
-		}
-	}
-
-	// 4) hapus roles hasil seed
-	if len(roleIDs) > 0 {
-		if err := db.Exec(`DELETE FROM roles WHERE id IN (?)`, roleIDs).Error; err != nil {
-			return err
-		}
-	}
-
-	// 5) (opsional) bersihkan hospital & user_hospitals demo
-	if err := db.Exec(`DELETE FROM user_hospitals WHERE hospital_id IN (SELECT id FROM hospitals WHERE code IN ('HSP-MO-001','HSP-MO-002'))`).Error; err != nil {
-		return err
-	}
-	if err := db.Exec(`DELETE FROM hospitals WHERE code IN ('HSP-MO-001','HSP-MO-002')`).Error; err != nil {
-		return err
-	}
-
 	return nil
 }
 
-// uniquePermSlugsFromDefaults mengumpulkan & meng-unique-kan slug dari default
+func seedEnvironmentSuperadmin(tx *gorm.DB) error {
+	email := strings.TrimSpace(os.Getenv("SUPERADMIN_EMAIL"))
+	if email == "" {
+		return nil
+	}
+	password := os.Getenv("SUPERADMIN_PASSWORD")
+	if password == "" {
+		return fmt.Errorf("env SUPERADMIN_PASSWORD required when SUPERADMIN_EMAIL set")
+	}
+	seedKey, err := envSuperadminKey(email)
+	if err != nil {
+		return err
+	}
+	firstName := strings.TrimSpace(os.Getenv("SUPERADMIN_FIRST_NAME"))
+	if firstName == "" {
+		firstName = "Super"
+	}
+	lastName := strings.TrimSpace(os.Getenv("SUPERADMIN_LAST_NAME"))
+	if lastName == "" {
+		lastName = "Admin"
+	}
+	if _, err := CreateDemoUserActive(
+		tx, seedKey, email, firstName, lastName, password, constant.RoleSuperAdmin,
+	); err != nil {
+		return fmt.Errorf("seed super_admin: %w", err)
+	}
+	return nil
+}
+
+// ResetDemoAndSeed atomically removes only users owned by the built-in demo
+// fixture, then recreates all declarative seed data. It intentionally keeps:
+//   - every non-demo user and their global role assignments;
+//   - demo hospitals, including memberships belonging to non-demo users;
+//   - custom roles, permissions, and custom permission mappings.
+func ResetDemoAndSeed(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := resetDemoUsers(tx); err != nil {
+			return err
+		}
+		return seedAll(tx)
+	})
+}
+
+// Flush is retained for local tooling, but now has safe semantics: only exact
+// built-in demo users are removed. It never deletes roles or assignments from
+// real users.
+func Flush(db *gorm.DB) error {
+	return db.Transaction(resetDemoUsers)
+}
+
+func resetDemoUsers(tx *gorm.DB) error {
+	if err := ensureNoLegacyFixtureCollisions(tx); err != nil {
+		return err
+	}
+	result := tx.Exec(`DELETE FROM users WHERE seed_key IN ?`, demoUserSeedKeys())
+	if result.Error != nil {
+		return fmt.Errorf("delete demo users: %w", result.Error)
+	}
+	fmt.Printf("[seeder] removed %d recognized demo users\n", result.RowsAffected)
+	return nil
+}
+
+func envSuperadminKey(email string) (string, error) {
+	for _, fixture := range sampleUserSeeds() {
+		if strings.EqualFold(strings.TrimSpace(email), fixture.Email) {
+			if fixture.RoleSlug != constant.RoleSuperAdmin {
+				return "", fmt.Errorf(
+					"refusing SUPERADMIN_EMAIL %q: address belongs to the %s demo fixture",
+					strings.ToLower(strings.TrimSpace(email)), fixture.RoleSlug,
+				)
+			}
+			return demoUserSeedKey(fixture.Email), nil
+		}
+	}
+	return envSuperadminSeedKey, nil
+}
+
+func ensureNoLegacyFixtureCollisions(tx *gorm.DB) error {
+	var userCount int64
+	if err := tx.Raw(`
+		SELECT COUNT(*) FROM users
+		WHERE seed_key IS NULL AND LOWER(email) IN ?
+	`, demoUserEmails()).Scan(&userCount).Error; err != nil {
+		return fmt.Errorf("inspect legacy user fixtures: %w", err)
+	}
+	var hospitalCount int64
+	if err := tx.Raw(`
+		SELECT COUNT(*) FROM hospitals
+		WHERE seed_key IS NULL AND LOWER(code) IN ?
+	`, demoHospitalCodes()).Scan(&hospitalCount).Error; err != nil {
+		return fmt.Errorf("inspect legacy hospital fixtures: %w", err)
+	}
+	if userCount > 0 || hospitalCount > 0 {
+		return fmt.Errorf("refusing demo reset: found untagged rows using fixture identities; resolve them manually or run the guarded full staging reset once")
+	}
+	return nil
+}
+
 func uniquePermSlugsFromDefaults() []string {
 	var all []string
 	for _, slugs := range constant.DefaultRolePermissions {
 		all = append(all, slugs...)
 	}
 	slices.Sort(all)
-	all = slices.Compact(all)
-	return all
+	return slices.Compact(all)
 }

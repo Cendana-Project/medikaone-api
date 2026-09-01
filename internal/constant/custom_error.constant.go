@@ -3,7 +3,7 @@ package constant
 import (
 	"net/http"
 
-	"github.com/api-monolith-template/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 )
 
 // NOTE:
@@ -42,7 +42,7 @@ var (
 
 	ErrUnauthorized = response.CustomError{
 		Code:       "UNAUTHORIZED",
-		StatusCode: http.StatusForbidden,
+		StatusCode: http.StatusUnauthorized,
 		Message:    "unauthorized",
 		Detail:     GetMessageDetail(MsgUnauthorized),
 	}
@@ -64,6 +64,16 @@ var (
 		StatusCode: http.StatusTooManyRequests,
 		Message:    "too many requests, please try again later",
 	}
+	ErrRequestTooLarge = response.CustomError{
+		Code:       "REQUEST_TOO_LARGE",
+		StatusCode: http.StatusRequestEntityTooLarge,
+		Message:    "request body is too large",
+	}
+	ErrServiceUnavailable = response.CustomError{
+		Code:       "SERVICE_UNAVAILABLE",
+		StatusCode: http.StatusServiceUnavailable,
+		Message:    "service is temporarily unavailable",
+	}
 
 	// ====== Input / Format ======
 	ErrInvalidEmail = response.CustomError{
@@ -84,7 +94,7 @@ var (
 	ErrInvalidDateFormat = response.CustomError{
 		Code:       "INVALID_DATE_FORMAT",
 		StatusCode: http.StatusBadRequest,
-		Message:    "invalid date format, use RFC3339 format (example: 1997-12-22T00:00:00Z)",
+		Message:    "invalid date format, use YYYY-MM-DD (example: 1997-12-22)",
 	}
 	ErrInvalidUUIDFormat = response.CustomError{
 		Code:       "INVALID_UUID_FORMAT",
@@ -111,7 +121,7 @@ var (
 		StatusCode: http.StatusConflict,
 		Message:    "Username or email already exists",
 	}
-	ErrDuplicateNIK = response.CustomError{ // <=== added
+	ErrDuplicateNIK = response.CustomError{
 		Code:       "DUPLICATE_NIK",
 		StatusCode: http.StatusConflict,
 		Message:    "NIK already exists",
@@ -128,6 +138,11 @@ var (
 		Code:       "INVALID_TOKEN",
 		StatusCode: http.StatusUnauthorized,
 		Message:    "invalid token",
+	}
+	ErrInvalidCredentials = response.CustomError{
+		Code:       "INVALID_CREDENTIALS",
+		StatusCode: http.StatusUnauthorized,
+		Message:    "invalid credentials",
 	}
 	ErrTokenExpired = response.CustomError{
 		Code:       "TOKEN_EXPIRED",

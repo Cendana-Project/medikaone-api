@@ -1,6 +1,6 @@
 package constant
 
-import "github.com/api-monolith-template/internal/model/response"
+import "github.com/Cendana-Project/medikaone-api/internal/model/response"
 
 type MessageCode string
 

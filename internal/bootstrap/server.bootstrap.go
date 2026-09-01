@@ -1,84 +1,74 @@
 package bootstrap
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
-	"strconv"
-	"time"
+	"os/signal"
+	"syscall"
 
-	"github.com/api-monolith-template/internal/config"
-	"github.com/api-monolith-template/internal/email"
-	"github.com/api-monolith-template/internal/infrastructure"
-	hospRepo "github.com/api-monolith-template/internal/repository/hospital"
-	roleRepo "github.com/api-monolith-template/internal/repository/role"
-	userRepo "github.com/api-monolith-template/internal/repository/user"
-	authSvc "github.com/api-monolith-template/internal/service/auth"
-	hospSvc "github.com/api-monolith-template/internal/service/hospital"
-	httpTransport "github.com/api-monolith-template/internal/transport/http"
-	authHttp "github.com/api-monolith-template/internal/transport/http/auth"
-	hospHttp "github.com/api-monolith-template/internal/transport/http/hospital"
-	userHttp "github.com/api-monolith-template/internal/transport/http/user"
-	warmupHttp "github.com/api-monolith-template/internal/transport/http/warmup"
+	"github.com/Cendana-Project/medikaone-api/internal/config"
+	"github.com/Cendana-Project/medikaone-api/internal/email"
+	"github.com/Cendana-Project/medikaone-api/internal/infrastructure"
+	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
+	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
+	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	authSvc "github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
+	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
+	authHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
+	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
+	userHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
+	warmupHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
+	"github.com/sirupsen/logrus"
 )
 
 func StartServer() {
-	// Infra
-	gormDB := infrastructure.InitializeDBConn()
-	rdb := infrastructure.NewRedisClient()
+	if err := runServer(context.Background()); err != nil {
+		logrus.WithError(err).Fatal("server stopped unexpectedly")
+	}
+}
+
+func runServer(parent context.Context) (returnErr error) {
+	gormDB, err := infrastructure.OpenDBConn()
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+	rdb, err := infrastructure.OpenRedisClient()
+	if err != nil {
+		_ = infrastructure.CloseDB()
+		return fmt.Errorf("connect Redis: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, rdb.Close(), infrastructure.CloseDB())
+	}()
 	r := infrastructure.NewGinEngine()
 
-	// Repositories
 	uRepo := userRepo.NewRepository(gormDB)
 	rRepo := roleRepo.NewRepository(gormDB)
 	hRepo := hospRepo.NewRepository(gormDB)
-
-	// SMTP sender config (fallback default)
-	host := config.Env.SMTP.Host
-	if host == "" {
-		host = "smtp.gmail.com"
-	}
-	port := config.Env.SMTP.Port
-	if port == 0 {
-		port = 587
-	}
-	username := config.Env.SMTP.Username
-	password := config.Env.SMTP.Password
-	fromEmail := config.Env.SMTP.From
-	if fromEmail == "" {
-		fromEmail = "no-reply@medikaone.id"
-	}
-
-	// Configure email timeout (default 30s, override via EMAIL_TIMEOUT_SECONDS)
-	timeoutSeconds := 30
-	if v := os.Getenv("EMAIL_TIMEOUT_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			timeoutSeconds = n
-		}
-	}
-
 	sender := email.NewSMTPSender(&email.Config{
-		Enabled:     true,
-		Provider:    "smtp",
-		Host:        host,
-		Port:        port,
-		Username:    username,
-		Password:    password,
-		FromEmail:   fromEmail,
-		FromName:    "MedikaOne",
-		UseSTARTTLS: true,
-		Timeout:     time.Duration(timeoutSeconds) * time.Second,
+		Enabled:     config.Env.SMTP.Enabled,
+		Host:        config.Env.SMTP.Host,
+		Port:        config.Env.SMTP.Port,
+		Username:    config.Env.SMTP.Username,
+		Password:    config.Env.SMTP.Password,
+		FromEmail:   config.Env.SMTP.From,
+		FromName:    config.Env.SMTP.FromName,
+		UseSTARTTLS: config.Env.SMTP.UseSTARTTLS,
+		Timeout:     config.Env.SMTP.Timeout,
 	})
 
-	// Services
 	authService := authSvc.NewService(uRepo, rRepo, rdb, sender, hRepo)
-	hospitalService := hospSvc.NewService(uRepo, rRepo, hRepo, rdb)
+	hospitalService := hospSvc.NewService(uRepo, rRepo, hRepo)
+	authController := authHTTP.NewController(authService, uRepo)
+	userController := userHTTP.NewController(authService, uRepo)
+	hospitalController := hospHTTP.NewController(hospitalService)
+	warmupController := warmupHTTP.NewController()
 
-	// Controllers
-	authController := authHttp.NewController(authService, uRepo)
-	userController := userHttp.NewController(authService, uRepo)
-	hospitalController := hospHttp.NewController(hospitalService)
-	warmupController := warmupHttp.NewController()
-
-	// HTTP Transport + routes
 	httpTransport.NewTransport().
 		WithGinEngine(r).
 		WithAuthController(authController).
@@ -87,8 +77,55 @@ func StartServer() {
 		WithWarmupController(warmupController).
 		WithRoleRepository(rRepo).
 		WithHospitalRepository(hRepo).
+		WithUserRepository(uRepo).
+		WithRedisClient(rdb).
 		InitRoute()
 
-	// Start server
-	_ = r.Run(":" + config.Env.Server.Port)
+	serverCtx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	requestBaseCtx, cancelRequests := context.WithCancel(context.WithoutCancel(parent))
+	defer cancelRequests()
+	server := newHTTPServer(requestBaseCtx, r)
+	serveErr := make(chan error, 1)
+	go func() {
+		logrus.WithField("port", config.Env.Server.Port).Info("HTTP server started")
+		serveErr <- server.ListenAndServe()
+	}()
+
+	var runErr error
+	select {
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("serve HTTP: %w", err)
+		}
+	case <-serverCtx.Done():
+		logrus.Info("shutdown signal received")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.Env.GracefulShutdownTimeout)
+	defer cancel()
+	shutdownErr := server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		_ = server.Close()
+	}
+	// In-flight handlers keep a live BaseContext while Shutdown drains them.
+	// Cancel it only after the drain completes (or the timeout forces Close).
+	cancelRequests()
+	emailCloseErr := authService.CloseEmailDispatcher(shutdownCtx)
+	return errors.Join(runErr, shutdownErr, emailCloseErr)
+}
+
+func newHTTPServer(baseContext context.Context, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              net.JoinHostPort("", config.Env.Server.Port),
+		Handler:           handler,
+		ReadHeaderTimeout: config.Env.Server.ReadHeaderTimeout,
+		ReadTimeout:       config.Env.Server.ReadTimeout,
+		WriteTimeout:      config.Env.Server.WriteTimeout,
+		IdleTimeout:       config.Env.Server.IdleTimeout,
+		MaxHeaderBytes:    1 << 20,
+		BaseContext: func(net.Listener) context.Context {
+			return baseContext
+		},
+	}
 }

@@ -72,19 +72,19 @@ func hasRepeatedChars(password string) bool {
 }
 
 func IsPasswordSimilarToUserInfo(password, username, email string) bool {
-	// Convert to lowercase for case-insensitive comparison
 	password = strings.ToLower(password)
-	username = strings.ToLower(username)
-	email = strings.ToLower(email)
+	username = strings.ToLower(strings.TrimSpace(username))
+	email = strings.ToLower(strings.TrimSpace(email))
 
-	// Check if password contains username or email
-	if strings.Contains(password, username) || strings.Contains(password, email) {
+	if username != "" && strings.Contains(password, username) {
+		return true
+	}
+	if email != "" && strings.Contains(password, email) {
 		return true
 	}
 
-	// Check if password contains parts of email (before @)
-	emailParts := strings.Split(email, "@")
-	if len(emailParts) > 0 && strings.Contains(password, emailParts[0]) {
+	localPart, _, found := strings.Cut(email, "@")
+	if found && len([]rune(localPart)) >= 3 && strings.Contains(password, localPart) {
 		return true
 	}
 

@@ -4,7 +4,7 @@ Copyright © 2024 Michael Putera Wardana <michaelputeraw@gmail.com>
 package cmd
 
 import (
-	"github.com/api-monolith-template/internal/bootstrap"
+	"github.com/Cendana-Project/medikaone-api/internal/bootstrap"
 	"github.com/spf13/cobra"
 )
 

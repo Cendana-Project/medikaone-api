@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"context"
+
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -16,6 +19,8 @@ func TraceID() gin.HandlerFunc {
 			tid = uuid.NewString()
 		}
 		c.Set(traceKey, tid)
+		c.Set(string(constant.RequestID), tid)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), constant.RequestID, tid))
 		c.Writer.Header().Set("X-Request-Id", tid) // echo ke client
 		c.Next()
 	}

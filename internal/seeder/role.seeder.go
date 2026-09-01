@@ -1,36 +1,34 @@
 package seeder
 
 import (
-	"time"
-
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 )
 
 // SeedRoles memastikan 7 role tersedia (idempotent).
 func SeedRoles(db *gorm.DB) error {
-	now := time.Now()
 	roles := []entity.Role{
-		{ID: uuid.NewString(), Name: "Super Admin", Slug: constant.RoleSuperAdmin, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "Admin (Hospital)", Slug: constant.RoleAdmin, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "Patient", Slug: constant.RolePatient, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "Doctor", Slug: constant.RoleDoctor, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "Nurse", Slug: constant.RoleNurse, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "Receptionist", Slug: constant.RoleReceptionist, Active: true, CreatedAt: now},
-		{ID: uuid.NewString(), Name: "BOD", Slug: constant.RoleBOD, Active: true, CreatedAt: now},
+		{Name: "Super Admin", Slug: constant.RoleSuperAdmin},
+		{Name: "Admin (Hospital)", Slug: constant.RoleAdmin},
+		{Name: "Patient", Slug: constant.RolePatient},
+		{Name: "Doctor", Slug: constant.RoleDoctor},
+		{Name: "Nurse", Slug: constant.RoleNurse},
+		{Name: "Receptionist", Slug: constant.RoleReceptionist},
+		{Name: "BOD", Slug: constant.RoleBOD},
 	}
 	for _, r := range roles {
-		var cnt int64
-		if err := db.Model(&entity.Role{}).Where("slug = ?", r.Slug).Count(&cnt).Error; err != nil {
+		if err := db.Exec(`
+			INSERT INTO roles (name, slug, active, created_at, updated_at, deleted_at)
+			VALUES (?, ?, TRUE, NOW(), NOW(), NULL)
+			ON CONFLICT (slug) DO UPDATE SET
+				name = EXCLUDED.name,
+				active = TRUE,
+				updated_at = NOW(),
+				deleted_at = NULL
+		`, r.Name, r.Slug).Error; err != nil {
 			return err
-		}
-		if cnt == 0 {
-			if err := db.Create(&r).Error; err != nil {
-				return err
-			}
 		}
 	}
 	return nil

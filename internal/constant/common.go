@@ -1,6 +1,5 @@
 package constant
 
-type TokenType string
 type ContextKey string
 
 const (
@@ -9,31 +8,8 @@ const (
 	RequestID = ContextKey("reqId")
 	UserID    = ContextKey("user_id")
 	TokenID   = ContextKey("jti")
-
-	DB = "db"
-
-	// Token types
-	AccessTokenType  TokenType = "access_token"
-	RefreshTokenType TokenType = "refresh_token"
-)
-
-const (
-	// Cache key for all users
-	UserAllCacheKey = "user:all"
-)
-
-const (
-	RateLimitKey = "rate-limit"
-)
-
-const (
-	// Availability defaults
-	DefaultAvailabilityDays = 7
-	MaxAvailabilityDays     = 14
-	DefaultTimezone         = "Europe/Paris"
-
-	// Pagination defaults (fallback umum)
-	DefaultPage     = 1
-	DefaultPageSize = 50
-	MaxPageSize     = 100
+	// ClientFingerprint is a keyed, truncated pseudonym of the caller IP set by
+	// the trusted public-auth rate-limit middleware. Services use it to scope
+	// identity counters without retaining a raw address.
+	ClientFingerprint = ContextKey("client_fingerprint")
 )

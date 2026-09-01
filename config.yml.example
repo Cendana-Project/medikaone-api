@@ -1,61 +1,68 @@
-env: "development" # staging / production
-log_level: "info" # warm
+# Salin menjadi config.yml untuk development lokal. Jangan commit secret asli.
+env: "development"
+log_level: "info"
 graceful_shutdown_timeout: "30s"
-token:
-  password_salt: "b5zaUPemaUN3YVPQ" # random 16 char
-  access_token_secret: "17A9Y63VUmMotuuS" # random char
-  access_token_duration: "8h"
-  refresh_token_secret: "17A9YPemaUN3YVPQ" # random char
-  refresh_token_duration: "168h"
+
 server:
-  port: 8080
-  base_url: "http://localhost:8080"
+  port: "8080"
+  cors_allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+  # Isi X-Forwarded-For hanya jika aplikasi tidak dapat diakses tanpa proxy tepercaya.
+  client_ip_header: ""
+  read_header_timeout: "5s"
+  read_timeout: "15s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+
 database:
-  dsn: "postgres://user:password@localhost:5432/api_monolith?sslmode=disable"
-  ping_interval: "30s"
-  reconnect_factor: 2
-  min_jitter: "200ms"
-  max_jitter: "500ms"
-  max_retry: 5
+  # DSN runtime lokal. Di staging/production gunakan user DML least-privilege,
+  # sslmode=verify-full, dan endpoint pooled bila memakai Neon. User ini tidak
+  # boleh memiliki CREATE pada schema public.
+  dsn: "postgresql://postgres:postgres@localhost:5432/medikaone?sslmode=disable"
+  # Kosong aman untuk server dan development lokal (migration lokal akan
+  # memakai dsn). Di staging/production, berikan direct/non-pooler DSN ini
+  # hanya kepada proses migration/reset, bukan kepada proses web.
+  admin_dsn: ""
   max_idle_conns: 5
   max_open_conns: 20
-  max_conn_life_time: "1h"
+  max_conn_lifetime: "1h"
+
 redis:
-  is_cache_disable: "false"
-  cache_dsn: "redis://user:password@localhost:6379/0?protocol=3"
-  default_cache_duration: "15m"
-  max_retry: 5
+  # Staging/production wajib rediss:// dengan password/ACL dan server harus
+  # memakai maxmemory-policy=noeviction; startup gagal jika policy tidak cocok.
+  cache_dsn: "redis://localhost:6379/0"
+  max_retry: 3
   max_idle_conns: 5
   max_active_conns: 20
-  max_conn_life_time: "1h"
+  max_conn_lifetime: "1h"
+
+jwt:
+  # Wajib diganti dengan secret acak minimal 32 karakter.
+  secret: "development-only-change-this-secret"
+  access_ttl: "15m"
+  refresh_ttl: "720h"
+
+auth:
+  pin_ttl: "10m"
+  pin_max_attempts: 5
+  pin_resend_cooldown: "1m"
+  max_active_sessions: 10
+  public_ip_rate_limit: 30
+  public_ip_rate_window: "15m"
+  login_rate_limit: 10
+  login_rate_window: "15m"
+  forgot_password_rate_limit: 3
+  forgot_password_rate_window: "1h"
+
 smtp:
-  host: "smtp.gmail.com"
+  # Set true dan isi seluruh nilai SMTP untuk mengirim email.
+  enabled: false
+  host: "smtp.example.com"
   port: 587
-  username: "your-email@gmail.com"
-  password: "your-app-password"
-  from: "Your Name <your-email@gmail.com>"
-stripe:
-  secret_key: "sk_test_your_stripe_secret_key"
-  publishable_key: "pk_test_your_stripe_publishable_key"
-  webhook_secret: "whsec_your_webhook_secret"
-  default_currency: "USD"
-  supported_currencies: ["USD", "EUR", "GBP", "SGD", "MYR", "IDR"]
-  min_amounts:
-    USD: 0.50
-    EUR: 0.50
-    GBP: 0.30
-    SGD: 0.50
-    MYR: 1.00
-    IDR: 1000.00
-  max_amounts:
-    USD: 10000.00
-    EUR: 10000.00
-    GBP: 10000.00
-    SGD: 10000.00
-    MYR: 10000.00
-    IDR: 100000000.00
-  max_retries: 3
-  retry_delay: "1s"
-aws:
-  region:     "ap-southeast-2"
-  s3_bucket:  "s.....-....s"
+  username: "apikey"
+  password: "replace-me"
+  from: "no-reply@example.com"
+  from_name: "MedikaOne"
+  timeout: "15s"
+  use_starttls: true

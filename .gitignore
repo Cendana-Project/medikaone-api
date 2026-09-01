@@ -1,2 +1,10 @@
 config.yml
 /tmp
+/.tmp
+/medikaone
+/medikaone.exe
+/coverage.out
+*.test
+.env
+.env.*
+!.env.example

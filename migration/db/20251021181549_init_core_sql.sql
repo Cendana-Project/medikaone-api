@@ -6,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- =========================
 -- USERS
 -- =========================
-DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (
                        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                        email          VARCHAR(190) NOT NULL UNIQUE,
@@ -31,7 +30,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username_lower ON users ((lower(usern
 -- =========================
 -- ROLES
 -- =========================
-DROP TABLE IF EXISTS roles CASCADE;
 CREATE TABLE roles (
                        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                        name        VARCHAR(100) NOT NULL,
@@ -46,7 +44,6 @@ CREATE TABLE roles (
 -- =========================
 -- PERMISSIONS
 -- =========================
-DROP TABLE IF EXISTS permissions CASCADE;
 CREATE TABLE permissions (
                              id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                              name        VARCHAR(96) NOT NULL,
@@ -62,7 +59,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_permissions_name ON permissions(name);
 -- =========================
 -- USER_ROLES
 -- =========================
-DROP TABLE IF EXISTS user_roles;
 CREATE TABLE user_roles (
                             id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                             user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -76,7 +72,6 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id);
 -- =========================
 -- ROLE_PERMISSIONS
 -- =========================
-DROP TABLE IF EXISTS role_permissions;
 CREATE TABLE role_permissions (
                                   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                   role_id       UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
@@ -90,7 +85,6 @@ CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_id ON role_permission
 -- =========================
 -- PATIENT PROFILES
 -- =========================
-DROP TABLE IF EXISTS patient_profiles;
 CREATE TABLE patient_profiles (
                                   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                                   height_cm    INTEGER,
@@ -104,7 +98,6 @@ CREATE TABLE patient_profiles (
 -- =========================
 -- DOCTOR PROFILES
 -- =========================
-DROP TABLE IF EXISTS doctor_profiles;
 CREATE TABLE doctor_profiles (
                                  user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                                  sip_number VARCHAR(64) UNIQUE,

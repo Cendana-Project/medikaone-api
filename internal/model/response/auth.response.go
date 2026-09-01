@@ -13,13 +13,13 @@ type VerifyEmailResponse struct {
 	Status string `json:"status"`
 }
 
-type RoleBrief struct { // <=== added
+type RoleBrief struct {
 	ID   string `json:"id"`
 	Slug string `json:"slug"`
 	Name string `json:"name"`
 }
 
-type LoginResponse struct { // <=== changed
+type LoginResponse struct {
 	AccessToken           string `json:"access_token"`
 	RefreshToken          string `json:"refresh_token"`
 	Role                  string `json:"role"`                     // hanya slug
@@ -28,7 +28,7 @@ type LoginResponse struct { // <=== changed
 }
 
 // LoginHospitalResponse sekarang menyertakan waktu kadaluarsa token
-type LoginHospitalResponse struct { // <=== changed
+type LoginHospitalResponse struct {
 	AccessToken           string `json:"access_token"`
 	RefreshToken          string `json:"refresh_token"`
 	ExpiresIn             int64  `json:"expires_in"`
@@ -39,7 +39,7 @@ type LoginHospitalResponse struct { // <=== changed
 	RefreshTokenExpiredAt string `json:"refresh_token_expired_at"` // RFC3339 UTC
 }
 
-type UserProfile struct { // <=== added
+type UserProfile struct {
 	ID        string  `json:"id"`
 	Email     string  `json:"email"`
 	Username  *string `json:"username,omitempty"`
@@ -66,7 +66,7 @@ type UserProfile struct { // <=== added
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-type SetProfileResponse struct { // <=== added
+type SetProfileResponse struct {
 	Role    string      `json:"role"`    // slug UPPERCASE yang dipilih/diassign
 	Profile UserProfile `json:"profile"` // profil lengkap gabungan
 }

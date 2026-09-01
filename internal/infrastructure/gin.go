@@ -1,124 +1,175 @@
 package infrastructure
 
 import (
-	"fmt"
-	"log"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
-	"runtime"
+	"runtime/debug"
+	"sort"
+	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin/binding"
-	"github.com/go-playground/validator/v10"
-
-	"github.com/api-monolith-template/internal/config"
-	"github.com/api-monolith-template/internal/constant"
-	"github.com/api-monolith-template/internal/model/response"
-	transportmw "github.com/api-monolith-template/internal/transport/middleware"
-	"github.com/api-monolith-template/internal/util"
+	"github.com/Cendana-Project/medikaone-api/internal/config"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	transportmw "github.com/Cendana-Project/medikaone-api/internal/transport/middleware"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func NewGinEngine() *gin.Engine {
-	r := gin.New()
-
 	if config.Env.Env == constant.ProductionEnvironment {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
-		util.RegisterCustomValidators(v) // pastikan fungsi ini ada di util/validation.go
-	}
-
-	// HANYA middleware umum (tidak ada Auth di sini)
-	r.Use(gin.Recovery())
+	r := gin.New()
+	_ = r.SetTrustedProxies(nil)
+	r.Use(securityHeaders())
 	r.Use(transportmw.TraceID())
-
-	// Access log bawaan Gin
-	r.Use(gin.Logger())
-
-	// Panic handler
-	r.Use(gin.Recovery())
-
-	// TraceID (punyamu)
-	r.Use(transportmw.TraceID())
-
-	// (OPSIONAL) Access log custom yang menyertakan trace_id dan user_id
-	r.Use(func(c *gin.Context) {
-		start := time.Now()
-		c.Next()
-		latency := time.Since(start)
-		traceID := c.GetString("trace_id")
-		userID, _ := c.Get("user_id")
-		status := c.Writer.Status()
-		method := c.Request.Method
-		path := c.Request.URL.Path
-		clientIP := c.ClientIP()
-
-		// pakai logrus atau log bawaan
-		log.Printf("[ACCESS] %s %s %d %s ip=%s user_id=%v trace_id=%s",
-			method, path, status, latency, clientIP, userID, traceID)
-	})
-
-	corsConfig := cors.Config{
-		AllowMethods:           []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:           []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Hospital-ID", "X-Hospital-Code"},
-		AllowCredentials:       true,
-		AllowWildcard:          false,
-		AllowBrowserExtensions: false,
-		AllowWebSockets:        true,
-		AllowFiles:             false,
-		AllowOriginFunc: func(origin string) bool {
-			return true
-		},
-	}
-
-	r.Use(cors.New(corsConfig))
-
-	// register custom validation
-	util.AddValidation(DB)
-
-	// Public health check
-	internalGroup := r.Group("/_internal")
-	internalGroup.GET("/healthz", func(c *gin.Context) {
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		status := "healthy"
-
-		serviceStatuses := make([]response.GetHealthCheckServiceStatusResp, 0)
-		for serviceName, healthCheckFn := range MapHealthCheck {
-			err := healthCheckFn(c.Request.Context())
-			if err != nil {
-				status = "unhealthy"
-			}
-			serviceStatuses = append(serviceStatuses, response.GetHealthCheckServiceStatusResp{
-				Name: serviceName,
-				IsUp: err == nil,
-			})
-		}
-
-		healthInfo := response.GetHealthCheckResp{
-			Status:       status,
-			Environtment: config.Env.Env,
-			Version:      fmt.Sprintf("%s@%s", config.ServiceName, config.ServiceVersion),
-			GoVersion:    runtime.Version(),
-			GoRoutine:    runtime.NumGoroutine(),
-			Memory: response.GetHealthCheckMemoryResp{
-				Alloc:      memStats.Alloc,
-				TotalAlloc: memStats.TotalAlloc,
-				Sys:        memStats.Sys,
-				HeapAlloc:  memStats.HeapAlloc,
-				HeapSys:    memStats.HeapSys,
-			},
-			ServiceStatuses: serviceStatuses,
-		}
-
-		resp := response.BaseResponse{
-			StatusCode: http.StatusOK,
-			Data:       healthInfo,
-		}
+	r.Use(accessLogger())
+	r.Use(gin.CustomRecovery(func(c *gin.Context, _ any) {
+		logrus.WithFields(logrus.Fields{
+			"request_id": transportmw.GetTraceID(c),
+			"stack":      string(debug.Stack()),
+		}).Error("request panic recovered")
+		resp := constant.ErrInternalServerError.ToResponse()
 		util.HandleResponse(c, &resp, nil)
-	})
+		c.Abort()
+	}))
+	r.Use(limitRequestBody(1 << 20))
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     config.Env.Server.CORSAllowedOrigins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "X-Hospital-ID", "X-Hospital-Code"},
+		ExposeHeaders:    []string{"X-Request-ID"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
+	}))
 
+	registerHealthRoutes(r)
 	return r
+}
+
+func securityHeaders() gin.HandlerFunc {
+	secureTransport := config.Env.Env == "staging" || config.Env.Env == constant.ProductionEnvironment
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Header("Pragma", "no-cache")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("Referrer-Policy", "no-referrer")
+		if secureTransport {
+			c.Header("Strict-Transport-Security", "max-age=31536000")
+		}
+		c.Next()
+	}
+}
+
+func limitRequestBody(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.ContentLength > maxBytes {
+			resp := constant.ErrRequestTooLarge.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
+}
+
+func accessLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		started := time.Now()
+		c.Next()
+
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
+		clientIP, clientIPErr := transportmw.ClientIP(c, config.Env.Server.ClientIPHeader)
+		clientFingerprint := "invalid"
+		if clientIPErr != nil {
+			clientIP = ""
+		} else {
+			clientFingerprint = accessLogClientFingerprint(clientIP)
+		}
+		entry := logrus.WithFields(logrus.Fields{
+			"client_fingerprint": clientFingerprint,
+			"latency_ms":         time.Since(started).Milliseconds(),
+			"method":             c.Request.Method,
+			"path":               path,
+			"request_id":         transportmw.GetTraceID(c),
+			"status":             c.Writer.Status(),
+		})
+		if userID, ok := c.Get("user_id"); ok {
+			entry = entry.WithField("user_id", userID)
+		}
+		if len(c.Errors) > 0 {
+			entry.WithField("error_count", len(c.Errors)).Warn("request completed with errors")
+			return
+		}
+		if c.Writer.Status() >= http.StatusInternalServerError {
+			entry.Error("request completed")
+			return
+		}
+		if c.Writer.Status() >= http.StatusBadRequest {
+			entry.Warn("request completed")
+			return
+		}
+		if strings.HasPrefix(path, "/_internal/") {
+			entry.Debug("health request completed")
+			return
+		}
+		entry.Info("request completed")
+	}
+}
+
+func accessLogClientFingerprint(clientIP string) string {
+	mac := hmac.New(sha256.New, []byte(config.Env.JWT.Secret))
+	_, _ = mac.Write([]byte("access-log-ip"))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write([]byte(clientIP))
+	return hex.EncodeToString(mac.Sum(nil)[:12])
+}
+
+func registerHealthRoutes(r *gin.Engine) {
+	internal := r.Group("/_internal")
+	internal.GET("/livez", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "alive"})
+	})
+	readiness := func(c *gin.Context) {
+		checks := snapshotHealthChecks()
+		names := make([]string, 0, len(checks))
+		for name := range checks {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+		ready := true
+		for _, name := range names {
+			if err := checks[name](ctx); err != nil {
+				ready = false
+				logrus.WithFields(logrus.Fields{
+					"dependency": name,
+					"request_id": transportmw.GetTraceID(c),
+				}).Warn("readiness check failed")
+			}
+		}
+
+		if !ready {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	}
+	internal.GET("/readyz", readiness)
+	// Backward-compatible alias for existing hosting health-check configuration.
+	internal.GET("/healthz", readiness)
 }
