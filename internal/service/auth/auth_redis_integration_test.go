@@ -70,6 +70,8 @@ func mustRedisSet(t *testing.T, ctx context.Context, client *redis.Client, key s
 	}
 }
 
+const testPasswordResetProofTTLMS int64 = 300_000
+
 func TestRedisRegistrationPINAttemptLimitAndOperationRetry(t *testing.T) {
 	client := newAuthRedisIntegrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -180,29 +182,122 @@ func TestRedisRegistrationPINAttemptLimitAndOperationRetry(t *testing.T) {
 	})
 }
 
+func TestRedisPasswordResetPINExchangeConsumesChallengeAndRejectsReplay(t *testing.T) {
+	client := newAuthRedisIntegrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	prefix := authRedisTestPrefix(t, client)
+	challengeKey := prefix + "challenge"
+	attemptsKey := prefix + "attempts"
+	currentKey := prefix + "current"
+	proofKey := prefix + "proof"
+	challengeID := "challenge-id"
+	challengeRecord := "user-id|expected-pin-hash"
+	proofRecord := "user-id|credential-binding|expected-proof-hash"
+	successOperationKey := prefix + "operation:success"
+	challengeTTL := 30 * time.Second
+	mustRedisSet(t, ctx, client, challengeKey, challengeRecord, challengeTTL)
+	mustRedisSet(t, ctx, client, attemptsKey, "1", challengeTTL)
+	mustRedisSet(t, ctx, client, currentKey, challengeID, challengeTTL)
+
+	remainingTTL, err := verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		client,
+		[]string{challengeKey, attemptsKey, successOperationKey, currentKey, proofKey},
+		challengeRecord,
+		3,
+		challengeID,
+		proofRecord,
+		testPasswordResetProofTTLMS,
+	).Int64()
+	if err != nil {
+		t.Fatalf("exchange password reset PIN for proof: %v", err)
+	}
+	if remainingTTL != testPasswordResetProofTTLMS {
+		t.Fatalf("proof TTL = %d, want fresh TTL %d", remainingTTL, testPasswordResetProofTTLMS)
+	}
+	for _, key := range []string{challengeKey, attemptsKey} {
+		if exists, err := client.Exists(ctx, key).Result(); err != nil || exists != 0 {
+			t.Fatalf("consumed key %q exists=%d err=%v", key, exists, err)
+		}
+	}
+	if got, err := client.Get(ctx, proofKey).Result(); err != nil || got != proofRecord {
+		t.Fatalf("proof record = %q, %v; want %q", got, err, proofRecord)
+	}
+	if got, err := client.PTTL(ctx, proofKey).Result(); err != nil || got <= challengeTTL || got > time.Duration(testPasswordResetProofTTLMS)*time.Millisecond {
+		t.Fatalf("stored proof TTL = %s, %v; want fresh TTL longer than challenge TTL and at most %dms", got, err, testPasswordResetProofTTLMS)
+	}
+	if got, err := client.Get(ctx, currentKey).Result(); err != nil || got != challengeID {
+		t.Fatalf("current challenge = %q, %v; want retained %q", got, err, challengeID)
+	}
+
+	replayResult, err := verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		client,
+		[]string{challengeKey, attemptsKey, prefix + "operation:replay", currentKey, proofKey},
+		challengeRecord,
+		3,
+		challengeID,
+		"attacker-proof-record",
+		testPasswordResetProofTTLMS,
+	).Int64()
+	if err != nil {
+		t.Fatalf("replay consumed password reset PIN: %v", err)
+	}
+	if replayResult != 0 {
+		t.Fatalf("PIN replay result = %d, want 0", replayResult)
+	}
+	if got, err := client.Get(ctx, proofKey).Result(); err != nil || got != proofRecord {
+		t.Fatalf("proof after PIN replay = %q, %v; want original %q", got, err, proofRecord)
+	}
+
+	if err := client.Del(ctx, proofKey).Err(); err != nil {
+		t.Fatalf("invalidate password reset proof: %v", err)
+	}
+	cachedResult, err := verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		client,
+		[]string{challengeKey, attemptsKey, successOperationKey, currentKey, proofKey},
+		challengeRecord,
+		3,
+		challengeID,
+		proofRecord,
+		testPasswordResetProofTTLMS,
+	).Int64()
+	if err != nil {
+		t.Fatalf("retry cached successful PIN exchange after proof invalidation: %v", err)
+	}
+	if cachedResult != 0 {
+		t.Fatalf("cached PIN exchange after proof invalidation = %d, want 0", cachedResult)
+	}
+}
+
 func TestRedisPasswordResetAttemptLimitAndOperationRetry(t *testing.T) {
 	client := newAuthRedisIntegrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	prefix := authRedisTestPrefix(t, client)
-	secretKey := prefix + "secret"
+	challengeKey := prefix + "challenge"
 	attemptsKey := prefix + "attempts"
 	currentKey := prefix + "current"
+	proofKey := prefix + "proof"
 	challengeID := "challenge-id"
-	expected := "expected-pin-hash"
-	mustRedisSet(t, ctx, client, secretKey, expected, 5*time.Minute)
+	challengeRecord := "user-id|expected-pin-hash"
+	mustRedisSet(t, ctx, client, challengeKey, challengeRecord, 5*time.Minute)
 	mustRedisSet(t, ctx, client, currentKey, challengeID, 5*time.Minute)
 
-	run := func(operation string) int {
+	run := func(operation string) int64 {
 		t.Helper()
-		result, err := verifyPasswordResetPINScript.Run(
+		result, err := verifyPasswordResetPINAndMintProofScript.Run(
 			ctx,
 			client,
-			[]string{secretKey, attemptsKey, prefix + "operation:" + operation, currentKey},
-			"wrong-pin-hash",
+			[]string{challengeKey, attemptsKey, prefix + "operation:" + operation, currentKey, proofKey},
+			"user-id|wrong-pin-hash",
 			3,
 			challengeID,
-		).Int()
+			"user-id|credential-binding|proof-hash",
+			testPasswordResetProofTTLMS,
+		).Int64()
 		if err != nil {
 			t.Fatalf("verify password reset PIN operation %q: %v", operation, err)
 		}
@@ -224,10 +319,13 @@ func TestRedisPasswordResetAttemptLimitAndOperationRetry(t *testing.T) {
 	if got := run("three"); got != -2 {
 		t.Fatalf("third wrong attempt result = %d, want -2", got)
 	}
-	for _, key := range []string{secretKey, attemptsKey, currentKey} {
+	for _, key := range []string{challengeKey, attemptsKey, currentKey, proofKey} {
 		if exists, err := client.Exists(ctx, key).Result(); err != nil || exists != 0 {
 			t.Fatalf("key %q exists after hard cap: exists=%d err=%v", key, exists, err)
 		}
+	}
+	if got := run("after-cap"); got != 0 {
+		t.Fatalf("verification after hard cap = %d, want 0", got)
 	}
 }
 
@@ -238,6 +336,7 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 	prefix := authRedisTestPrefix(t, client)
 	challengePrefix := prefix + "challenge:"
 	attemptsPrefix := prefix + "attempts:"
+	proofPrefix := prefix + "proof:"
 	currentKey := prefix + "current"
 
 	issue := func(challengeID, record string) {
@@ -251,6 +350,7 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 			300,
 			challengePrefix,
 			attemptsPrefix,
+			proofPrefix,
 		).Err(); err != nil {
 			t.Fatalf("issue password reset challenge %q: %v", challengeID, err)
 		}
@@ -258,6 +358,26 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 
 	issue("old-challenge", "old-record")
 	mustRedisSet(t, ctx, client, attemptsPrefix+"old-challenge", "2", 5*time.Minute)
+	oldProofRecord := "old-user|old-credential-binding|old-proof-hash"
+	remainingTTL, err := verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		client,
+		[]string{
+			challengePrefix + "old-challenge",
+			attemptsPrefix + "old-challenge",
+			prefix + "operation:old-success",
+			currentKey,
+			proofPrefix + "old-challenge",
+		},
+		"old-record",
+		3,
+		"old-challenge",
+		oldProofRecord,
+		testPasswordResetProofTTLMS,
+	).Int64()
+	if err != nil || remainingTTL <= 0 {
+		t.Fatalf("mint old password reset proof: ttl=%d err=%v", remainingTTL, err)
+	}
 	issue("new-challenge", "new-record")
 
 	if got, err := client.Get(ctx, currentKey).Result(); err != nil || got != "new-challenge" {
@@ -266,13 +386,17 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 	if got, err := client.Get(ctx, challengePrefix+"new-challenge").Result(); err != nil || got != "new-record" {
 		t.Fatalf("new challenge = %q, %v; want new-record", got, err)
 	}
-	for _, key := range []string{challengePrefix + "old-challenge", attemptsPrefix + "old-challenge"} {
+	for _, key := range []string{
+		challengePrefix + "old-challenge",
+		attemptsPrefix + "old-challenge",
+		proofPrefix + "old-challenge",
+	} {
 		if exists, err := client.Exists(ctx, key).Result(); err != nil || exists != 0 {
 			t.Fatalf("superseded key %q exists=%d err=%v", key, exists, err)
 		}
 	}
 
-	result, err := verifyPasswordResetPINScript.Run(
+	result, err := verifyPasswordResetPINAndMintProofScript.Run(
 		ctx,
 		client,
 		[]string{
@@ -280,11 +404,14 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 			attemptsPrefix + "old-challenge",
 			prefix + "operation:old",
 			currentKey,
+			proofPrefix + "old-challenge",
 		},
 		"old-record",
 		3,
 		"old-challenge",
-	).Int()
+		oldProofRecord,
+		testPasswordResetProofTTLMS,
+	).Int64()
 	if err != nil {
 		t.Fatalf("verify superseded challenge: %v", err)
 	}
@@ -292,21 +419,19 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 		t.Fatalf("superseded challenge verification = %d, want 0", result)
 	}
 
-	consumeResult, err := consumePasswordResetAndRevokeScript.Run(
+	consumeResult, err := consumePasswordResetProofAndRevokeScript.Run(
 		ctx,
 		client,
 		[]string{
-			challengePrefix + "old-challenge",
-			attemptsPrefix + "old-challenge",
+			proofPrefix + "old-challenge",
 			prefix + "refresh-set",
 			prefix + "session-version",
 			prefix + "consume-operation:old",
 			currentKey,
 		},
-		"old-record",
+		oldProofRecord,
 		"new-session-version",
 		prefix+"refresh:",
-		3,
 		"old-challenge",
 	).Int64()
 	if err != nil {
@@ -316,11 +441,11 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 		t.Fatalf("superseded challenge consume = %d, want 0", consumeResult)
 	}
 
-	restored, err := restoreSecretIfMissingScript.Run(
+	restored, err := restorePasswordResetProofIfMissingScript.Run(
 		ctx,
 		client,
-		[]string{challengePrefix + "old-challenge", currentKey},
-		"old-record",
+		[]string{proofPrefix + "old-challenge", currentKey},
+		oldProofRecord,
 		300_000,
 		"old-challenge",
 	).Int()
@@ -334,12 +459,34 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 		t.Fatalf("current challenge after stale restore = %q, %v; want new-challenge", got, err)
 	}
 
+	newProofRecord := "new-user|new-credential-binding|new-proof-hash"
+	remainingTTL, err = verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		client,
+		[]string{
+			challengePrefix + "new-challenge",
+			attemptsPrefix + "new-challenge",
+			prefix + "operation:new-success",
+			currentKey,
+			proofPrefix + "new-challenge",
+		},
+		"new-record",
+		3,
+		"new-challenge",
+		newProofRecord,
+		testPasswordResetProofTTLMS,
+	).Int64()
+	if err != nil || remainingTTL <= 0 {
+		t.Fatalf("mint new password reset proof: ttl=%d err=%v", remainingTTL, err)
+	}
+
 	invalidated, err := invalidateCurrentPasswordResetScript.Run(
 		ctx,
 		client,
 		[]string{currentKey},
 		challengePrefix,
 		attemptsPrefix,
+		proofPrefix,
 	).Int()
 	if err != nil {
 		t.Fatalf("invalidate current challenge after successful reset: %v", err)
@@ -347,7 +494,12 @@ func TestRedisPasswordResetIssuanceReplacesCurrentChallengeAtomically(t *testing
 	if invalidated != 1 {
 		t.Fatalf("current challenge invalidation = %d, want 1", invalidated)
 	}
-	for _, key := range []string{currentKey, challengePrefix + "new-challenge"} {
+	for _, key := range []string{
+		currentKey,
+		challengePrefix + "new-challenge",
+		attemptsPrefix + "new-challenge",
+		proofPrefix + "new-challenge",
+	} {
 		if exists, err := client.Exists(ctx, key).Result(); err != nil || exists != 0 {
 			t.Fatalf("key %q exists after successful reset cleanup: exists=%d err=%v", key, exists, err)
 		}
@@ -359,18 +511,17 @@ func TestRedisPasswordResetConsumeOperationRetryIsIdempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	prefix := authRedisTestPrefix(t, client)
-	secretKey := prefix + "secret"
-	attemptsKey := prefix + "attempts"
+	proofKey := prefix + "proof"
 	refreshSetKey := prefix + "refresh-set"
 	sessionVersionKey := prefix + "session-version"
 	operationKey := prefix + "consume-operation"
 	currentKey := prefix + "current"
 	refreshPrefix := prefix + "refresh:"
 	challengeID := "challenge-id"
-	expected := "expected-pin-hash"
+	expected := "user-id|credential-binding|expected-proof-hash"
 	newVersion := "new-session-version"
 	refreshJTI := "refresh-jti"
-	mustRedisSet(t, ctx, client, secretKey, expected, 5*time.Minute)
+	mustRedisSet(t, ctx, client, proofKey, expected, 5*time.Minute)
 	mustRedisSet(t, ctx, client, currentKey, challengeID, 5*time.Minute)
 	mustRedisSet(t, ctx, client, refreshPrefix+refreshJTI, "user-record", 5*time.Minute)
 	if err := client.ZAdd(ctx, refreshSetKey, redis.Z{Score: float64(time.Now().Add(5 * time.Minute).Unix()), Member: refreshJTI}).Err(); err != nil {
@@ -379,14 +530,13 @@ func TestRedisPasswordResetConsumeOperationRetryIsIdempotent(t *testing.T) {
 
 	run := func() int64 {
 		t.Helper()
-		result, err := consumePasswordResetAndRevokeScript.Run(
+		result, err := consumePasswordResetProofAndRevokeScript.Run(
 			ctx,
 			client,
-			[]string{secretKey, attemptsKey, refreshSetKey, sessionVersionKey, operationKey, currentKey},
+			[]string{proofKey, refreshSetKey, sessionVersionKey, operationKey, currentKey},
 			expected,
 			newVersion,
 			refreshPrefix,
-			3,
 			challengeID,
 		).Int64()
 		if err != nil {
@@ -405,10 +555,29 @@ func TestRedisPasswordResetConsumeOperationRetryIsIdempotent(t *testing.T) {
 	if got, err := client.Get(ctx, sessionVersionKey).Result(); err != nil || got != newVersion {
 		t.Fatalf("session version = %q, %v; want %q", got, err, newVersion)
 	}
-	for _, key := range []string{secretKey, refreshSetKey, refreshPrefix + refreshJTI, currentKey} {
+	for _, key := range []string{proofKey, refreshSetKey, refreshPrefix + refreshJTI, currentKey} {
 		if exists, err := client.Exists(ctx, key).Result(); err != nil || exists != 0 {
 			t.Fatalf("key %q exists after reset consume: exists=%d err=%v", key, exists, err)
 		}
+	}
+
+	replayResult, err := consumePasswordResetProofAndRevokeScript.Run(
+		ctx,
+		client,
+		[]string{proofKey, refreshSetKey, sessionVersionKey, prefix + "consume-operation:replay", currentKey},
+		expected,
+		"attacker-session-version",
+		refreshPrefix,
+		challengeID,
+	).Int64()
+	if err != nil {
+		t.Fatalf("replay consumed password reset proof: %v", err)
+	}
+	if replayResult != 0 {
+		t.Fatalf("proof replay result = %d, want 0", replayResult)
+	}
+	if got, err := client.Get(ctx, sessionVersionKey).Result(); err != nil || got != newVersion {
+		t.Fatalf("session version after proof replay = %q, %v; want %q", got, err, newVersion)
 	}
 }
 

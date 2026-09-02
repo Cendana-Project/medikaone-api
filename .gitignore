@@ -8,3 +8,5 @@ config.yml
 .env
 .env.*
 !.env.example
+/medikaone-api.env
+/bruno/

@@ -94,6 +94,7 @@ func (t *Transport) InitRoute() {
 
 		auth.POST("/refresh", t.authController.Refresh)
 		auth.POST("/password/forgot", t.authController.PasswordForgot)
+		auth.POST("/password/verify-pin", t.authController.PasswordResetVerifyPIN)
 		auth.POST("/password/reset", t.authController.PasswordReset)
 	}
 

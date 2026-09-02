@@ -49,10 +49,15 @@ type PasswordForgotRequest struct {
 	Email string `json:"email" validate:"required,email,max=190"`
 }
 
-type PasswordResetRequest struct {
+type PasswordResetVerifyPINRequest struct {
 	ChallengeID string `json:"challenge_id" validate:"required,max=64"`
 	Email       string `json:"email" validate:"required,email,max=190"`
 	PIN         string `json:"pin" validate:"required,len=6,numeric"`
+}
+
+type PasswordResetRequest struct {
+	ChallengeID string `json:"challenge_id" validate:"required,max=64"`
+	ResetToken  string `json:"reset_token" validate:"required,len=43"`
 	NewPassword string `json:"new_password" validate:"required,min=8,max=128"`
 }
 

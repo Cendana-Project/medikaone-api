@@ -233,6 +233,11 @@ func randomID(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+func isCanonicalRandomID(value string, byteLength int) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == byteLength && base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
 func sixDigitPIN() (string, error) {
 	value, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
@@ -281,6 +286,9 @@ func keyPasswordResetCurrent(identityFingerprint string) string {
 func keyPasswordAttempts(challengeID string) string {
 	return authRedisKey("password-reset:attempts:" + challengeID)
 }
+func keyPasswordResetProof(challengeID string) string {
+	return authRedisKey("password-reset:proof:" + challengeID)
+}
 func keyPasswordResetAttemptOperation(challengeID, operationID string) string {
 	return authRedisKey("password-reset:attempt-op:" + challengeID + ":" + operationID)
 }
@@ -324,6 +332,25 @@ func refreshRecord(userID, familyID, sessionVersion string) string {
 
 func passwordResetRecord(userID, pinHash string) string {
 	return userID + "|" + pinHash
+}
+
+func passwordResetProofRecord(userID, credentialBinding, proofHash string) string {
+	return userID + "|" + credentialBinding + "|" + proofHash
+}
+
+func parsePasswordResetProofRecord(value string) (string, string, string, bool) {
+	parts := strings.SplitN(value, "|", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[0] == "unavailable" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+func (s *Service) passwordResetCredentialBinding(user *entity.User) string {
+	if user == nil {
+		return ""
+	}
+	return s.pinHash("password-reset-credential", user.ID, user.PasswordHash)
 }
 
 type refreshResultCache struct {
@@ -541,7 +568,7 @@ return value`)
 	storePasswordResetScript = redis.NewScript(`
 local previous = redis.call('GET', KEYS[2])
 if previous then
-  redis.call('DEL', ARGV[4] .. previous, ARGV[5] .. previous)
+  redis.call('DEL', ARGV[4] .. previous, ARGV[5] .. previous, ARGV[6] .. previous)
 end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[3])
@@ -551,20 +578,31 @@ local current = redis.call('GET', KEYS[1])
 if not current then
   return 0
 end
-redis.call('DEL', ARGV[1] .. current, ARGV[2] .. current, KEYS[1])
+redis.call('DEL', ARGV[1] .. current, ARGV[2] .. current, ARGV[3] .. current, KEYS[1])
 return 1`)
-	verifyPasswordResetPINScript = redis.NewScript(`
-local current = redis.call('GET', KEYS[4])
-if not current or current ~= ARGV[3] then
-  return 0
-end
+	verifyPasswordResetPINAndMintProofScript = redis.NewScript(`
 local cached = redis.call('GET', KEYS[3])
 if cached then
-  return tonumber(cached)
+  local result = tonumber(cached)
+  if result <= 0 then
+    return result
+  end
+  if redis.call('GET', KEYS[4]) ~= ARGV[3] or redis.call('GET', KEYS[5]) ~= ARGV[4] then
+    return 0
+  end
+  local proof_ttl = redis.call('PTTL', KEYS[5])
+  if proof_ttl <= 0 then
+    return 0
+  end
+  return proof_ttl
 end
 local function finish(result)
   redis.call('SET', KEYS[3], tostring(result), 'EX', 60)
   return result
+end
+local current = redis.call('GET', KEYS[4])
+if not current or current ~= ARGV[3] then
+  return finish(0)
 end
 local value = redis.call('GET', KEYS[1])
 if not value then
@@ -573,11 +611,24 @@ end
 local attempts = tonumber(redis.call('GET', KEYS[2])) or 0
 local maximum = tonumber(ARGV[2])
 if attempts >= maximum then
-  redis.call('DEL', KEYS[1], KEYS[2], KEYS[4])
+  redis.call('DEL', KEYS[1], KEYS[2], KEYS[4], KEYS[5])
   return finish(-2)
 end
 if value == ARGV[1] then
-  return finish(1)
+  local challenge_ttl = redis.call('PTTL', KEYS[1])
+  local proof_ttl = tonumber(ARGV[5])
+  if challenge_ttl <= 0 or not proof_ttl or proof_ttl <= 0 then
+    return finish(0)
+  end
+  local stored = redis.call('SET', KEYS[5], ARGV[4], 'PX', proof_ttl, 'NX')
+  if not stored then
+    return finish(0)
+  end
+  redis.call('DEL', KEYS[1], KEYS[2])
+  redis.call('PEXPIRE', KEYS[4], proof_ttl)
+  local operation_ttl = math.min(proof_ttl, 60000)
+  redis.call('SET', KEYS[3], tostring(proof_ttl), 'PX', operation_ttl)
+  return proof_ttl
 end
 attempts = redis.call('INCR', KEYS[2])
 if attempts == 1 then
@@ -585,7 +636,7 @@ if attempts == 1 then
   if ttl > 0 then redis.call('PEXPIRE', KEYS[2], ttl) end
 end
 if attempts >= maximum then
-  redis.call('DEL', KEYS[1], KEYS[2], KEYS[4])
+  redis.call('DEL', KEYS[1], KEYS[2], KEYS[4], KEYS[5])
   return finish(-2)
 end
 return finish(-1)`)
@@ -609,41 +660,33 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then
   return -2
 end
 return redis.call('PTTL', KEYS[1])`)
-	consumePasswordResetAndRevokeScript = redis.NewScript(`
-local cached = redis.call('GET', KEYS[5])
+	consumePasswordResetProofAndRevokeScript = redis.NewScript(`
+local cached = redis.call('GET', KEYS[4])
 if cached then
-  if redis.call('EXISTS', KEYS[6]) == 0 then
-    return tonumber(cached)
-  end
-  return 0
+  return tonumber(cached)
 end
-local current = redis.call('GET', KEYS[6])
-if not current or current ~= ARGV[5] then
+local current = redis.call('GET', KEYS[5])
+if not current or current ~= ARGV[4] then
   return 0
 end
 local value = redis.call('GET', KEYS[1])
 if not value or value ~= ARGV[1] then
   return 0
 end
-local attempts = tonumber(redis.call('GET', KEYS[2])) or 0
-if attempts >= tonumber(ARGV[4]) then
-  redis.call('DEL', KEYS[1], KEYS[2], KEYS[6])
-  return 0
-end
 local ttl = redis.call('PTTL', KEYS[1])
 if ttl <= 0 then
   return 0
 end
-redis.call('DEL', KEYS[1], KEYS[2], KEYS[6])
-redis.call('SET', KEYS[4], ARGV[2])
-local members = redis.call('ZRANGE', KEYS[3], 0, -1)
+redis.call('DEL', KEYS[1], KEYS[5])
+redis.call('SET', KEYS[3], ARGV[2])
+local members = redis.call('ZRANGE', KEYS[2], 0, -1)
 for _, jti in ipairs(members) do
   redis.call('DEL', ARGV[3] .. jti)
 end
-redis.call('DEL', KEYS[3])
-redis.call('SET', KEYS[5], tostring(ttl), 'PX', ttl)
+redis.call('DEL', KEYS[2])
+redis.call('SET', KEYS[4], tostring(ttl), 'PX', ttl)
 return ttl`)
-	restoreSecretIfMissingScript = redis.NewScript(`
+	restorePasswordResetProofIfMissingScript = redis.NewScript(`
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then
   return 0
 end
@@ -830,16 +873,16 @@ func (s *Service) replaceSecretBestEffort(ctx context.Context, key, expected, re
 	}
 }
 
-func (s *Service) restorePasswordResetSecret(ctx context.Context, key, currentKey, challengeID, expected string, ttlMS int64) {
+func (s *Service) restorePasswordResetProof(ctx context.Context, proofKey, currentKey, challengeID, expected string, ttlMS int64) {
 	if ttlMS <= 0 {
 		return
 	}
 	cleanupCtx, cancel := cleanupContext(ctx)
 	defer cancel()
-	if err := restoreSecretIfMissingScript.Run(
+	if err := restorePasswordResetProofIfMissingScript.Run(
 		cleanupCtx,
 		s.redis,
-		[]string{key, currentKey},
+		[]string{proofKey, currentKey},
 		expected,
 		ttlMS,
 		challengeID,
@@ -1900,7 +1943,11 @@ func (s *Service) PasswordForgot(ctx context.Context, req *request.PasswordForgo
 	currentKey := passwordResetIdentityKey(emailAddr, s.jwtSecret)
 	active := u != nil && strings.EqualFold(u.Status, "active")
 	ttlSeconds := ceilTTLSeconds(s.pinTTL)
-	pinHash := s.pinHash("password-reset", challengeID+"\x00"+emailAddr, pin)
+	credentialBinding := "unavailable"
+	if active {
+		credentialBinding = s.passwordResetCredentialBinding(u)
+	}
+	pinHash := s.pinHash("password-reset", challengeID+"\x00"+emailAddr+"\x00"+credentialBinding, pin)
 	resetRecord := passwordResetRecord("unavailable", pinHash)
 	if active {
 		resetRecord = passwordResetRecord(u.ID, pinHash)
@@ -1914,6 +1961,7 @@ func (s *Service) PasswordForgot(ctx context.Context, req *request.PasswordForgo
 		ttlSeconds,
 		keyPasswordReset(""),
 		keyPasswordAttempts(""),
+		keyPasswordResetProof(""),
 	).Err(); err != nil {
 		return nil, constant.ErrInternalServerError
 	}
@@ -1950,14 +1998,97 @@ func waitForMinimumDuration(ctx context.Context, started time.Time, minimum time
 	}
 }
 
-func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetRequest) error {
+func (s *Service) PasswordResetVerifyPIN(ctx context.Context, req *request.PasswordResetVerifyPINRequest) (*response.PasswordResetVerifyPINResponse, error) {
+	started := time.Now()
+	defer waitForMinimumDuration(ctx, started, 500*time.Millisecond)
+
 	emailAddr := strings.ToLower(strings.TrimSpace(req.Email))
 	challengeID := strings.TrimSpace(req.ChallengeID)
-	newPass := req.NewPassword
 	pin := strings.TrimSpace(req.PIN)
 
+	u, err := s.users.FindByEmail(ctx, emailAddr)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	userID := ""
+	credentialBinding := ""
+	if u != nil && strings.EqualFold(u.Status, "active") {
+		userID = u.ID
+		credentialBinding = s.passwordResetCredentialBinding(u)
+	}
+	pinHash := s.pinHash("password-reset", challengeID+"\x00"+emailAddr+"\x00"+credentialBinding, pin)
+	expectedChallenge := passwordResetRecord(userID, pinHash)
+
+	resetToken, err := randomID(32)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	proofHash := s.pinHash("password-reset-proof", challengeID+"\x00"+credentialBinding, resetToken)
+	proofRecord := passwordResetProofRecord(userID, credentialBinding, proofHash)
+	operationID, err := randomID(12)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	remainingTTLMS, err := verifyPasswordResetPINAndMintProofScript.Run(
+		ctx,
+		s.redis,
+		[]string{
+			keyPasswordReset(challengeID),
+			keyPasswordAttempts(challengeID),
+			keyPasswordResetAttemptOperation(challengeID, operationID),
+			passwordResetIdentityKey(emailAddr, s.jwtSecret),
+			keyPasswordResetProof(challengeID),
+		},
+		expectedChallenge,
+		s.pinAttempts,
+		challengeID,
+		proofRecord,
+		s.pinTTL.Milliseconds(),
+	).Int64()
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	if remainingTTLMS == -2 {
+		return nil, constant.ErrTooManyRequests
+	}
+	if remainingTTLMS <= 0 || userID == "" {
+		return nil, constant.ErrInvalidOTP
+	}
+
+	ulog.Infof(ctx, "password reset pin verified user_id=%s", userID)
+	return &response.PasswordResetVerifyPINResponse{
+		Status:     "pin_verified",
+		ResetToken: resetToken,
+		ExpiresIn:  ceilTTLSeconds(time.Duration(remainingTTLMS) * time.Millisecond),
+	}, nil
+}
+
+func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetRequest) error {
+	challengeID := strings.TrimSpace(req.ChallengeID)
+	resetToken := strings.TrimSpace(req.ResetToken)
+	newPass := req.NewPassword
+	if !isCanonicalRandomID(resetToken, 32) {
+		return constant.ErrInvalidResetToken
+	}
 	if !ulog.IsValidPassword(newPass) {
 		return constant.ErrInvalidPassword
+	}
+
+	proofKey := keyPasswordResetProof(challengeID)
+	proofRecord, err := s.redis.Get(ctx, proofKey).Result()
+	if errors.Is(err, redis.Nil) {
+		return constant.ErrInvalidResetToken
+	}
+	if err != nil {
+		return constant.ErrInternalServerError
+	}
+	userID, credentialBinding, storedProofHash, ok := parsePasswordResetProofRecord(proofRecord)
+	if !ok {
+		return constant.ErrInvalidResetToken
+	}
+	proofHash := s.pinHash("password-reset-proof", challengeID+"\x00"+credentialBinding, resetToken)
+	if !secureEqual(storedProofHash, proofHash) {
+		return constant.ErrInvalidResetToken
 	}
 
 	tx := s.users.Begin(ctx)
@@ -1966,48 +2097,19 @@ func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetR
 	}
 	defer func() { _ = tx.Rollback().Error }()
 	users := s.users.WithTx(tx)
-	u, err := users.FindByEmailForUpdate(ctx, emailAddr)
+	u, err := users.GetByIDForUpdate(ctx, userID)
 	if err != nil {
 		return constant.ErrInternalServerError
-	}
-
-	pinHash := s.pinHash("password-reset", challengeID+"\x00"+emailAddr, pin)
-	userID := ""
-	if u != nil {
-		userID = u.ID
-	}
-	expected := passwordResetRecord(userID, pinHash)
-	resetKey := keyPasswordReset(challengeID)
-	currentKey := passwordResetIdentityKey(emailAddr, s.jwtSecret)
-	attemptOperationID, err := randomID(12)
-	if err != nil {
-		return constant.ErrInternalServerError
-	}
-	attemptResult, err := verifyPasswordResetPINScript.Run(
-		ctx,
-		s.redis,
-		[]string{
-			resetKey,
-			keyPasswordAttempts(challengeID),
-			keyPasswordResetAttemptOperation(challengeID, attemptOperationID),
-			currentKey,
-		},
-		expected,
-		s.pinAttempts,
-		challengeID,
-	).Int()
-	if err != nil {
-		return constant.ErrInternalServerError
-	}
-	if attemptResult == -2 {
-		return constant.ErrTooManyRequests
-	}
-	if attemptResult != 1 {
-		return constant.ErrInvalidOTP
 	}
 	if u == nil || !strings.EqualFold(u.Status, "active") {
-		return constant.ErrInvalidOTP
+		return constant.ErrInvalidResetToken
 	}
+	if !secureEqual(credentialBinding, s.passwordResetCredentialBinding(u)) {
+		return constant.ErrInvalidResetToken
+	}
+
+	expectedProof := passwordResetProofRecord(u.ID, credentialBinding, proofHash)
+	emailAddr := strings.ToLower(strings.TrimSpace(u.Email))
 	if ulog.IsPasswordSimilarToUserInfo(newPass, valueOrEmpty(u.Username), u.Email) {
 		return constant.ErrPasswordSimilarToUserInfo
 	}
@@ -2026,6 +2128,7 @@ func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetR
 	if err != nil {
 		return constant.ErrInternalServerError
 	}
+	currentKey := passwordResetIdentityKey(emailAddr, s.jwtSecret)
 	var consumedTTLMS int64
 	redisConsumed := false
 	err = func() error {
@@ -2034,48 +2137,48 @@ func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetR
 			return constant.ErrInternalServerError
 		}
 		if !updated {
-			return constant.ErrInvalidOTP
+			return constant.ErrInvalidResetToken
 		}
-		consumedTTLMS, updateErr = consumePasswordResetAndRevokeScript.Run(
+		consumedTTLMS, updateErr = consumePasswordResetProofAndRevokeScript.Run(
 			ctx,
 			s.redis,
 			[]string{
-				resetKey, keyPasswordAttempts(challengeID), keyUserRefreshSet(u.ID), keySessionVersion(u.ID),
-				keyPasswordResetConsumeOperation(challengeID, consumeOperationID), currentKey,
+				proofKey,
+				keyUserRefreshSet(u.ID),
+				keySessionVersion(u.ID),
+				keyPasswordResetConsumeOperation(challengeID, consumeOperationID),
+				currentKey,
 			},
-			expected,
+			expectedProof,
 			newSessionVersion,
 			keyRefresh(""),
-			s.pinAttempts,
 			challengeID,
 		).Int64()
 		if updateErr != nil {
 			return constant.ErrInternalServerError
 		}
 		if consumedTTLMS <= 0 {
-			return constant.ErrInvalidOTP
+			return constant.ErrInvalidResetToken
 		}
 		redisConsumed = true
 		return nil
 	}()
 	if err != nil {
 		if redisConsumed {
-			s.restorePasswordResetSecret(ctx, resetKey, currentKey, challengeID, expected, consumedTTLMS)
+			s.restorePasswordResetProof(ctx, proofKey, currentKey, challengeID, expectedProof, consumedTTLMS)
 		}
-		if errors.Is(err, constant.ErrInvalidOTP) {
-			return constant.ErrInvalidOTP
+		if errors.Is(err, constant.ErrInvalidResetToken) {
+			return constant.ErrInvalidResetToken
 		}
 		return constant.ErrInternalServerError
 	}
 	if err := tx.Commit().Error; err != nil {
 		// Commit errors can be ambiguous at the network boundary. Never restore a
-		// one-time secret when the password change may already be durable.
+		// one-time reset token when the password change may already be durable.
 		return constant.ErrInternalServerError
 	}
-	// A concurrent forgot-password request can create a new current challenge
-	// after the consumed challenge is removed but before the database commit.
-	// Treat Redis cleanup as part of a successful reset so no challenge issued
-	// before this reset completes remains usable.
+	// Invalidate a challenge or proof issued concurrently before this reset
+	// completed. A password reset leaves no older recovery credential usable.
 	cleanupCtx, cancel := cleanupContext(ctx)
 	defer cancel()
 	if err := invalidateCurrentPasswordResetScript.Run(
@@ -2084,8 +2187,12 @@ func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetR
 		[]string{currentKey},
 		keyPasswordReset(""),
 		keyPasswordAttempts(""),
+		keyPasswordResetProof(""),
 	).Err(); err != nil {
-		return constant.ErrInternalServerError
+		// The password and session-version updates are already durable. Recovery
+		// credentials are also bound to the previous password hash, so a stale
+		// challenge cannot become valid even when this best-effort cleanup fails.
+		ulog.Errorf(context.Background(), "password reset credential cleanup failed user_id=%s error_type=%T", u.ID, err)
 	}
 
 	ulog.Infof(ctx, "password reset success user_id=%s", u.ID)

@@ -246,6 +246,27 @@ func (ctl *Controller) PasswordForgot(c *gin.Context) {
 	util.HandleResponse(c, resp, nil)
 }
 
+func (ctl *Controller) PasswordResetVerifyPIN(c *gin.Context) {
+	// The response contains a short-lived credential and must not be stored by
+	// browsers, proxies, or other shared caches.
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+
+	var req request.PasswordResetVerifyPINRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.svc.PasswordResetVerifyPIN(c.Request.Context(), &req)
+	if err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	resp := response.NewResponseOK()
+	resp.Data = result
+	util.HandleResponse(c, resp, nil)
+}
+
 func (ctl *Controller) PasswordReset(c *gin.Context) {
 	var req request.PasswordResetRequest
 	if err := util.BindAndValidate(c, &req); err != nil {
