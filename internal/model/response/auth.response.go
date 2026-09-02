@@ -13,6 +13,12 @@ type VerifyEmailResponse struct {
 	Status string `json:"status"`
 }
 
+type PasswordResetVerifyPINResponse struct {
+	Status     string `json:"status"`
+	ResetToken string `json:"reset_token"`
+	ExpiresIn  int64  `json:"expires_in"`
+}
+
 type RoleBrief struct {
 	ID   string `json:"id"`
 	Slug string `json:"slug"`

@@ -155,21 +155,45 @@ Endpoint auth lain:
 - `POST /v1/auth/login/hospital`
 - `POST /v1/auth/refresh`
 - `POST /v1/auth/password/forgot`
+- `POST /v1/auth/password/verify-pin`
 - `POST /v1/auth/password/reset`
 - `PUT /v1/auth/password` (Bearer access token)
 - `POST /v1/auth/logout` (Bearer access token; mencabut satu keluarga sesi, body `refresh_token` opsional sebagai pemeriksaan konsistensi)
 - `POST /v1/auth/logout-all` (Bearer access token)
 
-`POST /v1/auth/password/forgot` selalu mengembalikan bentuk respons yang sama, termasuk `challenge_id`, agar keberadaan akun tidak bocor. Kirim `challenge_id` tersebut bersama `email`, `pin`, dan `new_password` ke `POST /v1/auth/password/reset`:
+Reset password menggunakan tiga tahap. `POST /v1/auth/password/forgot` menerima `email` dan selalu mengembalikan bentuk respons yang sama, termasuk `challenge_id`, agar keberadaan akun tidak bocor.
+
+Kirim PIN dari email ke `POST /v1/auth/password/verify-pin`:
 
 ```json
 {
   "challenge_id": "challenge-dari-password-forgot",
   "email": "user@example.com",
-  "pin": "123456",
+  "pin": "123456"
+}
+```
+
+Jika PIN valid, field `data` pada respons berisi grant reset yang singkat masa berlakunya:
+
+```json
+{
+  "status": "pin_verified",
+  "reset_token": "token-reset-sekali-pakai",
+  "expires_in": 600
+}
+```
+
+Kirim `challenge_id` dan `reset_token` tersebut bersama password baru ke `POST /v1/auth/password/reset`:
+
+```json
+{
+  "challenge_id": "challenge-dari-password-forgot",
+  "reset_token": "token-reset-sekali-pakai",
   "new_password": "Password-Baru-Yang-Kuat!"
 }
 ```
+
+`reset_token` hanya dapat digunakan sekali dan tidak boleh disimpan di log, local storage, atau cache. Respons verifikasi dikirim dengan `Cache-Control: no-store`. PIN tidak lagi diterima oleh endpoint reset; client harus menyelesaikan tahap verifikasi terlebih dahulu. Token reset otomatis tidak berlaku jika password user berubah melalui alur lain. Reset yang berhasil mencabut seluruh access token dan refresh token lama milik user. Setelah versi tiga tahap ini pertama kali di-deploy, proses reset yang dimulai pada versi lama harus diulang dari endpoint `forgot`.
 
 Refresh token bersifat one-time-use. Setiap operasi refresh wajib membawa `idempotency_key` berupa UUIDv4 acak yang baru:
 

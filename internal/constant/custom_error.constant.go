@@ -154,6 +154,11 @@ var (
 		StatusCode: http.StatusBadRequest,
 		Message:    "invalid or expired OTP",
 	}
+	ErrInvalidResetToken = response.CustomError{
+		Code:       "INVALID_RESET_TOKEN",
+		StatusCode: http.StatusBadRequest,
+		Message:    "invalid or expired password reset token",
+	}
 	ErrEmailNotVerified = response.CustomError{
 		Code:       "EMAIL_NOT_VERIFIED",
 		StatusCode: http.StatusForbidden,

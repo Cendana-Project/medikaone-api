@@ -191,6 +191,64 @@ func TestPINHashIsPurposeAndChallengeBound(t *testing.T) {
 	}
 }
 
+func TestIsCanonicalRandomID(t *testing.T) {
+	valid, err := randomID(32)
+	if err != nil {
+		t.Fatalf("generate canonical random ID: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		value      string
+		byteLength int
+		want       bool
+	}{
+		{name: "generated 32-byte ID", value: valid, byteLength: 32, want: true},
+		{name: "empty", value: "", byteLength: 32, want: false},
+		{name: "wrong decoded length", value: valid, byteLength: 31, want: false},
+		{name: "padded encoding", value: valid + "=", byteLength: 32, want: false},
+		{name: "surrounding whitespace", value: " " + valid, byteLength: 32, want: false},
+		{name: "invalid alphabet", value: valid[:len(valid)-1] + "*", byteLength: 32, want: false},
+		{name: "canonical one byte", value: "AQ", byteLength: 1, want: true},
+		{name: "non-canonical trailing bits", value: "AR", byteLength: 1, want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isCanonicalRandomID(test.value, test.byteLength); got != test.want {
+				t.Fatalf("isCanonicalRandomID(%q, %d) = %t, want %t", test.value, test.byteLength, got, test.want)
+			}
+		})
+	}
+}
+
+func TestPasswordResetCredentialBindingChangesWithCredentials(t *testing.T) {
+	service := &Service{jwtSecret: []byte("test-secret-with-enough-entropy")}
+	user := &entity.User{ID: "user-1", PasswordHash: "password-hash-a"}
+
+	original := service.passwordResetCredentialBinding(user)
+	if original == "" {
+		t.Fatal("credential binding must not be empty for a user")
+	}
+	if repeated := service.passwordResetCredentialBinding(user); !secureEqual(original, repeated) {
+		t.Fatal("credential binding must be deterministic for unchanged credentials")
+	}
+
+	user.PasswordHash = "password-hash-b"
+	if changedPassword := service.passwordResetCredentialBinding(user); secureEqual(original, changedPassword) {
+		t.Fatal("credential binding must change when PasswordHash changes")
+	}
+
+	user.ID = "user-2"
+	user.PasswordHash = "password-hash-a"
+	if changedUser := service.passwordResetCredentialBinding(user); secureEqual(original, changedUser) {
+		t.Fatal("credential binding must be scoped to the user ID")
+	}
+	if got := service.passwordResetCredentialBinding(nil); got != "" {
+		t.Fatalf("nil user credential binding = %q, want empty", got)
+	}
+}
+
 func TestRefreshResultEncryptionIsBoundToOperationContext(t *testing.T) {
 	service := &Service{jwtSecret: []byte("test-secret-with-enough-entropy")}
 	want := refreshResultCache{
