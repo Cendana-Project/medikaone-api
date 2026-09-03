@@ -15,11 +15,14 @@ type DoctorSearchResult struct {
 }
 
 type DoctorHospitalSchedule struct {
-	ID        string `json:"id,omitempty"`
-	DayOfWeek int    `json:"day_of_week"`
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time"`
-	Timezone  string `json:"timezone"`
+	ID                  string `json:"id,omitempty"`
+	DayOfWeek           int    `json:"day_of_week"`
+	StartTime           string `json:"start_time"`
+	EndTime             string `json:"end_time"`
+	Timezone            string `json:"timezone"`
+	BookingMode         string `json:"booking_mode"`
+	SlotDurationMinutes int    `json:"slot_duration_minutes"`
+	Capacity            int    `json:"capacity"`
 }
 
 type DoctorHospitalInvitation struct {
@@ -53,6 +56,7 @@ type DoctorHospitalInvitation struct {
 type HospitalDoctor struct {
 	AffiliationID string                   `json:"affiliation_id"`
 	HospitalID    string                   `json:"hospital_id"`
+	HospitalName  string                   `json:"hospital_name"`
 	DoctorID      string                   `json:"doctor_id"`
 	Email         string                   `json:"email"`
 	FirstName     string                   `json:"first_name"`

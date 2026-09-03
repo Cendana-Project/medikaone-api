@@ -37,8 +37,18 @@ const (
 
 // Appointment
 const (
-	PermissionAppointmentView = "appointment.view"
-	PermissionAppointmentEdit = "appointment.edit"
+	PermissionAppointmentView       = "appointment.view"
+	PermissionAppointmentEdit       = "appointment.edit"
+	PermissionAppointmentCreate     = "appointment.create"
+	PermissionAppointmentCancel     = "appointment.cancel"
+	PermissionAppointmentReschedule = "appointment.reschedule"
+	PermissionAppointmentCheckIn    = "appointment.checkin"
+	PermissionAppointmentQueue      = "appointment.queue"
+	PermissionAppointmentComplete   = "appointment.complete"
+
+	PermissionDoctorScheduleView    = "doctor_schedule.view"
+	PermissionDoctorSchedulePropose = "doctor_schedule.propose"
+	PermissionDoctorScheduleApprove = "doctor_schedule.approve"
 )
 
 // ==========================
@@ -60,7 +70,10 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionDoctorView, PermissionDoctorEdit,
 		PermissionEMRView, PermissionEMREdit,
 		PermissionBillingView, PermissionBillingEdit,
-		PermissionAppointmentView, PermissionAppointmentEdit,
+		PermissionAppointmentView, PermissionAppointmentEdit, PermissionAppointmentCreate,
+		PermissionAppointmentCancel, PermissionAppointmentReschedule, PermissionAppointmentCheckIn,
+		PermissionAppointmentQueue, PermissionAppointmentComplete,
+		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 	},
 
 	// admin RS
@@ -71,7 +84,10 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionDoctorView, PermissionDoctorEdit,
 		PermissionEMRView, PermissionEMREdit,
 		PermissionBillingView, PermissionBillingEdit,
-		PermissionAppointmentView, PermissionAppointmentEdit,
+		PermissionAppointmentView, PermissionAppointmentEdit, PermissionAppointmentCreate,
+		PermissionAppointmentCancel, PermissionAppointmentReschedule, PermissionAppointmentCheckIn,
+		PermissionAppointmentQueue, PermissionAppointmentComplete,
+		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 	},
 
 	// nurse
@@ -80,11 +96,15 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionEMRView, PermissionEMREdit,
 		PermissionBillingView,
 		PermissionAppointmentView, PermissionAppointmentEdit,
+		PermissionAppointmentQueue, PermissionDoctorScheduleView,
 	},
 
 	// receptionist
 	RoleReceptionist: {
 		PermissionAppointmentView, PermissionAppointmentEdit,
+		PermissionAppointmentCancel, PermissionAppointmentReschedule,
+		PermissionAppointmentCheckIn, PermissionAppointmentQueue,
+		PermissionDoctorScheduleView,
 		PermissionPatientView,
 		PermissionBillingView, PermissionBillingEdit,
 	},
@@ -99,13 +119,15 @@ var DefaultRolePermissions = map[string][]string{
 
 	// patient (minimum untuk update profil)
 	RolePatient: {
-		PermissionAppointmentView,
+		PermissionAppointmentView, PermissionAppointmentCreate,
+		PermissionAppointmentCancel, PermissionAppointmentReschedule,
 		PermissionPatientView, PermissionPatientEdit,
 	},
 
 	// doctor (minimum untuk update profil)
 	RoleDoctor: {
-		PermissionAppointmentView,
+		PermissionAppointmentView, PermissionAppointmentComplete,
+		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 		PermissionDoctorView, PermissionDoctorEdit,
 		PermissionEMRView,
 	},

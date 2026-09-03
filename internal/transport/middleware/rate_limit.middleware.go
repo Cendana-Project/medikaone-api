@@ -57,7 +57,7 @@ func RateLimitPublicAuthByIP(rdb *redis.Client, limit int, window time.Duration,
 			if ttl, err := rdb.TTL(c.Request.Context(), key).Result(); err == nil && ttl > 0 {
 				c.Header("Retry-After", strconv.FormatInt(durationSecondsCeil(ttl), 10))
 			}
-			resp := constant.ErrTooManyRequests.ToResponse()
+			resp := constant.ErrPublicAuthRateLimitExceeded.ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return

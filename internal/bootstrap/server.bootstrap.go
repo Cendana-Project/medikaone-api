@@ -13,15 +13,18 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/email"
 	"github.com/Cendana-Project/medikaone-api/internal/infrastructure"
+	appointmentRepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	doctorHospitalRepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	appointmentSvc "github.com/Cendana-Project/medikaone-api/internal/service/appointment"
 	authSvc "github.com/Cendana-Project/medikaone-api/internal/service/auth"
 	doctorHospitalSvc "github.com/Cendana-Project/medikaone-api/internal/service/doctor_hospital"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
 	storageclient "github.com/Cendana-Project/medikaone-api/internal/storage"
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
+	appointmentHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
 	authHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
 	doctorHospitalHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
@@ -55,6 +58,7 @@ func runServer(parent context.Context) (returnErr error) {
 	rRepo := roleRepo.NewRepository(gormDB)
 	hRepo := hospRepo.NewRepository(gormDB)
 	dhRepo := doctorHospitalRepo.NewRepository(gormDB)
+	aRepo := appointmentRepo.NewRepository(gormDB)
 	privateStorage, err := storageclient.NewSupabaseClient(config.Env.Storage)
 	if err != nil {
 		return fmt.Errorf("configure private storage: %w", err)
@@ -80,10 +84,12 @@ func runServer(parent context.Context) (returnErr error) {
 		storageclient.MaxFileSize(config.Env.Storage),
 		storageclient.SignedURLTTL(config.Env.Storage),
 	)
+	appointmentService := appointmentSvc.NewService(aRepo, sender, config.Env.JWT.Secret)
 	authController := authHTTP.NewController(authService, uRepo)
 	userController := userHTTP.NewController(authService, uRepo)
 	hospitalController := hospHTTP.NewController(hospitalService)
 	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
+	appointmentController := appointmentHTTP.NewController(appointmentService)
 	warmupController := warmupHTTP.NewController()
 
 	httpTransport.NewTransport().
@@ -92,6 +98,7 @@ func runServer(parent context.Context) (returnErr error) {
 		WithUserController(userController).
 		WithHospitalController(hospitalController).
 		WithDoctorHospitalController(doctorHospitalController).
+		WithAppointmentController(appointmentController).
 		WithWarmupController(warmupController).
 		WithRoleRepository(rRepo).
 		WithHospitalRepository(hRepo).
@@ -101,6 +108,7 @@ func runServer(parent context.Context) (returnErr error) {
 
 	serverCtx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	go appointmentService.RunBackgroundWorker(serverCtx)
 	requestBaseCtx, cancelRequests := context.WithCancel(context.WithoutCancel(parent))
 	defer cancelRequests()
 	server := newHTTPServer(requestBaseCtx, r)

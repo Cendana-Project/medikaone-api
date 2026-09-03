@@ -62,3 +62,23 @@ func RenderDoctorHospitalInvitation(firstName, hospitalName, departmentName stri
 </body></html>`, html.EscapeString(firstName), html.EscapeString(hospitalName),
 		html.EscapeString(departmentName), expiresAt.UTC().Format(time.RFC3339))
 }
+
+func RenderAppointmentReminder(firstName, recipientRole, hospitalName string, scheduledAt time.Time) string {
+	if strings.TrimSpace(firstName) == "" {
+		firstName = "Pengguna"
+	}
+	roleMessage := "Anda memiliki appointment yang akan datang"
+	if recipientRole == "dokter" {
+		roleMessage = "Anda memiliki jadwal konsultasi pasien yang akan datang"
+	}
+	return fmt.Sprintf(`
+<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;background:#f6f9fc;padding:24px">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e6ecf1;border-radius:12px;padding:24px">
+    <h2 style="margin:0 0 8px;color:#111">Pengingat Appointment MedikaOne</h2>
+    <p style="color:#555">Halo %s, %s di %s.</p>
+    <p style="font-size:18px;font-weight:700;color:#111">%s</p>
+    <p style="color:#667">Silakan buka aplikasi MedikaOne untuk melihat detail appointment.</p>
+  </div>
+</body></html>`, html.EscapeString(firstName), html.EscapeString(roleMessage),
+		html.EscapeString(hospitalName), html.EscapeString(scheduledAt.Format("Monday, 02 January 2006 15:04 MST")))
+}

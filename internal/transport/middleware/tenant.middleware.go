@@ -43,9 +43,7 @@ func TenantContext() gin.HandlerFunc {
 func RequireHospitalHint() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := c.Get("hospital_hint"); !ok {
-			resp := constant.ErrValidationFailed.ToResponse()
-			resp.Message = "hospital context required (X-Hospital-ID or X-Hospital-Code or :hospital_id)"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalContextRequired)
 			c.Abort()
 			return
 		}

@@ -321,12 +321,7 @@ func (ctl *Controller) SetProfile(c *gin.Context) {
 
 	// Pastikan profile non-null dan JSON well-formed
 	if req.Profile == nil || len(*req.Profile) == 0 || string(*req.Profile) == "null" {
-		util.HandleError(c, constant.ErrValidationError)
-		return
-	}
-	var tmp json.RawMessage
-	if err := json.Unmarshal(*req.Profile, &tmp); err != nil {
-		util.HandleError(c, constant.ErrValidationError)
+		util.HandleError(c, constant.NewFieldRequiredError("profile"))
 		return
 	}
 
@@ -348,20 +343,8 @@ func (ctl *Controller) SetProfile(c *gin.Context) {
 
 func (ctl *Controller) Logout(c *gin.Context) {
 	var body request.LogoutRequest
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil {
-		if !errors.Is(err, io.EOF) {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
-				util.HandleError(c, constant.ErrRequestTooLarge)
-				return
-			}
-			util.HandleError(c, constant.ErrValidationError)
-			return
-		}
-	} else if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		util.HandleError(c, constant.ErrValidationError)
+	if err := util.DecodeStrictJSON(c.Request.Body, &body); err != nil && !errors.Is(err, io.EOF) {
+		util.HandleError(c, util.MapJSONDecodeError(err))
 		return
 	}
 
