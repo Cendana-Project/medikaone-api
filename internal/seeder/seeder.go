@@ -20,6 +20,16 @@ const resetAllDataSQL = `
 		SELECT STRING_AGG(FORMAT('%I.%I', schema_name, table_name), ', ')
 		INTO table_list
 		FROM (VALUES
+			('public', 'notifications'),
+			('public', 'doctor_hospital_schedules'),
+			('public', 'doctor_hospital_affiliation_events'),
+			('public', 'doctor_hospital_affiliations'),
+			('public', 'doctor_hospital_invitation_schedules'),
+			('public', 'doctor_hospital_invitation_events'),
+			('public', 'doctor_hospital_contracts'),
+			('public', 'doctor_hospital_invitations'),
+			('public', 'hospital_rooms'),
+			('public', 'hospital_departments'),
 			('public', 'hospital_user_roles'),
 			('public', 'user_hospitals'),
 			('public', 'doctor_profiles'),

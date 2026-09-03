@@ -67,6 +67,7 @@ type EnvConfig struct {
 	SMTP                    SMTP          `mapstructure:"smtp"`
 	JWT                     JWTConfig     `mapstructure:"jwt"`
 	Auth                    AuthConfig    `mapstructure:"auth"`
+	Storage                 Storage       `mapstructure:"storage"`
 }
 
 type JWTConfig struct {
@@ -130,6 +131,20 @@ type SMTP struct {
 	FromName    string        `mapstructure:"from_name"`
 	Timeout     time.Duration `mapstructure:"timeout"`
 	UseSTARTTLS bool          `mapstructure:"use_starttls"`
+}
+
+type Storage struct {
+	Enabled          bool            `mapstructure:"enabled"`
+	Provider         string          `mapstructure:"provider"`
+	Bucket           string          `mapstructure:"bucket"`
+	MaxFileSizeBytes int64           `mapstructure:"max_file_size_bytes"`
+	SignedURLTTL     time.Duration   `mapstructure:"signed_url_ttl"`
+	Supabase         SupabaseStorage `mapstructure:"supabase"`
+}
+
+type SupabaseStorage struct {
+	URL       string `mapstructure:"url"`
+	SecretKey string `mapstructure:"secret_key"`
 }
 
 func LoadConfig() error {
@@ -318,6 +333,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("smtp.from_name", "MedikaOne")
 	v.SetDefault("smtp.timeout", "15s")
 	v.SetDefault("smtp.use_starttls", true)
+
+	v.SetDefault("storage.provider", "supabase")
+	v.SetDefault("storage.bucket", "doctor-contracts")
+	v.SetDefault("storage.max_file_size_bytes", 10*1024*1024)
+	v.SetDefault("storage.signed_url_ttl", "5m")
 }
 
 func bindEnvVariables(v *viper.Viper) {
@@ -359,6 +379,13 @@ func bindEnvVariables(v *viper.Viper) {
 		"smtp.from_name":              "SMTP_FROM_NAME",
 		"smtp.timeout":                "SMTP_TIMEOUT",
 		"smtp.use_starttls":           "SMTP_USE_STARTTLS",
+		"storage.enabled":             "STORAGE_ENABLED",
+		"storage.provider":            "STORAGE_PROVIDER",
+		"storage.bucket":              "SUPABASE_STORAGE_BUCKET",
+		"storage.max_file_size_bytes": "SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES",
+		"storage.signed_url_ttl":      "SUPABASE_STORAGE_SIGNED_URL_TTL",
+		"storage.supabase.url":        "SUPABASE_URL",
+		"storage.supabase.secret_key": "SUPABASE_SECRET_KEY",
 	}
 	for key, envName := range bindings {
 		_ = v.BindEnv(key, envName)
@@ -402,6 +429,10 @@ func normalize(c *EnvConfig) {
 	c.SMTP.Username = strings.TrimSpace(c.SMTP.Username)
 	c.SMTP.From = strings.TrimSpace(c.SMTP.From)
 	c.SMTP.FromName = strings.TrimSpace(c.SMTP.FromName)
+	c.Storage.Provider = strings.ToLower(strings.TrimSpace(c.Storage.Provider))
+	c.Storage.Bucket = strings.TrimSpace(c.Storage.Bucket)
+	c.Storage.Supabase.URL = strings.TrimRight(strings.TrimSpace(c.Storage.Supabase.URL), "/")
+	c.Storage.Supabase.SecretKey = strings.TrimSpace(c.Storage.Supabase.SecretKey)
 
 	if len(c.Server.CORSAllowedOrigins) == 0 && c.Env == "development" {
 		c.Server.CORSAllowedOrigins = []string{"http://localhost:3000", "http://localhost:5173"}

@@ -31,16 +31,17 @@ type CreateHospitalAdminRequest struct {
 
 type CreateHospitalStaffRequest struct {
 	// HospitalID is populated from the authorized tenant context, never JSON.
-	HospitalID string  `json:"-" validate:"-"`
-	Role       string  `json:"role" validate:"required,oneof_ci=DOCTOR NURSE RECEPTIONIST BOD"`
-	Email      string  `json:"email"      validate:"required,email,max=190"`
-	Username   string  `json:"username"   validate:"required,min=3,max=64,username"`
-	Phone      *string `json:"phone"      validate:"omitempty,max=32"`
-	Password   string  `json:"password"   validate:"required,max=128,validate_password"`
-	FirstName  *string `json:"first_name" validate:"omitempty,max=100"`
-	LastName   *string `json:"last_name"  validate:"omitempty,max=100"`
-	DOB        *string `json:"dob"        validate:"omitempty,datetime=2006-01-02"`
-	Address    *string `json:"address"    validate:"omitempty,max=1000"`
-	Gender     *string `json:"gender"     validate:"omitempty,oneof=L P"`
-	NIK        *string `json:"nik"        validate:"omitempty,len=16,numeric"`
+	HospitalID string `json:"-" validate:"-"`
+	// Doctors can only join a hospital through the invitation/contract flow.
+	Role      string  `json:"role" validate:"required,oneof_ci=NURSE RECEPTIONIST BOD"`
+	Email     string  `json:"email"      validate:"required,email,max=190"`
+	Username  string  `json:"username"   validate:"required,min=3,max=64,username"`
+	Phone     *string `json:"phone"      validate:"omitempty,max=32"`
+	Password  string  `json:"password"   validate:"required,max=128,validate_password"`
+	FirstName *string `json:"first_name" validate:"omitempty,max=100"`
+	LastName  *string `json:"last_name"  validate:"omitempty,max=100"`
+	DOB       *string `json:"dob"        validate:"omitempty,datetime=2006-01-02"`
+	Address   *string `json:"address"    validate:"omitempty,max=1000"`
+	Gender    *string `json:"gender"     validate:"omitempty,oneof=L P"`
+	NIK       *string `json:"nik"        validate:"omitempty,len=16,numeric"`
 }

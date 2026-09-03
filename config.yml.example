@@ -66,3 +66,13 @@ smtp:
   from_name: "MedikaOne"
   timeout: "15s"
   use_starttls: true
+
+storage:
+  enabled: true
+  provider: "supabase"
+  bucket: "doctor-contracts"
+  max_file_size_bytes: 10485760 # 10 MB
+  signed_url_ttl: "5m"
+  supabase:
+    url: "https://your-project-ref.supabase.co"
+    secret_key: "" # server-only; prefer SUPABASE_SECRET_KEY in production

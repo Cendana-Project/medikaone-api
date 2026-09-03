@@ -1,6 +1,7 @@
 package hospital
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 
 func TestNormalizeHospitalStaffRole(t *testing.T) {
 	accepted := []string{
-		" doctor ",
 		constant.RoleNurse,
 		constant.RoleReceptionist,
 		constant.RoleBOD,
@@ -19,12 +19,12 @@ func TestNormalizeHospitalStaffRole(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected %q to be accepted", input)
 		}
-		if input == " doctor " && got != constant.RoleDoctor {
-			t.Fatalf("expected normalized doctor role, got %q", got)
+		if got != strings.ToUpper(strings.TrimSpace(input)) {
+			t.Fatalf("role %q normalized to %q", input, got)
 		}
 	}
 
-	for _, input := range []string{"", constant.RolePatient, constant.RoleAdmin, constant.RoleSuperAdmin, "unknown"} {
+	for _, input := range []string{"", constant.RoleDoctor, constant.RolePatient, constant.RoleAdmin, constant.RoleSuperAdmin, "unknown"} {
 		if _, ok := normalizeHospitalStaffRole(input); ok {
 			t.Fatalf("expected %q to be rejected", input)
 		}
