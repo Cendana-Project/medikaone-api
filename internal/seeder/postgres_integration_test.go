@@ -134,7 +134,11 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		for _, table := range []string{
 			"users", "roles", "permissions", "user_roles", "role_permissions",
 			"patient_profiles", "doctor_profiles", "hospitals", "user_hospitals",
-			"hospital_user_roles",
+			"hospital_user_roles", "hospital_departments", "hospital_rooms",
+			"doctor_hospital_invitations", "doctor_hospital_contracts",
+			"doctor_hospital_invitation_events", "doctor_hospital_invitation_schedules",
+			"doctor_hospital_affiliations", "doctor_hospital_affiliation_events",
+			"doctor_hospital_schedules", "notifications",
 		} {
 			var exists bool
 			if err := sqlDB.QueryRow(`SELECT TO_REGCLASS($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
@@ -161,8 +165,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 				t.Fatalf("user_hospitals.%s column count = %d, want 1", column, got)
 			}
 		}
-		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM goose_db_version WHERE is_applied AND version_id > 0`); got != 3 {
-			t.Fatalf("applied Goose migration count = %d, want 3", got)
+		wantMigrations := migrationFileCount(t)
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM goose_db_version WHERE is_applied AND version_id > 0`); got != wantMigrations {
+			t.Fatalf("applied Goose migration count = %d, want %d", got, wantMigrations)
 		}
 	}); !ok {
 		t.FailNow()
@@ -554,14 +559,31 @@ func applyMigrations(t *testing.T, db *sql.DB) {
 	if err := goose.SetDialect("postgres"); err != nil {
 		t.Fatalf("set Goose dialect: %v", err)
 	}
+	migrationDir := migrationDirectory(t)
+	if err := goose.Up(db, migrationDir); err != nil {
+		t.Fatalf("Goose Up on empty schema: %v", err)
+	}
+}
+
+func migrationFileCount(t *testing.T) int {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(migrationDirectory(t), "*.sql"))
+	if err != nil {
+		t.Fatalf("list migration files: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no SQL migration files found")
+	}
+	return len(files)
+}
+
+func migrationDirectory(t *testing.T) string {
+	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve integration test location")
 	}
-	migrationDir := filepath.Join(filepath.Dir(filename), "..", "..", "migration", "db")
-	if err := goose.Up(db, migrationDir); err != nil {
-		t.Fatalf("Goose Up on empty schema: %v", err)
-	}
+	return filepath.Join(filepath.Dir(filename), "..", "..", "migration", "db")
 }
 
 func openIntegrationGORM(t *testing.T, sqlDB *sql.DB) *gorm.DB {
