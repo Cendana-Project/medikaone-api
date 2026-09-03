@@ -50,10 +50,13 @@ type Document struct {
 }
 
 type Schedule struct {
-	DayOfWeek int
-	StartTime string
-	EndTime   string
-	Timezone  string
+	DayOfWeek           int
+	StartTime           string
+	EndTime             string
+	Timezone            string
+	BookingMode         string
+	SlotDurationMinutes int
+	Capacity            int
 }
 
 type CreateInvitationInput struct {
@@ -201,11 +204,17 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 		if err := tx.Raw(`
 			SELECT EXISTS(
 				SELECT 1 FROM doctor_hospital_affiliations
-				WHERE hospital_id = ? AND doctor_id = ?
+				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
+				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
+				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
 				UNION ALL
 				SELECT 1 FROM doctor_hospital_invitations
-				WHERE hospital_id = ? AND doctor_id = ? AND status = 'PENDING'
-			)`, input.HospitalID, input.DoctorID, input.HospitalID, input.DoctorID).Scan(&exists).Error; err != nil {
+				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
+				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
+				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+				  AND status = 'PENDING'
+			)`, input.HospitalID, input.DoctorID, input.DepartmentID, input.RoomID,
+			input.HospitalID, input.DoctorID, input.DepartmentID, input.RoomID).Scan(&exists).Error; err != nil {
 			return err
 		}
 		if exists {
@@ -240,10 +249,12 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 		for _, schedule := range input.Schedules {
 			if err := tx.Exec(`
 				INSERT INTO doctor_hospital_invitation_schedules (
-					id, invitation_id, day_of_week, start_time, end_time, timezone, created_at
-				) VALUES (?, ?, ?, ?::time, ?::time, ?, ?)`,
+					id, invitation_id, day_of_week, start_time, end_time, timezone,
+					booking_mode, slot_duration_minutes, capacity, created_at
+				) VALUES (?, ?, ?, ?::time, ?::time, ?, ?, ?, ?, ?)`,
 				uuid.NewString(), invitationID, schedule.DayOfWeek, schedule.StartTime,
-				schedule.EndTime, schedule.Timezone, input.Now).Error; err != nil {
+				schedule.EndTime, schedule.Timezone, schedule.BookingMode,
+				schedule.SlotDurationMinutes, schedule.Capacity, input.Now).Error; err != nil {
 				return err
 			}
 		}
@@ -392,7 +403,7 @@ func (r *Repository) attachInvitationSchedules(ctx context.Context, invitations 
 			SELECT id, day_of_week,
 			       TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time,
-			       timezone
+			       timezone, booking_mode, slot_duration_minutes, capacity
 			FROM doctor_hospital_invitation_schedules
 			WHERE invitation_id = ?
 			ORDER BY day_of_week, start_time`, invitations[i].ID).Scan(&schedules).Error; err != nil {
@@ -471,10 +482,10 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		if err := tx.Exec(`
 			INSERT INTO doctor_hospital_schedules (
 				id, affiliation_id, day_of_week, start_time, end_time, timezone,
-				is_active, created_at, updated_at
+				booking_mode, slot_duration_minutes, capacity, is_active, created_at, updated_at
 			)
 			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone,
-			       TRUE, ?, ?
+			       booking_mode, slot_duration_minutes, capacity, TRUE, ?, ?
 			FROM doctor_hospital_invitation_schedules
 			WHERE invitation_id = ?`, affiliationID, now, now, invitationID).Error; err != nil {
 			return err
@@ -633,8 +644,12 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 
 		var exists bool
 		if err := tx.Raw(`
-			SELECT EXISTS(SELECT 1 FROM doctor_hospital_affiliations WHERE hospital_id = ? AND doctor_id = ?)`,
-			hospitalID, doctorID).Scan(&exists).Error; err != nil {
+			SELECT EXISTS(
+				SELECT 1 FROM doctor_hospital_affiliations
+				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
+				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
+				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+			)`, hospitalID, doctorID, invitation.DepartmentID, invitation.RoomID).Scan(&exists).Error; err != nil {
 			return err
 		}
 		if exists {
@@ -668,9 +683,11 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 		}
 		if err := tx.Exec(`
 			INSERT INTO doctor_hospital_invitation_schedules (
-				id, invitation_id, day_of_week, start_time, end_time, timezone, created_at
+				id, invitation_id, day_of_week, start_time, end_time, timezone,
+				booking_mode, slot_duration_minutes, capacity, created_at
 			)
-			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone, ?
+			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone,
+			       booking_mode, slot_duration_minutes, capacity, ?
 			FROM doctor_hospital_invitation_schedules WHERE invitation_id = ?`,
 			newID, now, invitationID).Error; err != nil {
 			return err
@@ -743,8 +760,26 @@ func insertAffiliationEvent(tx *gorm.DB, affiliationID, actorID, eventType strin
 }
 
 func (r *Repository) ListHospitalDoctors(ctx context.Context, hospitalID, status string) ([]response.HospitalDoctor, error) {
-	args := []any{hospitalID}
-	where := "affiliation.hospital_id = ?"
+	return r.listAffiliations(ctx, hospitalID, "", status)
+}
+
+func (r *Repository) ListDoctorAffiliations(ctx context.Context, doctorID, status string) ([]response.HospitalDoctor, error) {
+	return r.listAffiliations(ctx, "", doctorID, status)
+}
+
+func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID, status string) ([]response.HospitalDoctor, error) {
+	args := []any{}
+	where := `hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+		AND u.status = 'active' AND u.deleted_at IS NULL
+		AND department.is_active = TRUE`
+	if hospitalID != "" {
+		where += " AND affiliation.hospital_id = ?"
+		args = append(args, hospitalID)
+	}
+	if doctorID != "" {
+		where += " AND affiliation.doctor_id = ?"
+		args = append(args, doctorID)
+	}
 	if status != "" {
 		where += " AND affiliation.status = ?"
 		args = append(args, status)
@@ -752,6 +787,7 @@ func (r *Repository) ListHospitalDoctors(ctx context.Context, hospitalID, status
 	var rows []response.HospitalDoctor
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT affiliation.id AS affiliation_id, affiliation.hospital_id,
+		       hospital.name AS hospital_name,
 		       affiliation.doctor_id, u.email, u.first_name, u.last_name,
 		       COALESCE(dp.sip_number, '') AS sip_number,
 		       COALESCE(dp.specialty, '') AS specialty,
@@ -759,6 +795,7 @@ func (r *Repository) ListHospitalDoctors(ctx context.Context, hospitalID, status
 		       affiliation.room_id, room.name AS room,
 		       affiliation.status, affiliation.joined_at
 		FROM doctor_hospital_affiliations affiliation
+		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users u ON u.id = affiliation.doctor_id
 		JOIN doctor_profiles dp ON dp.user_id = affiliation.doctor_id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
@@ -772,7 +809,8 @@ func (r *Repository) ListHospitalDoctors(ctx context.Context, hospitalID, status
 		var schedules []response.DoctorHospitalSchedule
 		if err := r.db.WithContext(ctx).Raw(`
 			SELECT id, day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
-			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone
+			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone,
+			       booking_mode, slot_duration_minutes, capacity
 			FROM doctor_hospital_schedules
 			WHERE affiliation_id = ? AND is_active = TRUE
 			ORDER BY day_of_week, start_time`, rows[i].AffiliationID).Scan(&schedules).Error; err != nil {
@@ -785,20 +823,18 @@ func (r *Repository) ListHospitalDoctors(ctx context.Context, hospitalID, status
 
 func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string, now time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var affiliation entity.DoctorHospitalAffiliation
+		var affiliations []entity.DoctorHospitalAffiliation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("hospital_id = ? AND doctor_id = ?", hospitalID, doctorID).
-			First(&affiliation).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrAffiliationNotFound
-			}
+			Find(&affiliations).Error; err != nil {
 			return err
 		}
-		if affiliation.Status == status {
-			return nil
+		if len(affiliations) == 0 {
+			return ErrAffiliationNotFound
 		}
-		previousStatus := affiliation.Status
-		if err := tx.Model(&affiliation).Updates(map[string]any{"status": status, "updated_at": now}).Error; err != nil {
+		if err := tx.Model(&entity.DoctorHospitalAffiliation{}).
+			Where("hospital_id = ? AND doctor_id = ? AND status <> ?", hospitalID, doctorID, status).
+			Updates(map[string]any{"status": status, "updated_at": now}).Error; err != nil {
 			return err
 		}
 
@@ -847,11 +883,19 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 		if status == entity.DoctorHospitalAffiliationActive {
 			eventType = "REACTIVATED"
 		}
-		if err := insertAffiliationEvent(tx, affiliation.ID, actorID, eventType, &previousStatus, status, now); err != nil {
-			return err
+		affiliationIDs := make([]string, 0, len(affiliations))
+		for _, affiliation := range affiliations {
+			affiliationIDs = append(affiliationIDs, affiliation.ID)
+			if affiliation.Status == status {
+				continue
+			}
+			previousStatus := affiliation.Status
+			if err := insertAffiliationEvent(tx, affiliation.ID, actorID, eventType, &previousStatus, status, now); err != nil {
+				return err
+			}
 		}
 		data, _ := json.Marshal(map[string]any{
-			"affiliation_id": affiliation.ID, "hospital_id": hospitalID,
+			"affiliation_ids": affiliationIDs, "hospital_id": hospitalID,
 			"status": status, "event": "DOCTOR_HOSPITAL_AFFILIATION_" + eventType,
 		})
 		return tx.Exec(`

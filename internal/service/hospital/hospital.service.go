@@ -71,30 +71,30 @@ func (s *Service) CreateHospital(ctx context.Context, in *request.CreateHospital
 	}
 
 	if code == "" || name == "" || address == "" || city == "" || province == "" || phone == "" {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.NewFieldRequiredError("code, name, address, city, province, and phone")
 	}
 	if in.Latitude != nil && (*in.Latitude < -90 || *in.Latitude > 90) {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.ErrInvalidHospitalCoordinates
 	}
 	if in.Longitude != nil && (*in.Longitude < -180 || *in.Longitude > 180) {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.ErrInvalidHospitalCoordinates
 	}
 	if exists, err := s.hospitalRepo.IsCodeExists(ctx, code); err != nil {
 		return nil, constant.ErrInternalServerError
 	} else if exists {
-		return nil, constant.ErrConflict
+		return nil, constant.ErrHospitalCodeAlreadyExists
 	}
 	if exists, err := s.hospitalRepo.IsNameExists(ctx, name); err != nil {
 		return nil, constant.ErrInternalServerError
 	} else if exists {
-		return nil, constant.ErrConflict
+		return nil, constant.ErrHospitalNameAlreadyExists
 	}
 
 	var facilities datatypes.JSON
 	if in.Facilities != nil {
 		encoded, err := json.Marshal(in.Facilities)
 		if err != nil {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.ErrInvalidHospitalFacilities
 		}
 		facilities = datatypes.JSON(encoded)
 	}
@@ -119,7 +119,7 @@ func (s *Service) CreateHospital(ctx context.Context, in *request.CreateHospital
 
 	if err := s.hospitalRepo.Create(ctx, h); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return nil, constant.ErrConflict
+			return nil, constant.ErrHospitalAlreadyExists
 		}
 		return nil, constant.ErrInternalServerError
 	}
@@ -130,7 +130,7 @@ func (s *Service) CreateHospital(ctx context.Context, in *request.CreateHospital
 // one transaction. No partial account remains when a later step fails.
 func (s *Service) CreateHospitalAdmin(ctx context.Context, req request.CreateHospitalAdminRequest) (string, error) {
 	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Password) == "" || strings.TrimSpace(req.Username) == "" {
-		return "", constant.ErrValidationFailed
+		return "", constant.NewFieldRequiredError("email, username, and password")
 	}
 	dob, err := parseDOB(req.DOB)
 	if err != nil {
@@ -187,7 +187,7 @@ func (s *Service) CreateHospitalStaff(ctx context.Context, req request.CreateHos
 		strings.TrimSpace(req.Password) == "" ||
 		strings.TrimSpace(req.Role) == "" ||
 		strings.TrimSpace(req.Username) == "" {
-		return "", constant.ErrValidationFailed
+		return "", constant.NewFieldRequiredError("role, email, username, and password")
 	}
 	dob, err := parseDOB(req.DOB)
 	if err != nil {
@@ -294,7 +294,7 @@ func (s *Service) ensureUserActiveFull(ctx context.Context, in urepo.InsertUserF
 	if u, err := s.userRepo.FindByEmail(ctx, in.Email); err != nil {
 		return "", constant.ErrInternalServerError
 	} else if u != nil {
-		return "", constant.ErrDuplicateUsernameOrEmail
+		return "", constant.ErrEmailAlreadyExists
 	}
 
 	if in.Username != nil && *in.Username != "" {
@@ -303,7 +303,7 @@ func (s *Service) ensureUserActiveFull(ctx context.Context, in urepo.InsertUserF
 			return "", constant.ErrInternalServerError
 		}
 		if exists {
-			return "", constant.ErrDuplicateUsernameOrEmail
+			return "", constant.ErrUsernameAlreadyExists
 		}
 	}
 
@@ -313,14 +313,14 @@ func (s *Service) ensureUserActiveFull(ctx context.Context, in urepo.InsertUserF
 			return "", constant.ErrInternalServerError
 		}
 		if exists {
-			return "", constant.ErrConflict
+			return "", constant.ErrDuplicateNIK
 		}
 	}
 
 	hash, err := hashScrypt(ctx, in.PasswordPlain)
 	if err != nil {
 		if errors.Is(err, util.ErrPasswordWorkLimit) {
-			return "", constant.ErrTooManyRequests
+			return "", constant.ErrPasswordProcessingBusy
 		}
 		return "", constant.ErrInternalServerError
 	}

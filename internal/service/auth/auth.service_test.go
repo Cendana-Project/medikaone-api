@@ -112,7 +112,7 @@ func TestSetProfileRejectsDoctorSelfService(t *testing.T) {
 func TestSetProfileRejectsUnknownNestedFields(t *testing.T) {
 	service := &Service{}
 	profile := json.RawMessage(`{"first_name":"Patient","last_name":"One","unexpected":true}`)
-	if _, err := service.SetProfile(context.Background(), "user-1", constant.RolePatient, &profile); err != constant.ErrValidationError {
+	if _, err := service.SetProfile(context.Background(), "user-1", constant.RolePatient, &profile); err != constant.NewUnknownFieldError("unexpected") {
 		t.Fatalf("expected strict nested validation error, got %v", err)
 	}
 }
@@ -274,7 +274,7 @@ func TestRefreshResultEncryptionIsBoundToOperationContext(t *testing.T) {
 func TestRefreshRequiresCanonicalUUIDv4IdempotencyKey(t *testing.T) {
 	service := &Service{}
 	for _, key := range []string{"", "predictable-operation", "550e8400-e29b-11d4-a716-446655440000", "550E8400-E29B-41D4-A716-446655440000"} {
-		if _, _, _, err := service.Refresh(context.Background(), "not-a-token", key); err != constant.ErrValidationError {
+		if _, _, _, err := service.Refresh(context.Background(), "not-a-token", key); err != constant.ErrInvalidIdempotencyKey {
 			t.Fatalf("idempotency key %q: error = %v, want validation error", key, err)
 		}
 	}

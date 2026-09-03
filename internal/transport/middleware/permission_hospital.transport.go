@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"errors"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -31,16 +30,13 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 
 		hintVal, ok := c.Get("hospital_hint")
 		if !ok {
-			resp := constant.ErrValidationFailed.ToResponse()
-			resp.Message = "hospital context required (X-Hospital-ID or X-Hospital-Code or :hospital_id)"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalContextRequired)
 			c.Abort()
 			return
 		}
 		hint, ok := hintVal.(string)
 		if !ok || hint == "" {
-			resp := constant.ErrValidationFailed.ToResponse()
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalContextRequired)
 			c.Abort()
 			return
 		}
@@ -55,10 +51,7 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 			}
 		}
 		if hospitalID == "" {
-			resp := constant.ErrRecordNotFound.ToResponse()
-			resp.StatusCode = http.StatusNotFound
-			resp.Message = "hospital not found or inactive"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalNotFound)
 			c.Abort()
 			return
 		}
@@ -124,16 +117,13 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 
 		hintVal, ok := c.Get("hospital_hint")
 		if !ok {
-			resp := constant.ErrValidationFailed.ToResponse()
-			resp.Message = "hospital context required (X-Hospital-ID or X-Hospital-Code or :hospital_id)"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalContextRequired)
 			c.Abort()
 			return
 		}
 		hint, ok := hintVal.(string)
 		if !ok || hint == "" {
-			resp := constant.ErrValidationFailed.ToResponse()
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalContextRequired)
 			c.Abort()
 			return
 		}
@@ -148,10 +138,7 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 			}
 		}
 		if hospitalID == "" {
-			resp := constant.ErrRecordNotFound.ToResponse()
-			resp.StatusCode = http.StatusNotFound
-			resp.Message = "hospital not found or inactive"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalNotFound)
 			c.Abort()
 			return
 		}
@@ -179,9 +166,7 @@ func RequireHospitalAdminOrSuper(hRepo *hospRepo.Repository, rRepo *roleRepo.Rep
 			return
 		}
 		if !isHospAdmin {
-			resp := constant.ErrForbidden.ToResponse()
-			resp.Message = "only hospital admin or super admin can access this resource"
-			util.HandleResponse(c, &resp, nil)
+			util.HandleError(c, constant.ErrHospitalAdminRequired)
 			c.Abort()
 			return
 		}

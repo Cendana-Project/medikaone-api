@@ -6,6 +6,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	appointmentCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
 	authCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
 	doctorHospitalCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
@@ -25,6 +26,7 @@ type Transport struct {
 	userController           *userCtrl.Controller
 	hospitalController       *hospCtrl.Controller
 	doctorHospitalController *doctorHospitalCtrl.Controller
+	appointmentController    *appointmentCtrl.Controller
 	warmupController         *warmupCtrl.Controller
 
 	roleRepo *roleRepo.Repository
@@ -49,6 +51,10 @@ func (t *Transport) WithHospitalController(c *hospCtrl.Controller) *Transport {
 }
 func (t *Transport) WithDoctorHospitalController(c *doctorHospitalCtrl.Controller) *Transport {
 	t.doctorHospitalController = c
+	return t
+}
+func (t *Transport) WithAppointmentController(c *appointmentCtrl.Controller) *Transport {
+	t.appointmentController = c
 	return t
 }
 func (t *Transport) WithRoleRepository(repo *roleRepo.Repository) *Transport {
@@ -155,9 +161,71 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorEdit),
 			t.doctorHospitalController.RejectInvitation,
 		)
+		protected.GET("/doctor/hospital-affiliations",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
+			t.doctorHospitalController.ListDoctorAffiliations,
+		)
 
 		protected.GET("/notifications", t.doctorHospitalController.ListNotifications)
 		protected.PATCH("/notifications/:notification_id/read", t.doctorHospitalController.MarkNotificationRead)
+
+		protected.GET("/appointments/availability",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.ListAvailability,
+		)
+		protected.POST("/appointments",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentCreate),
+			t.appointmentController.CreateAppointment,
+		)
+		protected.GET("/appointments",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.ListPatientAppointments,
+		)
+		protected.GET("/appointments/:appointment_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.GetPatientAppointment,
+		)
+		protected.POST("/appointments/:appointment_id/cancel",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentCancel),
+			t.appointmentController.CancelPatientAppointment,
+		)
+		protected.POST("/appointments/:appointment_id/reschedule",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentReschedule),
+			t.appointmentController.ReschedulePatientAppointment,
+		)
+
+		protected.GET("/doctor/appointments",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.ListDoctorAppointments,
+		)
+		protected.GET("/doctor/appointments/:appointment_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.GetDoctorAppointment,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/start-consultation",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentComplete),
+			t.appointmentController.StartConsultation,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/complete",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentComplete),
+			t.appointmentController.CompleteAppointment,
+		)
+		protected.POST("/doctor/schedule-change-requests",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.CreateDoctorScheduleChange,
+		)
+		protected.GET("/doctor/schedule-change-requests",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
+			t.appointmentController.ListDoctorScheduleChanges,
+		)
+		protected.POST("/doctor/schedule-change-requests/:change_id/approve",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleApprove),
+			t.appointmentController.ApproveDoctorScheduleChange,
+		)
+		protected.POST("/doctor/schedule-change-requests/:change_id/reject",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleApprove),
+			t.appointmentController.RejectDoctorScheduleChange,
+		)
 	}
 
 	// === PROTECTED — HOSPITAL SCOPED (JWT + Tenant) ===
@@ -226,6 +294,51 @@ func (t *Transport) InitRoute() {
 		tenant.PATCH("/hospitals/:hospital_id/doctors/:doctor_id/status",
 			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
 			t.doctorHospitalController.UpdateAffiliationStatus,
+		)
+
+		tenant.GET("/hospitals/:hospital_id/appointments",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.ListHospitalAppointments,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.GetHospitalAppointment,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/cancel",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentCancel),
+			t.appointmentController.CancelHospitalAppointment,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/reschedule",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentReschedule),
+			t.appointmentController.RescheduleHospitalAppointment,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/check-in",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentCheckIn),
+			t.appointmentController.CheckIn,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointment-queue",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentQueue),
+			t.appointmentController.ListHospitalQueue,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/vitals-complete",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentQueue),
+			t.appointmentController.CompleteVitals,
+		)
+		tenant.POST("/hospitals/:hospital_id/schedule-change-requests",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.CreateHospitalScheduleChange,
+		)
+		tenant.GET("/hospitals/:hospital_id/schedule-change-requests",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorScheduleView),
+			t.appointmentController.ListHospitalScheduleChanges,
+		)
+		tenant.POST("/hospitals/:hospital_id/schedule-change-requests/:change_id/approve",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorScheduleApprove),
+			t.appointmentController.ApproveHospitalScheduleChange,
+		)
+		tenant.POST("/hospitals/:hospital_id/schedule-change-requests/:change_id/reject",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorScheduleApprove),
+			t.appointmentController.RejectHospitalScheduleChange,
 		)
 	}
 

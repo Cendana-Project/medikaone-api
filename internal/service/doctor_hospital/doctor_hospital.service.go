@@ -25,10 +25,13 @@ import (
 )
 
 const (
-	InvitationTTL    = 7 * 24 * time.Hour
-	DefaultTimezone  = "Asia/Jakarta"
-	MaxContractBytes = int64(10 * 1024 * 1024)
-	MaxSchedules     = 50
+	InvitationTTL              = 7 * 24 * time.Hour
+	DefaultTimezone            = "Asia/Jakarta"
+	DefaultBookingMode         = "FIXED_SLOT"
+	DefaultSlotDurationMinutes = 30
+	DefaultScheduleCapacity    = 1
+	MaxContractBytes           = int64(10 * 1024 * 1024)
+	MaxSchedules               = 50
 )
 
 type Repository interface {
@@ -51,6 +54,7 @@ type Repository interface {
 	GetContractForDoctor(context.Context, string, string, string) (*repository.ContractDocument, error)
 	GetContractForHospital(context.Context, string, string, string) (*repository.ContractDocument, error)
 	ListHospitalDoctors(context.Context, string, string) ([]response.HospitalDoctor, error)
+	ListDoctorAffiliations(context.Context, string, string) ([]response.HospitalDoctor, error)
 	UpdateAffiliationStatus(context.Context, string, string, string, string, time.Time) error
 	ListNotifications(context.Context, string, bool) ([]response.Notification, error)
 	MarkNotificationRead(context.Context, string, string, time.Time) error
@@ -89,13 +93,17 @@ func (s *Service) SearchDoctor(ctx context.Context, query request.DoctorSearchQu
 		}
 	}
 	if provided != 1 {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.NewInvalidFieldValueError(
+			"doctor_search",
+			"exactly one of email, sip_number, or medikaone_id",
+			"tepat salah satu dari email, sip_number, atau medikaone_id",
+		)
 	}
 	if query.Email != "" && (!strings.Contains(query.Email, "@") || len(query.Email) > 190) {
 		return nil, constant.ErrInvalidEmail
 	}
 	if len(query.SIPNumber) > 64 {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.NewInvalidFieldLengthError("sip_number", "at most 64 characters long", "memiliki maksimal 64 karakter")
 	}
 	if query.MedikaOneID != "" {
 		if _, err := uuid.Parse(query.MedikaOneID); err != nil {
@@ -131,12 +139,21 @@ func (s *Service) CreateDepartment(ctx context.Context, hospitalID string, req r
 	}
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	name := strings.TrimSpace(req.Name)
-	if code == "" || name == "" || len(code) > 40 || len(name) > 120 {
-		return nil, constant.ErrValidationFailed
+	if code == "" {
+		return nil, constant.NewFieldRequiredError("code")
+	}
+	if name == "" {
+		return nil, constant.NewFieldRequiredError("name")
+	}
+	if len(code) > 40 {
+		return nil, constant.NewInvalidFieldLengthError("code", "at most 40 characters long", "memiliki maksimal 40 karakter")
+	}
+	if len(name) > 120 {
+		return nil, constant.NewInvalidFieldLengthError("name", "at most 120 characters long", "memiliki maksimal 120 karakter")
 	}
 	department, err := s.repo.CreateDepartment(ctx, hospitalID, code, name, s.now())
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return nil, constant.ErrConflict
+		return nil, constant.ErrDepartmentAlreadyExists
 	}
 	if err != nil {
 		return nil, constant.ErrInternalServerError
@@ -158,15 +175,24 @@ func (s *Service) CreateRoom(ctx context.Context, hospitalID string, req request
 	}
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	name := strings.TrimSpace(req.Name)
-	if code == "" || name == "" || len(code) > 40 || len(name) > 120 {
-		return nil, constant.ErrValidationFailed
+	if code == "" {
+		return nil, constant.NewFieldRequiredError("code")
+	}
+	if name == "" {
+		return nil, constant.NewFieldRequiredError("name")
+	}
+	if len(code) > 40 {
+		return nil, constant.NewInvalidFieldLengthError("code", "at most 40 characters long", "memiliki maksimal 40 karakter")
+	}
+	if len(name) > 120 {
+		return nil, constant.NewInvalidFieldLengthError("name", "at most 120 characters long", "memiliki maksimal 120 karakter")
 	}
 	room, err := s.repo.CreateRoom(ctx, hospitalID, req.DepartmentID, code, name, s.now())
 	if errors.Is(err, repository.ErrPlacementNotFound) {
 		return nil, constant.ErrHospitalPlacementNotFound
 	}
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return nil, constant.ErrConflict
+		return nil, constant.ErrRoomAlreadyExists
 	}
 	if err != nil {
 		return nil, constant.ErrInternalServerError
@@ -206,7 +232,7 @@ func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy st
 	if req.Message != nil {
 		trimmed := strings.TrimSpace(*req.Message)
 		if len(trimmed) > 1000 {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldLengthError("message", "at most 1000 characters long", "memiliki maksimal 1000 karakter")
 		}
 		if trimmed == "" {
 			req.Message = nil
@@ -373,7 +399,7 @@ func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID s
 	if reason != nil {
 		trimmed := strings.TrimSpace(*reason)
 		if len(trimmed) > 500 {
-			return constant.ErrValidationFailed
+			return constant.NewInvalidFieldLengthError("reason", "at most 500 characters long", "memiliki maksimal 500 karakter")
 		}
 		if trimmed == "" {
 			reason = nil
@@ -450,9 +476,21 @@ func (s *Service) signDocument(ctx context.Context, document *repository.Contrac
 func (s *Service) ListHospitalDoctors(ctx context.Context, hospitalID, status string) ([]response.HospitalDoctor, error) {
 	status = strings.ToUpper(strings.TrimSpace(status))
 	if status != "" && status != entity.DoctorHospitalAffiliationActive && status != entity.DoctorHospitalAffiliationSuspended {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.NewInvalidFieldValueError("status", "ACTIVE or SUSPENDED", "ACTIVE atau SUSPENDED")
 	}
 	rows, err := s.repo.ListHospitalDoctors(ctx, hospitalID, status)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	return rows, nil
+}
+
+func (s *Service) ListDoctorAffiliations(ctx context.Context, doctorID, status string) ([]response.HospitalDoctor, error) {
+	status = strings.ToUpper(strings.TrimSpace(status))
+	if status != "" && status != entity.DoctorHospitalAffiliationActive && status != entity.DoctorHospitalAffiliationSuspended {
+		return nil, constant.NewInvalidFieldValueError("status", "ACTIVE or SUSPENDED", "ACTIVE atau SUSPENDED")
+	}
+	rows, err := s.repo.ListDoctorAffiliations(ctx, doctorID, status)
 	if err != nil {
 		return nil, constant.ErrInternalServerError
 	}
@@ -465,7 +503,7 @@ func (s *Service) UpdateAffiliationStatus(ctx context.Context, hospitalID, docto
 	}
 	status = strings.ToUpper(strings.TrimSpace(status))
 	if status != entity.DoctorHospitalAffiliationActive && status != entity.DoctorHospitalAffiliationSuspended {
-		return constant.ErrValidationFailed
+		return constant.NewInvalidFieldValueError("status", "ACTIVE or SUSPENDED", "ACTIVE atau SUSPENDED")
 	}
 	return mapRepositoryError(s.repo.UpdateAffiliationStatus(ctx, hospitalID, doctorID, status, actorID, s.now()))
 }
@@ -509,7 +547,7 @@ func (s *Service) validatePDF(file UploadedFile) (repository.Document, error) {
 
 func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repository.Schedule, error) {
 	if len(input) > MaxSchedules {
-		return nil, constant.ErrValidationFailed
+		return nil, constant.NewInvalidFieldLengthError("schedules", "at most 50 items long", "memiliki maksimal 50 item")
 	}
 	output := make([]repository.Schedule, 0, len(input))
 	type interval struct{ start, end int }
@@ -517,30 +555,54 @@ func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repos
 	commonTimezone := ""
 	for _, value := range input {
 		if value.DayOfWeek < 0 || value.DayOfWeek > 6 {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldValueError("day_of_week", "an integer from 0 through 6", "berupa angka bulat dari 0 sampai 6")
 		}
 		start, err := time.Parse("15:04", strings.TrimSpace(value.StartTime))
 		if err != nil {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldValueError("start_time", "a valid HH:mm time", "berupa waktu HH:mm yang valid")
 		}
 		end, err := time.Parse("15:04", strings.TrimSpace(value.EndTime))
 		if err != nil || !end.After(start) {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldValueError("end_time", "a valid HH:mm time later than start_time", "berupa waktu HH:mm yang valid dan setelah start_time")
 		}
 		timezone := strings.TrimSpace(value.Timezone)
 		if timezone == "" {
 			timezone = DefaultTimezone
 		}
 		if _, err := time.LoadLocation(timezone); err != nil {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldValueError("timezone", "a valid IANA timezone", "berupa zona waktu IANA yang valid")
+		}
+		startMinute := start.Hour()*60 + start.Minute()
+		endMinute := end.Hour()*60 + end.Minute()
+		bookingMode := strings.ToUpper(strings.TrimSpace(value.BookingMode))
+		if bookingMode == "" {
+			bookingMode = DefaultBookingMode
+		}
+		if bookingMode != "FIXED_SLOT" && bookingMode != "SESSION_QUEUE" {
+			return nil, constant.NewInvalidFieldValueError("booking_mode", "FIXED_SLOT or SESSION_QUEUE", "FIXED_SLOT atau SESSION_QUEUE")
+		}
+		slotDuration := value.SlotDurationMins
+		if slotDuration == 0 {
+			slotDuration = DefaultSlotDurationMinutes
+		}
+		if slotDuration < 5 || slotDuration > 240 {
+			return nil, constant.NewInvalidFieldValueError("slot_duration_minutes", "an integer from 5 through 240", "berupa angka bulat dari 5 sampai 240")
+		}
+		capacity := value.Capacity
+		if capacity == 0 {
+			capacity = DefaultScheduleCapacity
+		}
+		if capacity < 1 || capacity > 500 {
+			return nil, constant.NewInvalidFieldValueError("capacity", "an integer from 1 through 500", "berupa angka bulat dari 1 sampai 500")
+		}
+		if bookingMode == "FIXED_SLOT" && (endMinute-startMinute)%slotDuration != 0 {
+			return nil, constant.NewInvalidFieldValueError("slot_duration_minutes", "an exact divisor of the practice duration for FIXED_SLOT", "dapat membagi durasi praktik secara tepat untuk FIXED_SLOT")
 		}
 		if commonTimezone == "" {
 			commonTimezone = timezone
 		} else if commonTimezone != timezone {
-			return nil, constant.ErrValidationFailed
+			return nil, constant.NewInvalidFieldValueError("timezone", "the same timezone for every schedule entry", "zona waktu yang sama untuk seluruh entri jadwal")
 		}
-		startMinute := start.Hour()*60 + start.Minute()
-		endMinute := end.Hour()*60 + end.Minute()
 		for _, existing := range byDay[value.DayOfWeek] {
 			if startMinute < existing.end && endMinute > existing.start {
 				return nil, constant.ErrDoctorScheduleConflict
@@ -550,6 +612,7 @@ func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repos
 		output = append(output, repository.Schedule{
 			DayOfWeek: value.DayOfWeek, StartTime: start.Format("15:04"),
 			EndTime: end.Format("15:04"), Timezone: timezone,
+			BookingMode: bookingMode, SlotDurationMinutes: slotDuration, Capacity: capacity,
 		})
 	}
 	return output, nil
@@ -566,7 +629,7 @@ func normalizeInvitationStatusFilter(status string) (string, error) {
 		entity.DoctorHospitalInvitationExpired:
 		return status, nil
 	default:
-		return "", constant.ErrValidationFailed
+		return "", constant.NewInvalidFieldValueError("status", "a supported invitation status", "berupa status undangan yang didukung")
 	}
 }
 
@@ -577,7 +640,7 @@ func normalizeContractVersion(version string) (string, error) {
 	case "signed":
 		return "signed", nil
 	default:
-		return "", constant.ErrValidationFailed
+		return "", constant.NewInvalidFieldValueError("version", "original or signed", "original atau signed")
 	}
 }
 

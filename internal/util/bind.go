@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -21,12 +22,15 @@ func BindAndValidate(c *gin.Context, dst any) error {
 		if errors.As(err, &tooLarge) {
 			return constant.ErrRequestTooLarge
 		}
-		// mapping ke katalog error validasi kamu
-		return constant.ErrValidationError
+		return MapJSONDecodeError(err)
 	}
-	// Gunakan ValidateStruct yang sudah didefinisikan di util/validation.go
-	return ValidateStruct(dst)
+	if err := ValidateStruct(dst); err != nil {
+		return MapValidationError(err)
+	}
+	return nil
 }
+
+var errMultipleJSONValues = errors.New("multiple JSON values")
 
 // DecodeStrictJSON accepts exactly one JSON value and rejects fields that are
 // not declared by dst. Keeping this in one helper ensures nested RawMessage
@@ -37,9 +41,10 @@ func DecodeStrictJSON(reader io.Reader, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		return err
 	}
-	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return errors.New("multiple JSON values")
+			return errMultipleJSONValues
 		}
 		return err
 	}
@@ -48,6 +53,27 @@ func DecodeStrictJSON(reader io.Reader, dst any) error {
 
 func UnmarshalStrictJSON(raw []byte, dst any) error {
 	return DecodeStrictJSON(bytes.NewReader(raw), dst)
+}
+
+// MapJSONDecodeError converts decoder failures into stable public API errors.
+func MapJSONDecodeError(err error) error {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return constant.ErrRequestTooLarge
+	}
+	if errors.Is(err, io.EOF) {
+		return constant.ErrRequestBodyRequired
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return constant.NewInvalidFieldTypeError(typeErr.Field, typeErr.Type.String())
+	}
+	const unknownFieldPrefix = "json: unknown field "
+	if strings.HasPrefix(err.Error(), unknownFieldPrefix) {
+		field := strings.Trim(strings.TrimPrefix(err.Error(), unknownFieldPrefix), `"`)
+		return constant.NewUnknownFieldError(field)
+	}
+	return constant.ErrMalformedJSON
 }
 
 // Opsional: helper cepat untuk mengakhiri request dengan error validasi standar

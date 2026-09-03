@@ -61,7 +61,7 @@ func (ctl *Controller) CreateHospitalAdmin(c *gin.Context) {
 	}
 	req.HospitalID = hospitalHint(c)
 	if req.HospitalID == "" {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.ErrHospitalContextRequired)
 		return
 	}
 
@@ -92,7 +92,7 @@ func (ctl *Controller) CreateHospitalStaff(c *gin.Context) {
 	}
 	req.HospitalID = hospitalHint(c)
 	if req.HospitalID == "" {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.ErrHospitalContextRequired)
 		return
 	}
 

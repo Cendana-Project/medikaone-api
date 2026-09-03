@@ -72,7 +72,7 @@ func (ctl *Controller) CreateInvitation(c *gin.Context) {
 	schedules := []request.DoctorInvitationScheduleRequest{}
 	if raw := strings.TrimSpace(c.PostForm("schedules")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &schedules); err != nil {
-			util.HandleError(c, constant.ErrValidationFailed)
+			util.HandleError(c, constant.NewInvalidFieldValueError("schedules", "a valid JSON array", "berupa array JSON yang valid"))
 			return
 		}
 	}
@@ -123,6 +123,11 @@ func (ctl *Controller) GetHospitalContractURL(c *gin.Context) {
 
 func (ctl *Controller) ListHospitalDoctors(c *gin.Context) {
 	result, err := ctl.service.ListHospitalDoctors(c.Request.Context(), hospitalID(c), c.Query("status"))
+	respond(c, http.StatusOK, result, err)
+}
+
+func (ctl *Controller) ListDoctorAffiliations(c *gin.Context) {
+	result, err := ctl.service.ListDoctorAffiliations(c.Request.Context(), util.GetUserID(c), c.Query("status"))
 	respond(c, http.StatusOK, result, err)
 }
 
@@ -181,7 +186,7 @@ func (ctl *Controller) RejectInvitation(c *gin.Context) {
 func (ctl *Controller) ListNotifications(c *gin.Context) {
 	unreadOnly, err := strconv.ParseBool(c.DefaultQuery("unread_only", "false"))
 	if err != nil {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.NewInvalidFieldValueError("unread_only", "true or false", "true atau false"))
 		return
 	}
 	result, err := ctl.service.ListNotifications(c.Request.Context(), util.GetUserID(c), unreadOnly)

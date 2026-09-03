@@ -141,17 +141,17 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 
 	hintVal, ok := c.Get("hospital_hint")
 	if !ok {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.ErrHospitalContextRequired)
 		return
 	}
 	hint, ok := hintVal.(string)
 	if !ok {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.ErrHospitalContextRequired)
 		return
 	}
 	hint = strings.TrimSpace(hint)
 	if hint == "" {
-		util.HandleError(c, constant.ErrValidationFailed)
+		util.HandleError(c, constant.ErrHospitalContextRequired)
 		return
 	}
 

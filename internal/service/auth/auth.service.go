@@ -1096,8 +1096,14 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 	username := strings.ToLower(strings.TrimSpace(req.Username))
 	phone := strings.TrimSpace(req.Phone)
 	ulog.Infof(ctx, "register attempt identity_hash=%s", identityFingerprint(s.jwtSecret, "log-identity", emailAddr))
-	if emailAddr == "" || !isValidRegistrationUsername(username) || len(phone) < 8 || len(phone) > 32 {
-		return nil, constant.ErrValidationError
+	if emailAddr == "" {
+		return nil, constant.ErrInvalidEmail
+	}
+	if !isValidRegistrationUsername(username) {
+		return nil, constant.ErrInvalidUsername
+	}
+	if len(phone) < 8 || len(phone) > 32 {
+		return nil, constant.NewInvalidFieldLengthError("phone", "between 8 and 32 characters long", "memiliki 8 sampai 32 karakter")
 	}
 
 	if !ulog.IsValidPassword(req.Password) {
@@ -1122,7 +1128,7 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 	ownedByPendingEmail := existing != nil && existing.Username != nil &&
 		strings.EqualFold(*existing.Username, username) && strings.EqualFold(existing.Status, "pending")
 	if usernameExists && !ownedByPendingEmail {
-		return nil, constant.ErrDuplicateUsernameOrEmail
+		return nil, constant.ErrUsernameAlreadyExists
 	}
 	pendingUsernameChallenge, err := s.redis.Get(ctx, keyRegistrationUsername(username)).Result()
 	if err != nil && err != redis.Nil {
@@ -1134,7 +1140,7 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 			return nil, constant.ErrInternalServerError
 		}
 		if emailErr == redis.Nil || pendingEmailChallenge != pendingUsernameChallenge {
-			return nil, constant.ErrDuplicateUsernameOrEmail
+			return nil, constant.ErrUsernameRegistrationInProgress
 		}
 	}
 	allowed, err := s.redis.SetNX(ctx, keyRegistrationSendCooldown(emailAddr), "1", s.resendCooldown).Result()
@@ -1142,7 +1148,7 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 		return nil, constant.ErrInternalServerError
 	}
 	if !allowed {
-		return nil, constant.ErrTooManyRequests
+		return nil, constant.ErrRegistrationPINCooldown
 	}
 	keepCooldown := false
 	defer func() {
@@ -1153,8 +1159,8 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 
 	passwordHash, err := s.hashPasswordScrypt(ctx, req.Password)
 	if err != nil {
-		if err == constant.ErrTooManyRequests {
-			return nil, constant.ErrTooManyRequests
+		if errors.Is(err, constant.ErrPasswordProcessingBusy) {
+			return nil, constant.ErrPasswordProcessingBusy
 		}
 		return nil, constant.ErrInternalServerError
 	}
@@ -1194,7 +1200,7 @@ func (s *Service) RegisterLite(ctx context.Context, req *request.RegisterLiteReq
 			ulog.Errorf(ctx, "smtp send failed stage=register identity_hash=%s error_type=%T", identityFingerprint(s.jwtSecret, "log-identity", emailAddr), err)
 			s.deleteRegistrationChallenge(ctx, challengeID, &challenge, string(raw))
 			if errors.Is(err, email.ErrDeliveryBusy) {
-				return nil, constant.ErrTooManyRequests
+				return nil, constant.ErrEmailDeliveryBusy
 			}
 			return nil, constant.ErrEmailSendFailed
 		}
@@ -1208,18 +1214,18 @@ func (s *Service) loadRegistrationChallenge(ctx context.Context, emailAddr, chal
 	emailAddr = strings.ToLower(strings.TrimSpace(emailAddr))
 	challengeID = strings.TrimSpace(challengeID)
 	if challengeID == "" {
-		return "", registrationChallenge{}, "", constant.ErrInvalidOTP
+		return "", registrationChallenge{}, "", constant.ErrRegistrationPINInvalidOrExpired
 	}
 	raw, err := s.redis.Get(ctx, keyRegistration(challengeID)).Result()
 	if err == redis.Nil {
-		return "", registrationChallenge{}, "", constant.ErrInvalidOTP
+		return "", registrationChallenge{}, "", constant.ErrRegistrationPINInvalidOrExpired
 	}
 	if err != nil {
 		return "", registrationChallenge{}, "", constant.ErrInternalServerError
 	}
 	var challenge registrationChallenge
 	if json.Unmarshal([]byte(raw), &challenge) != nil || !strings.EqualFold(challenge.Email, emailAddr) {
-		return "", registrationChallenge{}, "", constant.ErrInvalidOTP
+		return "", registrationChallenge{}, "", constant.ErrRegistrationPINInvalidOrExpired
 	}
 	return challengeID, challenge, raw, nil
 }
@@ -1254,7 +1260,7 @@ func (s *Service) ResendPIN(ctx context.Context, emailAddr, challengeID string) 
 		return constant.ErrInternalServerError
 	}
 	if !allowed {
-		return constant.ErrTooManyRequests
+		return constant.ErrRegistrationPINCooldown
 	}
 
 	pin, err := sixDigitPIN()
@@ -1282,7 +1288,7 @@ func (s *Service) ResendPIN(ctx context.Context, emailAddr, challengeID string) 
 			s.restoreRegistrationChallenge(ctx, id, &challenge, oldRaw)
 			s.deleteRedisKeysBestEffort(ctx, keyRegistrationSendCooldown(challenge.Email))
 			if errors.Is(err, email.ErrDeliveryBusy) {
-				return constant.ErrTooManyRequests
+				return constant.ErrEmailDeliveryBusy
 			}
 			return constant.ErrEmailSendFailed
 		}
@@ -1316,10 +1322,10 @@ func (s *Service) VerifyPIN(ctx context.Context, emailAddr, challengeID, pin str
 		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrInternalServerError
 	}
 	if result == -2 {
-		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrTooManyRequests
+		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrRegistrationPINAttemptsExceeded
 	}
 	if result != 1 {
-		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrInvalidOTP
+		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrRegistrationPINInvalidOrExpired
 	}
 
 	now := time.Now()
@@ -1380,7 +1386,7 @@ func (s *Service) Login(ctx context.Context, identity, password string) (pair st
 		return pair, nil, time.Time{}, time.Time{}, constant.ErrInternalServerError
 	}
 	if attempts > int64(s.loginRateLimit) {
-		return pair, nil, time.Time{}, time.Time{}, constant.ErrTooManyRequests
+		return pair, nil, time.Time{}, time.Time{}, constant.ErrLoginAttemptsExceeded
 	}
 
 	tx := s.users.Begin(ctx)
@@ -1394,15 +1400,15 @@ func (s *Service) Login(ctx context.Context, identity, password string) (pair st
 		return pair, nil, time.Time{}, time.Time{}, constant.ErrInternalServerError
 	}
 	if u == nil {
-		if verifyErr := s.runDummyPasswordVerification(ctx, password); verifyErr == constant.ErrTooManyRequests {
-			return pair, nil, time.Time{}, time.Time{}, constant.ErrTooManyRequests
+		if verifyErr := s.runDummyPasswordVerification(ctx, password); errors.Is(verifyErr, constant.ErrPasswordProcessingBusy) {
+			return pair, nil, time.Time{}, time.Time{}, constant.ErrPasswordProcessingBusy
 		}
 		ulog.Errorf(ctx, "login fail: invalid credentials")
 		return pair, nil, time.Time{}, time.Time{}, constant.ErrInvalidCredentials
 	}
 	if strings.ToLower(u.Status) != "active" {
-		if verifyErr := s.runDummyPasswordVerification(ctx, password); verifyErr == constant.ErrTooManyRequests {
-			return pair, nil, time.Time{}, time.Time{}, constant.ErrTooManyRequests
+		if verifyErr := s.runDummyPasswordVerification(ctx, password); errors.Is(verifyErr, constant.ErrPasswordProcessingBusy) {
+			return pair, nil, time.Time{}, time.Time{}, constant.ErrPasswordProcessingBusy
 		}
 		ulog.Errorf(ctx, "login fail: invalid credentials")
 		return pair, nil, time.Time{}, time.Time{}, constant.ErrInvalidCredentials
@@ -1414,8 +1420,8 @@ func (s *Service) Login(ctx context.Context, identity, password string) (pair st
 
 	// verify password via hybrid (bcrypt → migrate ke scrypt jika perlu)
 	if err := s.verifyAndMigratePasswordWithRepository(ctx, users, u, password); err != nil {
-		if err == constant.ErrTooManyRequests {
-			return pair, nil, time.Time{}, time.Time{}, constant.ErrTooManyRequests
+		if errors.Is(err, constant.ErrPasswordProcessingBusy) {
+			return pair, nil, time.Time{}, time.Time{}, constant.ErrPasswordProcessingBusy
 		}
 		ulog.Errorf(ctx, "login fail: invalid credentials")
 		return pair, nil, time.Time{}, time.Time{}, constant.ErrInvalidCredentials
@@ -1452,7 +1458,7 @@ func (s *Service) LoginHospital(ctx context.Context, identifier, password, hospi
 		return nil, constant.ErrInternalServerError
 	}
 	if attempts > int64(s.loginRateLimit) {
-		return nil, constant.ErrTooManyRequests
+		return nil, constant.ErrLoginAttemptsExceeded
 	}
 
 	hID, err := s.hosp.ResolveHospitalID(ctx, hospitalHint)
@@ -1471,14 +1477,14 @@ func (s *Service) LoginHospital(ctx context.Context, identifier, password, hospi
 		return nil, constant.ErrInternalServerError
 	}
 	if u == nil {
-		if verifyErr := s.runDummyPasswordVerification(ctx, password); verifyErr == constant.ErrTooManyRequests {
-			return nil, constant.ErrTooManyRequests
+		if verifyErr := s.runDummyPasswordVerification(ctx, password); errors.Is(verifyErr, constant.ErrPasswordProcessingBusy) {
+			return nil, constant.ErrPasswordProcessingBusy
 		}
 		return nil, constant.ErrInvalidCredentials
 	}
 	if strings.ToLower(u.Status) != "active" {
-		if verifyErr := s.runDummyPasswordVerification(ctx, password); verifyErr == constant.ErrTooManyRequests {
-			return nil, constant.ErrTooManyRequests
+		if verifyErr := s.runDummyPasswordVerification(ctx, password); errors.Is(verifyErr, constant.ErrPasswordProcessingBusy) {
+			return nil, constant.ErrPasswordProcessingBusy
 		}
 		return nil, constant.ErrInvalidCredentials
 	}
@@ -1489,8 +1495,8 @@ func (s *Service) LoginHospital(ctx context.Context, identifier, password, hospi
 
 	// password verify & migrate jika perlu
 	if err := s.verifyAndMigratePasswordWithRepository(ctx, users, u, password); err != nil {
-		if err == constant.ErrTooManyRequests {
-			return nil, constant.ErrTooManyRequests
+		if errors.Is(err, constant.ErrPasswordProcessingBusy) {
+			return nil, constant.ErrPasswordProcessingBusy
 		}
 		return nil, constant.ErrInvalidCredentials
 	}
@@ -1534,7 +1540,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, idempotencyKey stri
 	operationID, parseErr := uuid.Parse(idempotencyKey)
 	if parseErr != nil || operationID.Version() != uuid.Version(4) ||
 		operationID.Variant() != uuid.RFC4122 || operationID.String() != idempotencyKey {
-		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrValidationError
+		return TokenPair{}, time.Time{}, time.Time{}, constant.ErrInvalidIdempotencyKey
 	}
 	idempotencyKey = operationID.String()
 	claims, err := parseJWTHS256(refreshToken, s.jwtSecret)
@@ -1695,7 +1701,7 @@ func (s *Service) CompletePatientProfile(ctx context.Context, userID string, req
 
 func (s *Service) completePatientProfile(ctx context.Context, users *userrepo.Repository, userID string, req *request.PatientProfileRequest) error {
 	if err := ulog.ValidateStruct(req); err != nil {
-		return constant.ErrValidationError
+		return ulog.MapValidationError(err)
 	}
 	updates := map[string]any{
 		"first_name": req.FirstName,
@@ -1705,7 +1711,7 @@ func (s *Service) completePatientProfile(ctx context.Context, users *userrepo.Re
 		"nik":        req.NIK,
 	}
 	if req.NIK != nil && !isNIK16(*req.NIK) {
-		return constant.ErrValidationFailed
+		return constant.NewInvalidFieldValueError("nik", "exactly 16 numeric digits", "tepat 16 digit angka")
 	}
 	if req.NIK != nil {
 		exists, err := users.ExistsNIKExcludingUser(ctx, *req.NIK, userID)
@@ -1719,7 +1725,7 @@ func (s *Service) completePatientProfile(ctx context.Context, users *userrepo.Re
 	if req.DOB != nil && *req.DOB != "" {
 		tm, err := time.ParseInLocation("2006-01-02", *req.DOB, s.loc)
 		if err != nil || tm.After(time.Now().In(s.loc)) {
-			return constant.ErrValidationFailed
+			return constant.ErrInvalidDateFormat
 		}
 		updates["dob"] = tm
 	}
@@ -1749,7 +1755,7 @@ func (s *Service) CompleteDoctorProfile(ctx context.Context, userID string, req 
 
 func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Repository, userID string, req *request.DoctorProfileRequest) error {
 	if err := ulog.ValidateStruct(req); err != nil {
-		return constant.ErrValidationError
+		return ulog.MapValidationError(err)
 	}
 	updates := map[string]any{
 		"first_name": req.FirstName,
@@ -1775,7 +1781,7 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 
 func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, rawProfile *json.RawMessage) (*response.SetProfileResponse, error) {
 	if rawProfile == nil {
-		return nil, constant.ErrValidationError
+		return nil, constant.NewFieldRequiredError("profile")
 	}
 	role := strings.ToUpper(strings.TrimSpace(roleSlugUpper))
 	if role != constant.RolePatient {
@@ -1784,10 +1790,10 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 
 	var req request.PatientProfileRequest
 	if err := ulog.UnmarshalStrictJSON(*rawProfile, &req); err != nil {
-		return nil, constant.ErrValidationError
+		return nil, ulog.MapJSONDecodeError(err)
 	}
 	if err := ulog.ValidateStruct(&req); err != nil {
-		return nil, constant.ErrValidationError
+		return nil, ulog.MapValidationError(err)
 	}
 
 	r, err := s.roles.FindBySlug(ctx, role)
@@ -1862,7 +1868,7 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 func (s *Service) hashPasswordScrypt(ctx context.Context, password string) (string, error) {
 	hash, err := ulog.HashPasswordScrypt(ctx, password)
 	if errors.Is(err, ulog.ErrPasswordWorkLimit) {
-		return "", constant.ErrTooManyRequests
+		return "", constant.ErrPasswordProcessingBusy
 	}
 	return hash, err
 }
@@ -1883,7 +1889,7 @@ func (s *Service) verifyAndMigratePasswordWithRepository(ctx context.Context, us
 		strings.HasPrefix(stored, "$2y$") {
 		matched, err := ulog.VerifyPasswordBcrypt(ctx, stored, plain)
 		if errors.Is(err, ulog.ErrPasswordWorkLimit) {
-			return constant.ErrTooManyRequests
+			return constant.ErrPasswordProcessingBusy
 		}
 		if err != nil {
 			return constant.ErrInternalServerError
@@ -1900,7 +1906,7 @@ func (s *Service) verifyAndMigratePasswordWithRepository(ctx context.Context, us
 
 	matched, err := ulog.VerifyPasswordScrypt(ctx, stored, plain)
 	if errors.Is(err, ulog.ErrPasswordWorkLimit) {
-		return constant.ErrTooManyRequests
+		return constant.ErrPasswordProcessingBusy
 	}
 	if err != nil {
 		return constant.ErrInternalServerError
@@ -1923,7 +1929,7 @@ func (s *Service) PasswordForgot(ctx context.Context, req *request.PasswordForgo
 		return nil, constant.ErrInternalServerError
 	}
 	if rate > int64(s.forgotRateLimit) {
-		return nil, constant.ErrTooManyRequests
+		return nil, constant.ErrPasswordResetRequestsExceeded
 	}
 	challengeID, err := randomID(24)
 	if err != nil {
@@ -2049,10 +2055,10 @@ func (s *Service) PasswordResetVerifyPIN(ctx context.Context, req *request.Passw
 		return nil, constant.ErrInternalServerError
 	}
 	if remainingTTLMS == -2 {
-		return nil, constant.ErrTooManyRequests
+		return nil, constant.ErrPasswordResetPINAttemptsExceeded
 	}
 	if remainingTTLMS <= 0 || userID == "" {
-		return nil, constant.ErrInvalidOTP
+		return nil, constant.ErrPasswordResetPINInvalidOrExpired
 	}
 
 	ulog.Infof(ctx, "password reset pin verified user_id=%s", userID)
@@ -2115,8 +2121,8 @@ func (s *Service) PasswordReset(ctx context.Context, req *request.PasswordResetR
 	}
 	newHash, err := s.hashPasswordScrypt(ctx, newPass)
 	if err != nil {
-		if err == constant.ErrTooManyRequests {
-			return constant.ErrTooManyRequests
+		if errors.Is(err, constant.ErrPasswordProcessingBusy) {
+			return constant.ErrPasswordProcessingBusy
 		}
 		return constant.ErrInternalServerError
 	}
@@ -2236,8 +2242,8 @@ func (s *Service) PasswordChange(ctx context.Context, userID string, req *reques
 
 	newHash, err := s.hashPasswordScrypt(ctx, newPass)
 	if err != nil {
-		if err == constant.ErrTooManyRequests {
-			return constant.ErrTooManyRequests
+		if errors.Is(err, constant.ErrPasswordProcessingBusy) {
+			return constant.ErrPasswordProcessingBusy
 		}
 		return constant.ErrInternalServerError
 	}

@@ -21,27 +21,34 @@ type CustomError struct {
 }
 
 func (m CustomError) Error() string {
+	if m.Message == "" {
+		return m.Code
+	}
 	return m.Message
 }
 
 func (m CustomError) ToResponse() BaseResponse {
 	msg := m.Code
 	if msg == "" {
-		msg = m.Message
+		msg = "INTERNAL_SERVER_ERROR"
 	}
 
 	detail := m.Detail
-	if detail == (MessageDetail{}) && m.Message != "" {
+	if detail == (MessageDetail{}) {
 		detail = MessageDetail{
-			TitleEng: "Error",
-			DescEng:  m.Message,
-			TitleIdn: "Error",
-			DescIdn:  m.Message,
+			TitleEng: "Request failed",
+			DescEng:  "The request could not be completed.",
+			TitleIdn: "Permintaan gagal",
+			DescIdn:  "Permintaan tidak dapat diselesaikan.",
 		}
+	}
+	statusCode := m.StatusCode
+	if statusCode < 400 || statusCode > 599 {
+		statusCode = 500
 	}
 
 	return BaseResponse{
-		StatusCode:    m.StatusCode,
+		StatusCode:    statusCode,
 		Message:       msg,
 		MessageDetail: detail,
 	}

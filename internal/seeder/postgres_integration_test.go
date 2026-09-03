@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -19,6 +21,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	appointmentrepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
@@ -139,6 +142,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			"doctor_hospital_invitation_events", "doctor_hospital_invitation_schedules",
 			"doctor_hospital_affiliations", "doctor_hospital_affiliation_events",
 			"doctor_hospital_schedules", "notifications",
+			"doctor_schedule_change_requests", "doctor_schedule_change_items",
+			"doctor_schedule_change_events", "appointment_daily_counters",
+			"appointments", "appointment_status_events", "appointment_reminders",
 		} {
 			var exists bool
 			if err := sqlDB.QueryRow(`SELECT TO_REGCLASS($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
@@ -203,14 +209,14 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM roles WHERE deleted_at IS NULL`); got != 7 {
 			t.Fatalf("active seeded roles = %d, want 7", got)
 		}
-		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM permissions WHERE deleted_at IS NULL`); got != 17 {
-			t.Fatalf("active seeded permissions = %d, want 17", got)
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM permissions WHERE deleted_at IS NULL`); got != 26 {
+			t.Fatalf("active seeded permissions = %d, want 26", got)
 		}
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM user_roles`); got != 4 {
 			t.Fatalf("seeded global role assignments = %d, want 4", got)
 		}
-		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM role_permissions`); got != 58 {
-			t.Fatalf("seeded role permission assignments = %d, want 58", got)
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM role_permissions`); got != 90 {
+			t.Fatalf("seeded role permission assignments = %d, want 90", got)
 		}
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM hospitals WHERE deleted_at IS NULL`); got != 2 {
 			t.Fatalf("active seeded hospitals = %d, want 2", got)
@@ -487,6 +493,98 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		}
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM users WHERE id = $1 AND seed_key IS NULL`, unownedCollisionID); got != 1 {
 			t.Fatal("failed demo reset changed the unowned colliding user")
+		}
+	}); !ok {
+		t.FailNow()
+	}
+
+	if ok := t.Run("appointment booking serializes competing patients", func(t *testing.T) {
+		t.Setenv("SUPERADMIN_EMAIL", "")
+		t.Setenv("SUPERADMIN_PASSWORD", "")
+		if err := ResetAllAndSeed(db); err != nil {
+			t.Fatalf("reset before appointment concurrency test: %v", err)
+		}
+		hospitalID := scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-001'`)
+		doctorID := scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'doctor001@medikaone.id'`)
+		adminID := scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'admin001@medikaone.id'`)
+		patientIDs := []string{
+			scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'patient001@medikaone.id'`),
+			scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'patient002@medikaone.id'`),
+		}
+		departmentID, invitationID, affiliationID, scheduleID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+		now := time.Now().UTC()
+		if _, err := sqlDB.Exec(`
+			INSERT INTO hospital_departments (id, hospital_id, code, name, created_at, updated_at)
+			VALUES ($1, $2, 'IT-APPT', 'Integration Appointment', $3, $3)`, departmentID, hospitalID, now); err != nil {
+			t.Fatalf("prepare appointment department: %v", err)
+		}
+		if _, err := sqlDB.Exec(`
+			INSERT INTO doctor_hospital_invitations (
+				id, hospital_id, doctor_id, department_id, invited_by, status, expires_at,
+				responded_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, 'ACCEPTED', $6, $7, $7, $7)`,
+			invitationID, hospitalID, doctorID, departmentID, adminID, now.Add(24*time.Hour), now); err != nil {
+			t.Fatalf("prepare appointment invitation: %v", err)
+		}
+		if _, err := sqlDB.Exec(`
+			INSERT INTO doctor_hospital_affiliations (
+				id, hospital_id, doctor_id, department_id, invitation_id, status,
+				joined_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6, $6)`,
+			affiliationID, hospitalID, doctorID, departmentID, invitationID, now); err != nil {
+			t.Fatalf("prepare appointment affiliation: %v", err)
+		}
+		if _, err := sqlDB.Exec(`
+			INSERT INTO doctor_hospital_schedules (
+				id, affiliation_id, day_of_week, start_time, end_time, timezone,
+				booking_mode, slot_duration_minutes, capacity, is_active, created_at, updated_at
+			) VALUES ($1, $2, 1, '08:00', '09:00', 'Asia/Jakarta', 'FIXED_SLOT', 30, 1, TRUE, $3, $3)`,
+			scheduleID, affiliationID, now); err != nil {
+			t.Fatalf("prepare appointment schedule: %v", err)
+		}
+		appointmentDate := "2026-09-07"
+		start := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
+		schedule := appointmentrepo.Schedule{
+			ID: scheduleID, AffiliationID: affiliationID, HospitalID: hospitalID,
+			HospitalCode: "HSP-MO-001", DoctorID: doctorID, DepartmentID: departmentID,
+			DayOfWeek: 1, StartTime: "08:00", EndTime: "09:00", Timezone: "Asia/Jakarta",
+			BookingMode: "FIXED_SLOT", SlotDurationMinutes: 30, Capacity: 1,
+		}
+		repo := appointmentrepo.NewRepository(db)
+		errs := make(chan error, len(patientIDs))
+		var wg sync.WaitGroup
+		for _, patientID := range patientIDs {
+			patientID := patientID
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _, err := repo.Book(context.Background(), appointmentrepo.BookInput{
+					PatientID: patientID, Schedule: schedule, AppointmentDate: appointmentDate,
+					ScheduledStartAt: start, ScheduledEndAt: start.Add(30 * time.Minute),
+					ReasonForVisit: "integration test", ConsentVersion: "it-v1",
+					IdempotencyKey: uuid.NewString(), IdempotencyRequestHash: strings.Repeat("a", 64), Now: now,
+				})
+				errs <- err
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		succeeded, rejected := 0, 0
+		for err := range errs {
+			switch {
+			case err == nil:
+				succeeded++
+			case errors.Is(err, appointmentrepo.ErrSlotUnavailable):
+				rejected++
+			default:
+				t.Fatalf("unexpected concurrent booking error: %v", err)
+			}
+		}
+		if succeeded != 1 || rejected != 1 {
+			t.Fatalf("concurrent bookings succeeded/rejected = %d/%d, want 1/1", succeeded, rejected)
+		}
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM appointments WHERE schedule_id = $1`, scheduleID); got != 1 {
+			t.Fatalf("persisted competing appointments = %d, want 1", got)
 		}
 	}); !ok {
 		t.FailNow()

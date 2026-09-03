@@ -10,7 +10,7 @@ Prasyarat:
 - PostgreSQL;
 - Redis lokal atau Redis Cloud;
 - akun SMTP jika alur registrasi/reset password ingin digunakan;
-- GNU Make dan shell yang menyediakan `cp` jika memakai contoh command singkat di bawah.
+- GNU Make jika ingin menggunakan target pada `Makefile`.
 
 Salin konfigurasi contoh:
 
@@ -21,10 +21,11 @@ cp config.yml.example config.yml
 Sesuaikan DSN PostgreSQL dan Redis, lalu jalankan:
 
 ```bash
-make migrate-up
-make seed
-make run
+make dev
 ```
+
+`make dev` menjalankan migration, seeder idempotent, lalu server. Alur yang sama
+dapat dijalankan terpisah dengan `make setup` kemudian `make server`.
 
 Alternatif PowerShell tanpa GNU Make:
 
@@ -35,6 +36,33 @@ go run . seed
 go run . server
 ```
 
+Perintah Make utama:
+
+| Perintah | Fungsi |
+| --- | --- |
+| `make help` | Menampilkan seluruh command yang tersedia |
+| `make server` / `make run` | Menjalankan API menggunakan `go run` |
+| `make setup` | Menjalankan migration dan seeder lokal |
+| `make dev` | Menjalankan setup lalu server untuk development lokal |
+| `make build` | Membuat binary `medikaone` atau `medikaone.exe` |
+| `make start` | Build lalu menjalankan binary server |
+| `make migrate` / `make migrate-up` | Menjalankan seluruh pending migration |
+| `make migrate-up-one` | Menjalankan satu pending migration |
+| `make migrate-up-to VERSION=...` | Menjalankan migration sampai versi tertentu |
+| `make migrate-status` | Menampilkan status Goose migration |
+| `make migrate-create NAME=...` | Membuat file migration baru |
+| `make seed` | Menjalankan seeder development secara idempotent |
+| `make check` | Menjalankan `go vet` dan seluruh test |
+| `make test-cover` | Menjalankan test dengan laporan coverage |
+| `make test-race` | Menjalankan race detector dan coverage |
+
+`make test-race` memerlukan compiler C yang kompatibel dengan CGO. Target ini
+tetap dijalankan oleh CI Linux apabila compiler tersebut belum tersedia di Windows.
+
+Target `dev` dan `setup` hanya untuk development lokal. Pada staging/production,
+jalankan `make migrate-up` dari job/operator terpisah sebelum menjalankan web
+server; jangan memberikan `DATABASE_ADMIN_DSN` kepada proses server.
+
 DBeaver hanya berfungsi sebagai client database. Buat/connect database PostgreSQL melalui DBeaver, tetapi migration dan seeder tetap dijalankan dari command aplikasi di atas.
 
 Server default berjalan pada `http://localhost:8080`. Endpoint operasional:
@@ -43,6 +71,11 @@ Server default berjalan pada `http://localhost:8080`. Endpoint operasional:
 - `GET /_internal/livez` - liveness;
 - `GET /_internal/readyz` - readiness PostgreSQL dan Redis;
 - `GET /_internal/healthz` - alias readiness untuk hosting lama.
+
+Kontrak kode dan pesan error API didokumentasikan di
+[`docs/api-error-contract.md`](docs/api-error-contract.md). Client harus
+melakukan branching menggunakan kode pada `message` dan menampilkan bahasa
+yang sesuai dari `message_detail`.
 
 ## Konfigurasi
 

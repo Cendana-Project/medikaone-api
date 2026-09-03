@@ -118,7 +118,8 @@ func TestValidateSchedulesRejectsOverlap(t *testing.T) {
 
 func TestValidateSchedulesEnforcesEntryLimit(t *testing.T) {
 	schedules := make([]request.DoctorInvitationScheduleRequest, MaxSchedules+1)
-	if _, err := validateSchedules(schedules); !errors.Is(err, constant.ErrValidationFailed) {
+	want := constant.NewInvalidFieldLengthError("schedules", "at most 50 items long", "memiliki maksimal 50 item")
+	if _, err := validateSchedules(schedules); !errors.Is(err, want) {
 		t.Fatalf("expected schedule count validation error, got %v", err)
 	}
 }
@@ -127,7 +128,8 @@ func TestNormalizeContractVersionRejectsUnknownVersion(t *testing.T) {
 	if version, err := normalizeContractVersion("SIGNED"); err != nil || version != "signed" {
 		t.Fatalf("expected signed version, got version=%q err=%v", version, err)
 	}
-	if _, err := normalizeContractVersion("preview"); !errors.Is(err, constant.ErrValidationFailed) {
+	want := constant.NewInvalidFieldValueError("version", "original or signed", "original atau signed")
+	if _, err := normalizeContractVersion("preview"); !errors.Is(err, want) {
 		t.Fatalf("expected invalid version error, got %v", err)
 	}
 }
