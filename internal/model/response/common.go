@@ -2,10 +2,6 @@ package response
 
 import "time"
 
-const (
-	MessageOK = "ok"
-)
-
 type MessageDetail struct {
 	TitleEng string `json:"title_eng,omitempty"`
 	DescEng  string `json:"desc_eng,omitempty"`
@@ -68,18 +64,6 @@ type BaseResponse struct {
 	Meta          any           `json:"meta,omitempty"`
 	TraceID       string        `json:"trace_id"`
 	Timestamp     time.Time     `json:"timestamp"`
-}
-
-func NewResponseOK() *BaseResponse {
-	return &BaseResponse{
-		Message: MessageOK,
-		MessageDetail: MessageDetail{
-			TitleEng: "SUCCESS",
-			DescEng:  "Operation completed successfully",
-			TitleIdn: "SUKSES",
-			DescIdn:  "Operasi berhasil diselesaikan",
-		},
-	}
 }
 
 type GetHealthCheckMemoryResp struct {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
-	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	hs "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
@@ -32,7 +31,7 @@ func (ctl *Controller) CreateHospital(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgHospitalCreated)
 	resp.Data = gin.H{
 		"id":          h.ID,
 		"code":        h.Code,
@@ -76,7 +75,7 @@ func (ctl *Controller) CreateHospitalAdmin(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgHospitalAdminCreated)
 	resp.StatusCode = http.StatusCreated
 	resp.Data = gin.H{"user_id": uid, "role": constant.RoleAdmin}
 	util.HandleResponse(c, resp, nil)
@@ -109,7 +108,7 @@ func (ctl *Controller) CreateHospitalStaff(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgHospitalStaffCreated)
 	resp.StatusCode = http.StatusCreated
 	resp.Data = gin.H{"user_id": uid, "role": req.Role}
 	util.HandleResponse(c, resp, nil)

@@ -75,9 +75,3 @@ func MapJSONDecodeError(err error) error {
 	}
 	return constant.ErrMalformedJSON
 }
-
-// Opsional: helper cepat untuk mengakhiri request dengan error validasi standar
-func AbortValidation(c *gin.Context) {
-	res := constant.ErrValidationError.ToResponse()
-	c.AbortWithStatusJSON(res.StatusCode, res)
-}

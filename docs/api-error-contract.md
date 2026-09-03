@@ -1,4 +1,32 @@
-# Kontrak Error API
+# Kontrak Pesan API
+
+Semua response MedikaOne memakai `message` sebagai kode mesin yang stabil dan
+`message_detail` sebagai teks bilingual untuk UI. Kode sukses dibuat spesifik
+untuk setiap outcome endpoint; kode error dibuat spesifik untuk setiap kondisi
+yang dapat ditindaklanjuti client.
+
+## Response sukses
+
+```json
+{
+  "message": "HOSPITAL_CREATED",
+  "message_detail": {
+    "title_eng": "Hospital created",
+    "desc_eng": "Hospital created.",
+    "title_idn": "Rumah sakit berhasil dibuat",
+    "desc_idn": "Rumah sakit berhasil dibuat."
+  },
+  "data": {"id": "..."},
+  "trace_id": "4d4f8638-1e52-4a67-9886-ab2f33a8c053",
+  "timestamp": "2026-09-04T00:00:00Z"
+}
+```
+
+Hasil retry idempoten mempunyai kode berbeda, misalnya
+`APPOINTMENT_CREATION_REPLAYED`, sehingga client dapat membedakannya dari
+resource yang benar-benar baru dibuat.
+
+## Response error
 
 Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 
@@ -52,5 +80,6 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 | `PASSWORD_PROCESSING_BUSY` | Retry dengan backoff singkat. |
 | `EMAIL_DELIVERY_BUSY` | Retry pengiriman email dengan backoff singkat. |
 
-Error statis didefinisikan di `internal/constant/custom_error.constant.go` dan
+Pesan sukses didefinisikan di `internal/constant/message.constant.go`. Error
+statis didefinisikan di `internal/constant/custom_error.constant.go` dan
 dirender hanya melalui `internal/util/error.go`.

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 	"github.com/gin-gonic/gin"
 )
@@ -16,19 +16,11 @@ func NewController() *Controller {
 }
 
 func (c *Controller) Ping(ctx *gin.Context) {
-	resp := response.BaseResponse{
-		StatusCode: http.StatusOK,
-		Message:    "pong",
-		MessageDetail: response.MessageDetail{
-			TitleEng: "PONG",
-			DescEng:  "Service is alive and ready",
-			TitleIdn: "PONG",
-			DescIdn:  "Layanan aktif dan siap",
-		},
-		Data: map[string]interface{}{
-			"timestamp": time.Now().Unix(),
-			"status":    "ok",
-		},
+	resp := constant.NewSuccessResponse(constant.MsgServiceHealthy)
+	resp.StatusCode = http.StatusOK
+	resp.Data = map[string]interface{}{
+		"timestamp": time.Now().Unix(),
+		"status":    "ok",
 	}
-	util.HandleResponse(ctx, &resp, nil)
+	util.HandleResponse(ctx, resp, nil)
 }

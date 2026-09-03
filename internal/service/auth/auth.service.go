@@ -1680,7 +1680,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, idempotencyKey stri
 func (s *Service) ChooseRole(ctx context.Context, userID, roleSlug string) error {
 	roleSlug = strings.ToUpper(strings.TrimSpace(roleSlug))
 	if roleSlug != constant.RolePatient {
-		return constant.ErrForbidden
+		return constant.ErrSelfServicePatientRoleOnly
 	}
 	r, err := s.roles.FindBySlug(ctx, constant.RolePatient)
 	if err != nil || r == nil || !r.Active {
@@ -1785,7 +1785,7 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 	}
 	role := strings.ToUpper(strings.TrimSpace(roleSlugUpper))
 	if role != constant.RolePatient {
-		return nil, constant.ErrForbidden
+		return nil, constant.ErrSelfServicePatientRoleOnly
 	}
 
 	var req request.PatientProfileRequest
@@ -2230,7 +2230,7 @@ func (s *Service) PasswordChange(ctx context.Context, userID string, req *reques
 		return constant.ErrUserNotFound
 	}
 	if !strings.EqualFold(u.Status, "active") {
-		return constant.ErrForbidden
+		return constant.ErrAccountInactive
 	}
 	if ulog.IsPasswordSimilarToUserInfo(newPass, valueOrEmpty(u.Username), u.Email) {
 		return constant.ErrPasswordSimilarToUserInfo
@@ -2252,7 +2252,7 @@ func (s *Service) PasswordChange(ctx context.Context, userID string, req *reques
 		return constant.ErrInternalServerError
 	}
 	if !updated {
-		return constant.ErrForbidden
+		return constant.ErrAccountInactive
 	}
 	if err := s.revokeAllRefresh(ctx, userID); err != nil {
 		return constant.ErrInternalServerError

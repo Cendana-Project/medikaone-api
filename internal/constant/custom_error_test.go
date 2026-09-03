@@ -59,6 +59,7 @@ func TestDynamicValidationErrorsAreFieldSpecific(t *testing.T) {
 		{name: "required", field: "challenge_id", err: NewFieldRequiredError("challenge_id")},
 		{name: "unknown", field: "otp", err: NewUnknownFieldError("otp")},
 		{name: "type", field: "pin", err: NewInvalidFieldTypeError("pin", "string")},
+		{name: "duplicate", field: "medical_record_number", err: NewDuplicateFieldValueError("medical_record_number")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -69,5 +70,17 @@ func TestDynamicValidationErrorsAreFieldSpecific(t *testing.T) {
 				t.Fatalf("dynamic error does not identify field %q: %#v", test.field, test.err.Detail)
 			}
 		})
+	}
+}
+
+func TestRequiredPermissionErrorNamesAcceptedPermissions(t *testing.T) {
+	err := NewRequiredPermissionError("appointment.view", "appointment.manage")
+	if err.Code != "REQUIRED_PERMISSION_MISSING" {
+		t.Fatalf("code = %q", err.Code)
+	}
+	for _, permission := range []string{"appointment.view", "appointment.manage"} {
+		if !strings.Contains(err.Detail.DescEng, permission) || !strings.Contains(err.Detail.DescIdn, permission) {
+			t.Fatalf("permission %q is missing from detail: %#v", permission, err.Detail)
+		}
 	}
 }

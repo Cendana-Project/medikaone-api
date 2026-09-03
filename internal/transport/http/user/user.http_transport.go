@@ -39,7 +39,7 @@ func (ctl *Controller) UpdatePatientProfile(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPatientProfileUpdated)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"updated": true}
 	util.HandleResponse(c, resp, nil)
@@ -57,7 +57,7 @@ func (ctl *Controller) UpdateDoctorProfile(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgDoctorProfileUpdated)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"updated": true}
 	util.HandleResponse(c, resp, nil)
@@ -123,7 +123,7 @@ func (ctl *Controller) Me(c *gin.Context) {
 		})
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgUserProfileRetrieved)
 	resp.StatusCode = http.StatusOK
 	resp.Data = dto
 	util.HandleResponse(c, resp, nil)
@@ -199,7 +199,7 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 	}
 	roleSlug = strings.ToUpper(roleSlug)
 	if roleSlug == "" {
-		util.HandleError(c, constant.ErrForbidden)
+		util.HandleError(c, constant.ErrHospitalMembershipRoleRequired)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		}
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgTenantProfileRetrieved)
 	resp.StatusCode = http.StatusOK
 	resp.Data = dto
 	util.HandleResponse(c, resp, nil)
