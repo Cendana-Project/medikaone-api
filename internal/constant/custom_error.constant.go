@@ -270,4 +270,61 @@ var (
 		Message:    "internal server error",
 		Detail:     GetMessageDetail(MsgInternalServerError),
 	}
+
+	// ====== Doctor hospital registration ======
+	ErrDoctorNotEligible = response.CustomError{
+		Code:       "DOCTOR_NOT_ELIGIBLE",
+		StatusCode: http.StatusUnprocessableEntity,
+		Message:    "doctor account must be active, verified, have the DOCTOR role, and have a SIP number",
+	}
+	ErrDoctorInvitationNotFound = response.CustomError{
+		Code:       "DOCTOR_INVITATION_NOT_FOUND",
+		StatusCode: http.StatusNotFound,
+		Message:    "doctor hospital invitation not found",
+	}
+	ErrDoctorInvitationExists = response.CustomError{
+		Code:       "DOCTOR_INVITATION_ALREADY_EXISTS",
+		StatusCode: http.StatusConflict,
+		Message:    "an open invitation or hospital affiliation already exists for this doctor",
+	}
+	ErrDoctorInvitationExpired = response.CustomError{
+		Code:       "DOCTOR_INVITATION_EXPIRED",
+		StatusCode: http.StatusConflict,
+		Message:    "doctor hospital invitation has expired",
+	}
+	ErrInvalidDoctorInvitationState = response.CustomError{
+		Code:       "INVALID_DOCTOR_INVITATION_STATE",
+		StatusCode: http.StatusConflict,
+		Message:    "doctor hospital invitation cannot perform this action in its current state",
+	}
+	ErrHospitalPlacementNotFound = response.CustomError{
+		Code:       "HOSPITAL_PLACEMENT_NOT_FOUND",
+		StatusCode: http.StatusNotFound,
+		Message:    "department or room was not found in this hospital",
+	}
+	ErrDoctorScheduleConflict = response.CustomError{
+		Code:       "DOCTOR_SCHEDULE_CONFLICT",
+		StatusCode: http.StatusConflict,
+		Message:    "the proposed schedule conflicts with an active doctor schedule",
+	}
+	ErrInvalidContractPDF = response.CustomError{
+		Code:       "INVALID_CONTRACT_PDF",
+		StatusCode: http.StatusBadRequest,
+		Message:    "contract must be a valid PDF no larger than 10 MB",
+	}
+	ErrStorageUnavailable = response.CustomError{
+		Code:       "STORAGE_UNAVAILABLE",
+		StatusCode: http.StatusBadGateway,
+		Message:    "document storage is temporarily unavailable",
+	}
+	ErrAffiliationNotFound = response.CustomError{
+		Code:       "DOCTOR_AFFILIATION_NOT_FOUND",
+		StatusCode: http.StatusNotFound,
+		Message:    "doctor hospital affiliation not found",
+	}
+	ErrNotificationNotFound = response.CustomError{
+		Code:       "NOTIFICATION_NOT_FOUND",
+		StatusCode: http.StatusNotFound,
+		Message:    "notification not found",
+	}
 )

@@ -180,8 +180,8 @@ func (s *Service) CreateHospitalAdmin(ctx context.Context, req request.CreateHos
 }
 
 // CreateHospitalStaff validates the tenant role before writing and commits the
-// user, membership, and role assignment atomically. DOCTOR is intentionally a
-// valid hospital staff role.
+// user, membership, and role assignment atomically. Doctors use the dedicated
+// invitation and signed-contract workflow instead of this generic endpoint.
 func (s *Service) CreateHospitalStaff(ctx context.Context, req request.CreateHospitalStaffRequest) (string, error) {
 	if strings.TrimSpace(req.Email) == "" ||
 		strings.TrimSpace(req.Password) == "" ||
@@ -248,8 +248,7 @@ func (s *Service) CreateHospitalStaff(ctx context.Context, req request.CreateHos
 func normalizeHospitalStaffRole(role string) (string, bool) {
 	slug := strings.ToUpper(strings.TrimSpace(role))
 	switch slug {
-	case constant.RoleDoctor,
-		constant.RoleNurse,
+	case constant.RoleNurse,
 		constant.RoleReceptionist,
 		constant.RoleBOD:
 		return slug, true

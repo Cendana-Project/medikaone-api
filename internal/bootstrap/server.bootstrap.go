@@ -13,13 +13,17 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/email"
 	"github.com/Cendana-Project/medikaone-api/internal/infrastructure"
+	doctorHospitalRepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	authSvc "github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	doctorHospitalSvc "github.com/Cendana-Project/medikaone-api/internal/service/doctor_hospital"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
+	storageclient "github.com/Cendana-Project/medikaone-api/internal/storage"
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
 	authHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
+	doctorHospitalHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
 	userHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
@@ -50,6 +54,11 @@ func runServer(parent context.Context) (returnErr error) {
 	uRepo := userRepo.NewRepository(gormDB)
 	rRepo := roleRepo.NewRepository(gormDB)
 	hRepo := hospRepo.NewRepository(gormDB)
+	dhRepo := doctorHospitalRepo.NewRepository(gormDB)
+	privateStorage, err := storageclient.NewSupabaseClient(config.Env.Storage)
+	if err != nil {
+		return fmt.Errorf("configure private storage: %w", err)
+	}
 	sender := email.NewSMTPSender(&email.Config{
 		Enabled:     config.Env.SMTP.Enabled,
 		Host:        config.Env.SMTP.Host,
@@ -64,9 +73,17 @@ func runServer(parent context.Context) (returnErr error) {
 
 	authService := authSvc.NewService(uRepo, rRepo, rdb, sender, hRepo)
 	hospitalService := hospSvc.NewService(uRepo, rRepo, hRepo)
+	doctorHospitalService := doctorHospitalSvc.NewService(
+		dhRepo,
+		privateStorage,
+		sender,
+		storageclient.MaxFileSize(config.Env.Storage),
+		storageclient.SignedURLTTL(config.Env.Storage),
+	)
 	authController := authHTTP.NewController(authService, uRepo)
 	userController := userHTTP.NewController(authService, uRepo)
 	hospitalController := hospHTTP.NewController(hospitalService)
+	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
 	warmupController := warmupHTTP.NewController()
 
 	httpTransport.NewTransport().
@@ -74,6 +91,7 @@ func runServer(parent context.Context) (returnErr error) {
 		WithAuthController(authController).
 		WithUserController(userController).
 		WithHospitalController(hospitalController).
+		WithDoctorHospitalController(doctorHospitalController).
 		WithWarmupController(warmupController).
 		WithRoleRepository(rRepo).
 		WithHospitalRepository(hRepo).
