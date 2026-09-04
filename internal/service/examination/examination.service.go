@@ -575,6 +575,8 @@ func mapError(err error) error {
 		return constant.ErrConsultationRevisionNotFound
 	case errors.Is(err, repository.ErrAttachmentNotFound):
 		return constant.ErrMedicalAttachmentNotFound
+	case errors.Is(err, repository.ErrPrescriptionDecisionRequired):
+		return constant.ErrPrescriptionDecisionRequired
 	default:
 		return constant.ErrInternalServerError
 	}

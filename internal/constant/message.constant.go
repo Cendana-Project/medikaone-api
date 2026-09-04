@@ -103,6 +103,19 @@ const (
 	MsgMedicalRecordRetrieved        MessageCode = "MEDICAL_RECORD_RETRIEVED"
 	MsgMedicalAttachmentUploaded     MessageCode = "MEDICAL_ATTACHMENT_UPLOADED"
 	MsgMedicalAttachmentURLRetrieved MessageCode = "MEDICAL_ATTACHMENT_URL_RETRIEVED"
+
+	MsgMedicationCatalogCreated          MessageCode = "MEDICATION_CATALOG_CREATED"
+	MsgMedicationCatalogUpdated          MessageCode = "MEDICATION_CATALOG_UPDATED"
+	MsgMedicationCatalogListed           MessageCode = "MEDICATION_CATALOG_LISTED"
+	MsgPrescriptionDraftSaved            MessageCode = "PRESCRIPTION_DRAFT_SAVED"
+	MsgNoMedicationRecorded              MessageCode = "NO_MEDICATION_RECORDED"
+	MsgPrescriptionIssued                MessageCode = "PRESCRIPTION_ISSUED"
+	MsgPrescriptionCorrected             MessageCode = "PRESCRIPTION_CORRECTED"
+	MsgPrescriptionCancelled             MessageCode = "PRESCRIPTION_CANCELLED"
+	MsgPrescriptionRetrieved             MessageCode = "PRESCRIPTION_RETRIEVED"
+	MsgPrescriptionsListed               MessageCode = "PRESCRIPTIONS_LISTED"
+	MsgPrescriptionDocumentURLRetrieved  MessageCode = "PRESCRIPTION_DOCUMENT_URL_RETRIEVED"
+	MsgPrescriptionVerificationCompleted MessageCode = "PRESCRIPTION_VERIFICATION_COMPLETED"
 )
 
 func successDetail(titleEng, titleIdn string) response.MessageDetail {
@@ -204,6 +217,18 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgMedicalRecordRetrieved:                successDetail("Medical record retrieved", "Rekam medis berhasil diambil"),
 	MsgMedicalAttachmentUploaded:             successDetail("Medical attachment uploaded", "Lampiran medis berhasil diunggah"),
 	MsgMedicalAttachmentURLRetrieved:         successDetail("Medical attachment URL retrieved", "URL lampiran medis berhasil diambil"),
+	MsgMedicationCatalogCreated:              successDetail("Medication catalogue entry created", "Obat katalog berhasil dibuat"),
+	MsgMedicationCatalogUpdated:              successDetail("Medication catalogue entry updated", "Obat katalog berhasil diperbarui"),
+	MsgMedicationCatalogListed:               successDetail("Medication catalogue retrieved", "Daftar katalog obat berhasil diambil"),
+	MsgPrescriptionDraftSaved:                successDetail("Prescription draft saved", "Draft resep berhasil disimpan"),
+	MsgNoMedicationRecorded:                  successDetail("No-medication decision recorded", "Keputusan tanpa obat berhasil dicatat"),
+	MsgPrescriptionIssued:                    successDetail("Prescription issued", "Resep berhasil diterbitkan"),
+	MsgPrescriptionCorrected:                 successDetail("Prescription correction issued", "Koreksi resep berhasil diterbitkan"),
+	MsgPrescriptionCancelled:                 successDetail("Prescription cancelled", "Resep berhasil dibatalkan"),
+	MsgPrescriptionRetrieved:                 successDetail("Prescription retrieved", "Resep berhasil diambil"),
+	MsgPrescriptionsListed:                   successDetail("Prescriptions retrieved", "Daftar resep berhasil diambil"),
+	MsgPrescriptionDocumentURLRetrieved:      successDetail("Prescription PDF URL retrieved", "URL PDF resep berhasil diambil"),
+	MsgPrescriptionVerificationCompleted:     successDetail("Prescription verification completed", "Verifikasi resep berhasil diselesaikan"),
 }
 
 func GetMessageDetail(code MessageCode) response.MessageDetail {

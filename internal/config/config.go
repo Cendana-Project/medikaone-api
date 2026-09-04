@@ -105,6 +105,7 @@ type Redis struct {
 
 type Server struct {
 	Port               string        `mapstructure:"port"`
+	BaseURL            string        `mapstructure:"base_url"`
 	CORSAllowedOrigins []string      `mapstructure:"cors_allowed_origins"`
 	ClientIPHeader     string        `mapstructure:"client_ip_header"`
 	ReadHeaderTimeout  time.Duration `mapstructure:"read_header_timeout"`
@@ -348,6 +349,7 @@ func bindEnvVariables(v *viper.Viper) {
 		"log_level":                   "LOG_LEVEL",
 		"graceful_shutdown_timeout":   "GRACEFUL_SHUTDOWN_TIMEOUT",
 		"server.cors_allowed_origins": "SERVER_CORS_ALLOWED_ORIGINS",
+		"server.base_url":             "SERVER_BASE_URL",
 		"server.client_ip_header":     "SERVER_CLIENT_IP_HEADER",
 		"server.read_header_timeout":  "SERVER_READ_HEADER_TIMEOUT",
 		"server.read_timeout":         "SERVER_READ_TIMEOUT",
@@ -424,6 +426,7 @@ func normalize(c *EnvConfig) {
 	c.Env = strings.ToLower(strings.TrimSpace(c.Env))
 	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
 	c.Server.Port = strings.TrimSpace(c.Server.Port)
+	c.Server.BaseURL = strings.TrimRight(strings.TrimSpace(c.Server.BaseURL), "/")
 	c.Server.ClientIPHeader = strings.TrimSpace(c.Server.ClientIPHeader)
 	c.Database.DSN = strings.TrimSpace(c.Database.DSN)
 	c.Database.AdminDSN = strings.TrimSpace(c.Database.AdminDSN)
@@ -476,6 +479,15 @@ func (c *EnvConfig) Validate() error {
 	}
 	if len(c.Server.CORSAllowedOrigins) == 0 {
 		errs = append(errs, fmt.Errorf("server.cors_allowed_origins must contain at least one origin"))
+	}
+	if requireTransportSecurity && c.Server.BaseURL == "" {
+		errs = append(errs, fmt.Errorf("server.base_url is required in staging and production"))
+	} else if c.Server.BaseURL != "" {
+		if err := validateURL(c.Server.BaseURL, "server.base_url", "https", "http"); err != nil {
+			errs = append(errs, err)
+		} else if requireTransportSecurity && !strings.HasPrefix(strings.ToLower(c.Server.BaseURL), "https://") {
+			errs = append(errs, fmt.Errorf("server.base_url must use HTTPS in staging and production"))
+		}
 	}
 	for _, origin := range c.Server.CORSAllowedOrigins {
 		if err := validateOrigin(origin, requireTransportSecurity); err != nil {

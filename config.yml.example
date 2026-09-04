@@ -5,6 +5,8 @@ graceful_shutdown_timeout: "30s"
 
 server:
   port: "8080"
+  # Used in prescription verification QR codes. Production/staging must use HTTPS.
+  base_url: "http://localhost:8080"
   cors_allowed_origins:
     - "http://localhost:3000"
     - "http://localhost:5173"

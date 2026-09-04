@@ -149,6 +149,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			"patient_records", "patient_record_events",
 			"medical_encounters", "vital_sign_revisions", "consultation_note_revisions",
 			"encounter_diagnoses", "medical_record_attachments", "medical_record_audit_events",
+			"hospital_medications", "prescriptions", "prescription_revisions",
+			"prescription_items", "prescription_item_components",
+			"prescription_documents", "prescription_audit_events",
 		} {
 			var exists bool
 			if err := sqlDB.QueryRow(`SELECT TO_REGCLASS($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {

@@ -328,6 +328,37 @@ dan encounter. API hanya mengembalikan signed URL berdurasi pendek setelah
 otorisasi; object storage tidak boleh dibuat public. Bucket rekam medis wajib
 terpisah dari bucket kontrak dokter.
 
+## Resep elektronik
+
+Dokter pemilik appointment dapat membuat draft resep setelah diagnosis utama
+tersimpan. Sebelum pemeriksaan diselesaikan, dokter wajib menerbitkan resep atau
+mencatat keputusan `NO_MEDICATION` beserta alasannya. Satu encounter memiliki
+satu agregat resep; koreksi membuat revision baru dan tidak menimpa revision
+yang telah terbit. Pembatalan juga mempertahankan isi, dokumen, serta audit
+trail. Admin dan perawat hanya dapat melihat/mencetak, sedangkan resepsionis
+tidak memiliki akses resep.
+
+Issue, koreksi, dan pembatalan menerima `expected_revision_id` dari response
+draft/detail terbaru. Nilai ini menjadi optimistic lock agar request paralel
+atau UI yang stale tidak menerbitkan maupun membatalkan revision yang salah.
+Setiap penyimpanan ulang draft menghasilkan revision ID baru.
+
+Katalog obat bersifat per rumah sakit dan dikelola admin. Isi resep menyimpan
+snapshot nama, bentuk sediaan, serta kekuatan sehingga perubahan katalog tidak
+mengubah histori. Saat terbit, identitas pasien, rumah sakit, dokter/SIP, dan
+alergi yang ditinjau juga di-snapshot agar PDF dan verifikasi tidak berubah
+ketika profil diedit kemudian. Item `NON_COMPOUND` dan racikan `COMPOUND` didukung. Obat
+narkotika/psikotropika ditolak pada fase ini; stok, harga, dispensing, dan
+pembayaran belum termasuk.
+
+Saat issue atau koreksi, server menghasilkan PDF dan QR verifikasi, mengunggah
+PDF ke bucket private Supabase `medical-records`, lalu menyimpan metadata dan
+SHA-256 dokumen dalam transaksi penerbitan. Jika upload atau transaksi gagal,
+resep tidak menjadi terbit dan object yatim dibersihkan. Akses cetak selalu
+melalui signed URL. Set `SERVER_BASE_URL` (HTTPS pada staging/production) agar
+QR berisi URL endpoint verifikasi publik. Token QR acak tidak disimpan mentah;
+database hanya menyimpan hash SHA-256 token revision aktif.
+
 ## Seeder dan reset staging
 
 Credential akun fixture privileged memang sengaja hardcoded untuk mempermudah development/staging saat ini. Ini adalah keputusan desain sementara, bukan secret production; command `seed` menolak berjalan pada `ENV=production`.
@@ -393,7 +424,7 @@ CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integrat
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Kode baru membaca kolom dari migration `20260901010000_harden_user_hospitals.sql`, jadi migration wajib selesai sebelum server baru menerima traffic.
+- Server memerlukan migration terbaru `20260905090000_prescription.sql`; jalankan migration sebelum deployment baru menerima traffic.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
 - Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.

@@ -196,6 +196,21 @@ func TestValidateRequiresTrustedClientIPHeaderForSecureProxyRateLimit(t *testing
 	}
 }
 
+func TestValidateRequiresPublicBaseURLInSecureEnvironment(t *testing.T) {
+	cfg := validConfig()
+	cfg.Env = "staging"
+	cfg.Server.BaseURL = ""
+	cfg.Server.CORSAllowedOrigins = []string{"https://staging.example.com"}
+	cfg.Server.ClientIPHeader = "X-Forwarded-For"
+	cfg.Database.DSN = "postgresql://user:pass@db.example.com/app?sslmode=verify-full"
+	cfg.Redis.CacheDSN = "rediss://default:secret@redis.example.com:6379"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "server.base_url is required") {
+		t.Fatalf("Validate() error = %v, want missing public base URL rejection", err)
+	}
+}
+
 func TestValidateAllowsServerWithoutAdminDSNButRejectsPooledAdminDSN(t *testing.T) {
 	cfg := validConfig()
 	cfg.Env = "staging"
@@ -348,6 +363,7 @@ func validConfig() *EnvConfig {
 		GracefulShutdownTimeout: 30 * time.Second,
 		Server: Server{
 			Port:               "8080",
+			BaseURL:            "https://api.example.com",
 			CORSAllowedOrigins: []string{"http://localhost:3000"},
 			ReadHeaderTimeout:  5 * time.Second,
 			ReadTimeout:        15 * time.Second,

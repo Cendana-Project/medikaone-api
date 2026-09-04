@@ -16,6 +16,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
@@ -28,6 +29,17 @@ return value`)
 // limits in the auth service. Redis is used so the limit is shared by every
 // application instance.
 func RateLimitPublicAuthByIP(rdb *redis.Client, limit int, window time.Duration, clientIPHeader string) gin.HandlerFunc {
+	return rateLimitPublicByIP(rdb, limit, window, clientIPHeader, "auth:public:ip:", constant.ErrPublicAuthRateLimitExceeded, true)
+}
+
+// RateLimitPublicPrescriptionVerificationByIP prevents a public verification
+// endpoint from becoming an unbounded database lookup oracle. It uses a
+// separate namespace so verification traffic cannot lock users out of auth.
+func RateLimitPublicPrescriptionVerificationByIP(rdb *redis.Client, limit int, window time.Duration, clientIPHeader string) gin.HandlerFunc {
+	return rateLimitPublicByIP(rdb, limit, window, clientIPHeader, "prescription:verify:ip:", constant.ErrTooManyRequests, false)
+}
+
+func rateLimitPublicByIP(rdb *redis.Client, limit int, window time.Duration, clientIPHeader, namespace string, limitError response.CustomError, attachFingerprint bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if rdb == nil || limit <= 0 || window <= 0 {
 			resp := constant.ErrInternalServerError.ToResponse()
@@ -44,7 +56,7 @@ func RateLimitPublicAuthByIP(rdb *redis.Client, limit int, window time.Duration,
 			return
 		}
 		clientFingerprint := clientIPFingerprint(clientIP, []byte(config.Env.JWT.Secret))
-		key := config.AuthRedisKeyPrefix() + "auth:public:ip:" + clientFingerprint
+		key := config.AuthRedisKeyPrefix() + namespace + clientFingerprint
 		seconds := durationSecondsCeil(window)
 		count, err := publicIPRateScript.Run(c.Request.Context(), rdb, []string{key}, seconds).Int64()
 		if err != nil {
@@ -57,15 +69,17 @@ func RateLimitPublicAuthByIP(rdb *redis.Client, limit int, window time.Duration,
 			if ttl, err := rdb.TTL(c.Request.Context(), key).Result(); err == nil && ttl > 0 {
 				c.Header("Retry-After", strconv.FormatInt(durationSecondsCeil(ttl), 10))
 			}
-			resp := constant.ErrPublicAuthRateLimitExceeded.ToResponse()
+			resp := limitError.ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return
 		}
 
-		c.Request = c.Request.WithContext(context.WithValue(
-			c.Request.Context(), constant.ClientFingerprint, clientFingerprint,
-		))
+		if attachFingerprint {
+			c.Request = c.Request.WithContext(context.WithValue(
+				c.Request.Context(), constant.ClientFingerprint, clientFingerprint,
+			))
+		}
 		c.Next()
 	}
 }
