@@ -17,20 +17,28 @@ import (
 )
 
 var (
-	ErrScheduleNotFound           = errors.New("active doctor schedule not found")
-	ErrAffiliationNotFound        = errors.New("active doctor affiliation not found")
-	ErrSlotUnavailable            = errors.New("appointment slot unavailable")
-	ErrPatientTimeConflict        = errors.New("patient already has an overlapping appointment")
-	ErrAppointmentNotFound        = errors.New("appointment not found")
-	ErrInvalidAppointmentState    = errors.New("invalid appointment state")
-	ErrInvalidVerification        = errors.New("invalid or used appointment verification")
-	ErrIdempotencyConflict        = errors.New("idempotency key reused with another request")
-	ErrScheduleChangeNotFound     = errors.New("schedule change request not found")
-	ErrScheduleChangeExists       = errors.New("pending schedule change exists")
-	ErrInvalidScheduleChangeState = errors.New("invalid schedule change state")
-	ErrScheduleChangeOwnApproval  = errors.New("schedule change requires counterpart review")
-	ErrScheduleChangeAppointments = errors.New("schedule change has active appointments")
-	ErrDoctorScheduleConflict     = errors.New("doctor schedule conflicts with another affiliation")
+	ErrScheduleNotFound              = errors.New("active doctor schedule not found")
+	ErrAffiliationNotFound           = errors.New("active doctor affiliation not found")
+	ErrSlotUnavailable               = errors.New("appointment slot unavailable")
+	ErrPatientTimeConflict           = errors.New("patient already has an overlapping appointment")
+	ErrAppointmentNotFound           = errors.New("appointment not found")
+	ErrInvalidAppointmentState       = errors.New("invalid appointment state")
+	ErrInvalidVerification           = errors.New("invalid or used appointment verification")
+	ErrAppointmentAlreadyCheckedIn   = errors.New("appointment already checked in")
+	ErrIdempotencyConflict           = errors.New("idempotency key reused with another request")
+	ErrPatientRecordNotFound         = errors.New("patient record not found")
+	ErrPatientRecordClaimed          = errors.New("patient record already claimed")
+	ErrPatientIdentityMismatch       = errors.New("patient identity does not match")
+	ErrWalkInPatientNotFound         = errors.New("walk-in patient not found")
+	ErrWalkInPatientIdentityConflict = errors.New("walk-in patient identity conflicts with an existing record")
+	ErrWalkInCapacityFull            = errors.New("walk-in capacity is full")
+	ErrWalkInCapacityForbidden       = errors.New("walk-in capacity override is forbidden")
+	ErrScheduleChangeNotFound        = errors.New("schedule change request not found")
+	ErrScheduleChangeExists          = errors.New("pending schedule change exists")
+	ErrInvalidScheduleChangeState    = errors.New("invalid schedule change state")
+	ErrScheduleChangeOwnApproval     = errors.New("schedule change requires counterpart review")
+	ErrScheduleChangeAppointments    = errors.New("schedule change has active appointments")
+	ErrDoctorScheduleConflict        = errors.New("doctor schedule conflicts with another affiliation")
 )
 
 type Repository struct{ db *gorm.DB }
@@ -73,6 +81,8 @@ type ReservedCount struct {
 
 type BookInput struct {
 	PatientID              string
+	PatientRecordID        string
+	CreatedBy              string
 	Schedule               Schedule
 	AppointmentDate        string
 	ScheduledStartAt       time.Time
@@ -95,6 +105,77 @@ type AppointmentFilter struct {
 	Status     string
 	Date       string
 	Limit      int
+}
+
+type QueueFilter struct {
+	HospitalID   string
+	Date         string
+	DoctorID     string
+	DepartmentID string
+	Status       string
+	BookingMode  string
+	Reference    string
+	Page         int
+	Limit        int
+}
+
+type CheckInIdentityFilter struct {
+	MedikaOneID    string
+	NIK            string
+	IdentityType   string
+	IdentityNumber string
+	Email          string
+	Phone          string
+	Name           string
+	DateOfBirth    string
+}
+
+type PatientRecord struct {
+	ID                       string
+	UserID                   *string
+	CreatedAtHospitalID      *string
+	FirstName                string
+	LastName                 string
+	Email                    *string
+	Phone                    string
+	DateOfBirth              string
+	Gender                   string
+	IdentityType             string
+	IdentityNumber           string
+	IdentityNumberNormalized string
+	ClaimedAt                *time.Time
+	CreatedAt                time.Time
+}
+
+type WalkInPatientInput struct {
+	PatientRecordID    string
+	MedikaOneID        string
+	FirstName          string
+	LastName           string
+	Email              *string
+	Phone              string
+	DateOfBirth        string
+	Gender             string
+	IdentityType       string
+	IdentityNumber     string
+	IdentityNormalized string
+}
+
+type WalkInInput struct {
+	ActorID                string
+	Patient                WalkInPatientInput
+	Schedule               Schedule
+	AppointmentDate        string
+	ScheduledStartAt       time.Time
+	ScheduledEndAt         time.Time
+	ReasonForVisit         string
+	Note                   *string
+	ConsentVersion         string
+	IdempotencyKey         string
+	IdempotencyRequestHash string
+	CapacityOverride       bool
+	CapacityOverrideReason *string
+	Now                    time.Time
 }
 
 type ScheduleChangeInput struct {
@@ -120,7 +201,8 @@ type ScheduleItem struct {
 
 const appointmentSelect = `
 	SELECT appointment.id, appointment.appointment_number, appointment.patient_id,
-	       TRIM(CONCAT_WS(' ', patient.first_name, patient.last_name)) AS patient_name,
+	       appointment.patient_record_id,
+	       TRIM(CONCAT_WS(' ', patient_record.first_name, patient_record.last_name)) AS patient_name,
 	       appointment.affiliation_id, appointment.schedule_id, appointment.hospital_id,
 	       hospital.name AS hospital_name, appointment.doctor_id,
 	       TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
@@ -130,15 +212,18 @@ const appointmentSelect = `
 	       appointment.scheduled_start_at, appointment.scheduled_end_at, schedule.timezone,
 	       appointment.booking_mode, appointment.queue_number,
 	       appointment.queue_activated_at IS NOT NULL AS queue_active,
-	       appointment.status, appointment.attendance_status,
+	       appointment.status, appointment.attendance_status, appointment.source,
 	       appointment.reason_for_visit, appointment.note,
 	       appointment.consent_version, appointment.consented_at,
+	       appointment.check_in_method, appointment.check_in_override_reason,
+	       appointment.capacity_overridden, appointment.capacity_override_reason,
 	       appointment.checked_in_at, appointment.cancelled_at,
 	       appointment.cancellation_reason, appointment.completed_at,
 	       appointment.rescheduled_from_id, appointment.rescheduled_to_id,
 	       appointment.created_at, appointment.updated_at
 	FROM appointments appointment
-	JOIN users patient ON patient.id = appointment.patient_id
+	JOIN patient_records patient_record ON patient_record.id = appointment.patient_record_id
+	LEFT JOIN users patient ON patient.id = appointment.patient_id
 	JOIN users doctor ON doctor.id = appointment.doctor_id
 	JOIN hospitals hospital ON hospital.id = appointment.hospital_id
 	JOIN hospital_departments department ON department.id = appointment.department_id
@@ -239,11 +324,22 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	// Serialize all booking mutations for a patient. Besides preventing
 	// overlapping appointments across different hospitals, this makes the
 	// idempotency lookup and insert atomic for concurrent retries.
+	patientLockKey := input.PatientID
+	if patientLockKey == "" {
+		patientLockKey = input.PatientRecordID
+	}
 	if err := tx.WithContext(ctx).Exec(
 		`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`,
-		"appointment:patient:"+input.PatientID,
+		"appointment:patient:"+patientLockKey,
 	).Error; err != nil {
 		return "", false, err
+	}
+	if input.PatientRecordID == "" {
+		patientRecordID, err := ensurePatientRecordForUser(tx.WithContext(ctx), input.PatientID, input.Now)
+		if err != nil {
+			return "", false, err
+		}
+		input.PatientRecordID = patientRecordID
 	}
 	var existing struct {
 		ID          string
@@ -251,8 +347,8 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	}
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT id, idempotency_request_hash
-		FROM appointments WHERE patient_id = ? AND idempotency_key = ?`,
-		input.PatientID, input.IdempotencyKey).Scan(&existing).Error; err != nil {
+		FROM appointments WHERE patient_record_id = ? AND idempotency_key = ?`,
+		input.PatientRecordID, input.IdempotencyKey).Scan(&existing).Error; err != nil {
 		return "", false, err
 	}
 	if existing.ID != "" {
@@ -315,7 +411,7 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 		return "", false, ErrSlotUnavailable
 	}
 
-	overlapArgs := []any{input.PatientID, input.ScheduledEndAt, input.ScheduledStartAt}
+	overlapArgs := []any{input.PatientRecordID, input.ScheduledEndAt, input.ScheduledStartAt}
 	overlapWhere := ""
 	if excludeAppointmentID != "" {
 		overlapWhere = " AND id <> ?"
@@ -325,7 +421,7 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT EXISTS(
 			SELECT 1 FROM appointments
-			WHERE patient_id = ?
+			WHERE patient_record_id = ?
 			  AND scheduled_start_at < ? AND scheduled_end_at > ?
 			  AND status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION')`+overlapWhere+`
 		)`, overlapArgs...).Scan(&overlaps).Error; err != nil {
@@ -372,27 +468,27 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	appointmentID := uuid.NewString()
 	if err := tx.WithContext(ctx).Exec(`
 		INSERT INTO appointments (
-			id, appointment_number, patient_id, affiliation_id, schedule_id,
+			id, appointment_number, patient_id, patient_record_id, affiliation_id, schedule_id,
 			hospital_id, doctor_id, department_id, room_id, appointment_date,
 			scheduled_start_at, scheduled_end_at, booking_mode, slot_position,
 			queue_number, status, attendance_status, reason_for_visit, note,
-			consent_version, consented_at, consent_ip, consent_user_agent,
+			consent_version, consented_at, consent_ip, consent_user_agent, consent_method,
 			idempotency_key, idempotency_request_hash, rescheduled_from_id,
-			created_at, updated_at
+			created_by, source, created_at, updated_at
 		) VALUES (
-			?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS date), ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS date), ?, ?, ?, ?, ?,
 			'CONFIRMED', 'PENDING', ?, ?, ?, ?, NULLIF(?, '')::inet, NULLIF(?, ''),
-			?, ?, ?, ?, ?
-		)`, appointmentID, appointmentNumber, input.PatientID, input.Schedule.AffiliationID,
-		input.Schedule.ID, input.Schedule.HospitalID, input.Schedule.DoctorID,
+			'DIGITAL_SELF', ?, ?, ?, ?, 'SCHEDULED', ?, ?
+		)`, appointmentID, appointmentNumber, input.PatientID, input.PatientRecordID,
+		input.Schedule.AffiliationID, input.Schedule.ID, input.Schedule.HospitalID, input.Schedule.DoctorID,
 		input.Schedule.DepartmentID, input.Schedule.RoomID, input.AppointmentDate,
 		input.ScheduledStartAt, input.ScheduledEndAt, input.Schedule.BookingMode,
 		slotPosition, queueNumber, input.ReasonForVisit, input.Note, input.ConsentVersion,
 		input.Now, input.ConsentIP, input.ConsentUserAgent, input.IdempotencyKey,
-		input.IdempotencyRequestHash, input.RescheduledFromID, input.Now, input.Now).Error; err != nil {
+		input.IdempotencyRequestHash, input.RescheduledFromID, appointmentCreator(input), input.Now, input.Now).Error; err != nil {
 		return "", false, err
 	}
-	if err := insertAppointmentEvent(tx, appointmentID, input.PatientID, "CREATED", nil, entity.AppointmentConfirmed, nil, input.Now); err != nil {
+	if err := insertAppointmentEvent(tx, appointmentID, appointmentCreator(input), "CREATED", nil, entity.AppointmentConfirmed, nil, input.Now); err != nil {
 		return "", false, err
 	}
 	for _, reminder := range []struct {
@@ -408,13 +504,144 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 		}
 	}
 	data, _ := json.Marshal(map[string]any{"appointment_id": appointmentID, "appointment_number": appointmentNumber, "event": "APPOINTMENT_CONFIRMED"})
-	if err := insertNotification(tx, input.PatientID, "APPOINTMENT_CONFIRMED", "Appointment terkonfirmasi", "Appointment Anda berhasil dibuat.", data, input.Now); err != nil {
-		return "", false, err
+	if input.PatientID != "" {
+		if err := insertNotification(tx, input.PatientID, "APPOINTMENT_CONFIRMED", "Appointment terkonfirmasi", "Appointment Anda berhasil dibuat.", data, input.Now); err != nil {
+			return "", false, err
+		}
 	}
 	if err := insertNotification(tx, input.Schedule.DoctorID, "APPOINTMENT_CREATED", "Appointment baru", "Appointment baru telah ditambahkan ke jadwal Anda.", data, input.Now); err != nil {
 		return "", false, err
 	}
 	return appointmentID, false, nil
+}
+
+func appointmentCreator(input BookInput) string {
+	if input.CreatedBy != "" {
+		return input.CreatedBy
+	}
+	return input.PatientID
+}
+
+func ensurePatientRecordForUser(tx *gorm.DB, userID string, now time.Time) (string, error) {
+	if err := tx.Exec(
+		`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`,
+		"patient-record-user:"+userID,
+	).Error; err != nil {
+		return "", err
+	}
+	var existingID string
+	if err := tx.Raw(`
+		SELECT id FROM patient_records
+		WHERE user_id = ?
+		ORDER BY CASE identity_type WHEN 'NIK' THEN 0 WHEN 'MEDIKAONE_ID' THEN 1 ELSE 2 END,
+		         claimed_at DESC NULLS LAST, created_at
+		LIMIT 1 FOR UPDATE`, userID).Scan(&existingID).Error; err != nil {
+		return "", err
+	}
+	if existingID != "" {
+		return existingID, nil
+	}
+
+	var user struct {
+		ID        string
+		Email     string
+		FirstName string
+		LastName  string
+		Phone     *string
+		DOB       *time.Time
+		Gender    *string
+		NIK       *string
+	}
+	if err := tx.Raw(`
+		SELECT id, email, first_name, last_name, phone, dob, gender, nik
+		FROM users
+		WHERE id = ? AND status = 'active' AND deleted_at IS NULL
+		FOR UPDATE`, userID).Scan(&user).Error; err != nil {
+		return "", err
+	}
+	if user.ID == "" {
+		return "", ErrPatientRecordNotFound
+	}
+
+	identityType, identityNumber := "MEDIKAONE_ID", user.ID
+	if user.NIK != nil && strings.TrimSpace(*user.NIK) != "" {
+		identityType, identityNumber = "NIK", strings.TrimSpace(*user.NIK)
+	}
+	identityNormalized := normalizeIdentityNumber(identityNumber)
+
+	var identityRecord struct {
+		ID     string
+		UserID *string
+		DOB    string
+	}
+	if err := tx.Raw(`
+		SELECT id, user_id, dob::text AS dob
+		FROM patient_records
+		WHERE identity_type = ? AND identity_number_normalized = ?
+		FOR UPDATE`, identityType, identityNormalized).Scan(&identityRecord).Error; err != nil {
+		return "", err
+	}
+	if identityRecord.ID != "" {
+		if identityRecord.UserID != nil && *identityRecord.UserID != user.ID {
+			return "", ErrPatientRecordClaimed
+		}
+		if user.DOB == nil || identityRecord.DOB != user.DOB.Format("2006-01-02") {
+			return "", ErrPatientIdentityMismatch
+		}
+		if err := tx.Exec(`
+			UPDATE patient_records
+			SET user_id = ?, claimed_at = ?, claimed_by = ?, updated_at = ?
+			WHERE id = ?`, user.ID, now, user.ID, now, identityRecord.ID).Error; err != nil {
+			return "", err
+		}
+		if err := insertPatientRecordEvent(tx, identityRecord.ID, user.ID, nil, "CLAIMED", map[string]any{"source": "appointment_booking"}, now); err != nil {
+			return "", err
+		}
+		return identityRecord.ID, nil
+	}
+
+	firstName := strings.TrimSpace(user.FirstName)
+	if firstName == "" {
+		firstName = "Patient"
+	}
+	phone := "UNKNOWN-" + strings.ReplaceAll(user.ID[:8], "-", "")
+	if user.Phone != nil && strings.TrimSpace(*user.Phone) != "" {
+		phone = strings.TrimSpace(*user.Phone)
+	}
+	dob := "1900-01-01"
+	if user.DOB != nil {
+		dob = user.DOB.Format("2006-01-02")
+	}
+	gender := "L"
+	if user.Gender != nil && (*user.Gender == "L" || *user.Gender == "P") {
+		gender = *user.Gender
+	}
+	recordID := uuid.NewString()
+	if err := tx.Exec(`
+		INSERT INTO patient_records (
+			id, user_id, first_name, last_name, email, phone, dob, gender,
+			identity_type, identity_number, identity_number_normalized,
+			created_by, claimed_at, claimed_by, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS date), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		recordID, user.ID, firstName, strings.TrimSpace(user.LastName), user.Email, phone, dob, gender,
+		identityType, identityNumber, identityNormalized, user.ID, now, user.ID, now, now).Error; err != nil {
+		return "", err
+	}
+	if err := insertPatientRecordEvent(tx, recordID, user.ID, nil, "LINKED", map[string]any{"source": "appointment_booking"}, now); err != nil {
+		return "", err
+	}
+	return recordID, nil
+}
+
+func normalizeIdentityNumber(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	var normalized strings.Builder
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			normalized.WriteRune(r)
+		}
+	}
+	return normalized.String()
 }
 
 func nextCounter(tx *gorm.DB, hospitalID, date, counterType, contextKey string, now time.Time) (int, error) {
@@ -535,21 +762,25 @@ func (r *Repository) Reschedule(ctx context.Context, oldID, actorID, reason stri
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var old struct {
 			Status          string
-			PatientID       string
+			PatientID       *string
+			PatientRecordID string
 			RescheduledToID *string
 		}
-		if err := tx.Raw(`SELECT status, patient_id, rescheduled_to_id FROM appointments WHERE id = ? FOR UPDATE`, oldID).Scan(&old).Error; err != nil {
+		if err := tx.Raw(`SELECT status, patient_id, patient_record_id, rescheduled_to_id FROM appointments WHERE id = ? FOR UPDATE`, oldID).Scan(&old).Error; err != nil {
 			return err
 		}
 		if old.Status == "" {
 			return ErrAppointmentNotFound
 		}
-		input.PatientID = old.PatientID
+		input.PatientRecordID = old.PatientRecordID
+		if old.PatientID != nil {
+			input.PatientID = *old.PatientID
+		}
 		var existing struct {
 			ID          string
 			RequestHash string `gorm:"column:idempotency_request_hash"`
 		}
-		if err := tx.Raw(`SELECT id, idempotency_request_hash FROM appointments WHERE patient_id = ? AND idempotency_key = ?`, input.PatientID, input.IdempotencyKey).Scan(&existing).Error; err != nil {
+		if err := tx.Raw(`SELECT id, idempotency_request_hash FROM appointments WHERE patient_record_id = ? AND idempotency_key = ?`, input.PatientRecordID, input.IdempotencyKey).Scan(&existing).Error; err != nil {
 			return err
 		}
 		if existing.ID != "" {
@@ -594,7 +825,7 @@ func (r *Repository) Reschedule(ctx context.Context, oldID, actorID, reason stri
 	return row, replay, err
 }
 
-func (r *Repository) CheckIn(ctx context.Context, appointmentID, actorID string, overrideReason *string, now time.Time) error {
+func (r *Repository) CheckIn(ctx context.Context, appointmentID, actorID, method string, overrideReason *string, now time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current struct {
 			Status           string
@@ -606,19 +837,25 @@ func (r *Repository) CheckIn(ctx context.Context, appointmentID, actorID string,
 		if current.Status == "" {
 			return ErrAppointmentNotFound
 		}
-		if current.Status != entity.AppointmentConfirmed {
+		if current.Status == entity.AppointmentCheckedIn || current.Status == entity.AppointmentWaitingVitals ||
+			current.Status == entity.AppointmentWaitingDoctor || current.Status == entity.AppointmentInConsultation ||
+			current.Status == entity.AppointmentCompleted {
+			return ErrAppointmentAlreadyCheckedIn
+		}
+		if current.Status != entity.AppointmentConfirmed && current.Status != entity.AppointmentNoShow {
 			return ErrInvalidAppointmentState
 		}
-		if current.VerificationUsed != nil {
+		if current.VerificationUsed != nil && current.Status != entity.AppointmentNoShow {
 			return ErrInvalidVerification
 		}
 		if err := tx.Exec(`
 			UPDATE appointments SET status = 'WAITING_VITALS', attendance_status = 'PRESENT',
-			       verification_used_at = ?, checked_in_at = ?, queue_activated_at = ?, updated_at = ?
-			WHERE id = ?`, now, now, now, now, appointmentID).Error; err != nil {
+			       verification_used_at = COALESCE(verification_used_at, ?), checked_in_at = ?,
+			       queue_activated_at = ?, check_in_method = ?, check_in_override_reason = ?, updated_at = ?
+			WHERE id = ?`, now, now, now, method, overrideReason, now, appointmentID).Error; err != nil {
 			return err
 		}
-		from := entity.AppointmentConfirmed
+		from := current.Status
 		if err := insertAppointmentEvent(tx, appointmentID, actorID, "CHECKED_IN", &from, entity.AppointmentCheckedIn, overrideReason, now); err != nil {
 			return err
 		}
@@ -1073,6 +1310,18 @@ func insertScheduleChangeEvent(tx *gorm.DB, changeID string, actorID any, eventT
 		VALUES (?, ?, ?, ?, ?)`, uuid.NewString(), changeID, actorID, eventType, now).Error
 }
 
+func insertPatientRecordEvent(tx *gorm.DB, recordID string, actorID any, hospitalID any, eventType string, metadata map[string]any, now time.Time) error {
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	return tx.Exec(`
+		INSERT INTO patient_record_events (
+			id, patient_record_id, actor_id, hospital_id, event_type, metadata, created_at
+		) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)`,
+		uuid.NewString(), recordID, actorID, hospitalID, eventType, string(raw), now).Error
+}
+
 func insertNotification(tx *gorm.DB, userID, kind, title, body string, data []byte, now time.Time) error {
 	return tx.Exec(`
 		INSERT INTO notifications (id, user_id, type, title, body, data, created_at)
@@ -1081,7 +1330,7 @@ func insertNotification(tx *gorm.DB, userID, kind, title, body string, data []by
 
 func notifyAppointmentParticipants(tx *gorm.DB, appointmentID, kind, title, body string, now time.Time) error {
 	var row struct {
-		PatientID         string
+		PatientID         *string
 		DoctorID          string
 		AppointmentNumber string
 	}
@@ -1089,8 +1338,10 @@ func notifyAppointmentParticipants(tx *gorm.DB, appointmentID, kind, title, body
 		return err
 	}
 	data, _ := json.Marshal(map[string]any{"appointment_id": appointmentID, "appointment_number": row.AppointmentNumber, "event": kind})
-	if err := insertNotification(tx, row.PatientID, kind, title, body, data, now); err != nil {
-		return err
+	if row.PatientID != nil && *row.PatientID != "" {
+		if err := insertNotification(tx, *row.PatientID, kind, title, body, data, now); err != nil {
+			return err
+		}
 	}
 	return insertNotification(tx, row.DoctorID, kind, title, body, data, now)
 }

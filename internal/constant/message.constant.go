@@ -81,6 +81,10 @@ const (
 	MsgHospitalAppointmentRescheduled        MessageCode = "HOSPITAL_APPOINTMENT_RESCHEDULED"
 	MsgHospitalAppointmentRescheduleReplayed MessageCode = "HOSPITAL_APPOINTMENT_RESCHEDULE_REPLAYED"
 	MsgAppointmentCheckedIn                  MessageCode = "APPOINTMENT_CHECKED_IN"
+	MsgAppointmentCheckInLookupCompleted     MessageCode = "APPOINTMENT_CHECK_IN_LOOKUP_COMPLETED"
+	MsgWalkInAppointmentCreated              MessageCode = "WALK_IN_APPOINTMENT_CREATED"
+	MsgWalkInAppointmentCreationReplayed     MessageCode = "WALK_IN_APPOINTMENT_CREATION_REPLAYED"
+	MsgPatientRecordClaimed                  MessageCode = "PATIENT_RECORD_CLAIMED"
 	MsgHospitalAppointmentQueueListed        MessageCode = "HOSPITAL_APPOINTMENT_QUEUE_LISTED"
 	MsgAppointmentVitalsCompleted            MessageCode = "APPOINTMENT_VITALS_COMPLETED"
 	MsgHospitalScheduleChangeCreated         MessageCode = "HOSPITAL_SCHEDULE_CHANGE_CREATED"
@@ -167,6 +171,10 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgHospitalAppointmentRescheduled:        successDetail("Hospital appointment rescheduled", "Jadwal appointment rumah sakit berhasil diubah"),
 	MsgHospitalAppointmentRescheduleReplayed: successDetail("Existing hospital reschedule returned for idempotent retry", "Perubahan jadwal oleh rumah sakit yang sudah ada dikembalikan untuk percobaan idempoten"),
 	MsgAppointmentCheckedIn:                  successDetail("Appointment check-in completed", "Check-in appointment berhasil diselesaikan"),
+	MsgAppointmentCheckInLookupCompleted:     successDetail("Appointment check-in lookup completed", "Pencarian check-in appointment berhasil diselesaikan"),
+	MsgWalkInAppointmentCreated:              successDetail("Walk-in appointment created and checked in", "Appointment walk-in berhasil dibuat dan di-check-in"),
+	MsgWalkInAppointmentCreationReplayed:     successDetail("Existing walk-in appointment returned for idempotent retry", "Appointment walk-in yang sudah ada dikembalikan untuk percobaan idempoten"),
+	MsgPatientRecordClaimed:                  successDetail("Walk-in patient record claimed", "Patient record walk-in berhasil diklaim"),
 	MsgHospitalAppointmentQueueListed:        successDetail("Hospital appointment queue retrieved", "Antrean appointment rumah sakit berhasil diambil"),
 	MsgAppointmentVitalsCompleted:            successDetail("Appointment vitals completed", "Pemeriksaan tanda vital appointment berhasil diselesaikan"),
 	MsgHospitalScheduleChangeCreated:         successDetail("Hospital schedule change request created", "Permintaan perubahan jadwal rumah sakit berhasil dibuat"),

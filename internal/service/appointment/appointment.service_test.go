@@ -22,7 +22,10 @@ type fakeRepository struct {
 	bookInput        repository.BookInput
 	checkInCalled    bool
 	checkInReason    *string
+	checkInMethod    string
 	transitionTarget string
+	walkInInput      repository.WalkInInput
+	overrideAllowed  bool
 }
 
 func (f *fakeRepository) ListActiveSchedules(context.Context, repository.AvailabilityFilter) ([]repository.Schedule, error) {
@@ -59,15 +62,38 @@ func (f *fakeRepository) ListAppointments(context.Context, repository.Appointmen
 	}
 	return []response.Appointment{*f.appointment}, nil
 }
+func (f *fakeRepository) ListQueue(context.Context, repository.QueueFilter) (*response.AppointmentPage, error) {
+	return &response.AppointmentPage{Items: []response.Appointment{}, Page: 1, Limit: 20}, nil
+}
 func (f *fakeRepository) Cancel(context.Context, string, string, string, time.Time) error { return nil }
 func (f *fakeRepository) Reschedule(_ context.Context, _ string, _ string, _ string, input repository.BookInput) (*response.Appointment, bool, error) {
 	f.bookInput = input
 	return f.appointment, false, nil
 }
-func (f *fakeRepository) CheckIn(_ context.Context, _, _ string, reason *string, _ time.Time) error {
+func (f *fakeRepository) CheckIn(_ context.Context, _, _, method string, reason *string, _ time.Time) error {
 	f.checkInCalled = true
 	f.checkInReason = reason
+	f.checkInMethod = method
 	return nil
+}
+func (f *fakeRepository) FindCheckInAppointments(context.Context, string, string, repository.CheckInIdentityFilter) ([]response.Appointment, error) {
+	if f.appointment == nil {
+		return nil, nil
+	}
+	return []response.Appointment{*f.appointment}, nil
+}
+func (f *fakeRepository) GetPatientRecordForAppointment(context.Context, string) (*repository.PatientRecord, error) {
+	return &repository.PatientRecord{ID: uuid.NewString(), FirstName: "Test", LastName: "Patient", Phone: "081234567890", DateOfBirth: "1990-01-01", Gender: "L", IdentityType: "NIK", IdentityNumber: "3174000000000001"}, nil
+}
+func (f *fakeRepository) CreateWalkIn(_ context.Context, input repository.WalkInInput) (*response.Appointment, bool, error) {
+	f.walkInInput = input
+	return f.appointment, false, nil
+}
+func (f *fakeRepository) CanOverrideWalkInCapacity(context.Context, string, string) (bool, error) {
+	return f.overrideAllowed, nil
+}
+func (f *fakeRepository) ClaimPatientRecord(context.Context, string, string, string, string, time.Time) (*repository.PatientRecord, error) {
+	return &repository.PatientRecord{ID: uuid.NewString(), FirstName: "Test", Phone: "081234567890", DateOfBirth: "1990-01-01", Gender: "L", IdentityType: "NIK", IdentityNumber: "3174000000000001"}, nil
 }
 func (f *fakeRepository) Transition(_ context.Context, _ string, _ string, target string, _ *string, _ time.Time) error {
 	f.transitionTarget = target
@@ -191,13 +217,17 @@ func TestCreateAppointmentRequiresConsentAndBuildsSecureResult(t *testing.T) {
 
 func TestCheckInUsesOneTimeCodeAndWindow(t *testing.T) {
 	fixedNow := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
-	appointment := &response.Appointment{ID: uuid.NewString(), AppointmentNumber: "APT-TEST-20260907-0001", HospitalID: uuid.NewString(), ScheduledStartAt: fixedNow.Add(20 * time.Minute)}
+	appointment := &response.Appointment{
+		ID: uuid.NewString(), AppointmentNumber: "APT-TEST-20260907-0001", HospitalID: uuid.NewString(),
+		AppointmentDate: "2026-09-07", Timezone: "Asia/Jakarta", Status: entity.AppointmentConfirmed,
+		ScheduledStartAt: fixedNow.Add(20 * time.Minute),
+	}
 	repo := &fakeRepository{appointment: appointment}
 	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
 	service.now = func() time.Time { return fixedNow }
 
 	_, err := service.CheckIn(context.Background(), appointment.HospitalID, uuid.NewString(), request.VerifyAppointmentRequest{AppointmentNumber: appointment.AppointmentNumber, VerificationCode: "WRONG"})
-	if !errors.Is(err, constant.ErrAppointmentInvalidVerification) || repo.checkInCalled {
+	if !errors.Is(err, constant.ErrAppointmentVerificationCodeInvalid) || repo.checkInCalled {
 		t.Fatalf("invalid code error=%v called=%v", err, repo.checkInCalled)
 	}
 	code := service.verificationCode(appointment.ID, appointment.AppointmentNumber)
@@ -214,6 +244,7 @@ func TestLateCheckInRequiresAndAuditsOverrideReason(t *testing.T) {
 	appointment := &response.Appointment{
 		ID: uuid.NewString(), AppointmentNumber: "APT-TEST-20260907-0002",
 		HospitalID: uuid.NewString(), ScheduledStartAt: fixedNow.Add(-20 * time.Minute),
+		AppointmentDate: "2026-09-07", Timezone: "Asia/Jakarta", Status: entity.AppointmentConfirmed,
 	}
 	repo := &fakeRepository{appointment: appointment}
 	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
@@ -223,7 +254,7 @@ func TestLateCheckInRequiresAndAuditsOverrideReason(t *testing.T) {
 	_, err := service.CheckIn(context.Background(), appointment.HospitalID, uuid.NewString(), request.VerifyAppointmentRequest{
 		AppointmentNumber: appointment.AppointmentNumber, VerificationCode: code,
 	})
-	if !errors.Is(err, constant.ErrAppointmentOutsideCheckInWindow) || repo.checkInCalled {
+	if !errors.Is(err, constant.ErrAppointmentLateOverrideReasonRequired) || repo.checkInCalled {
 		t.Fatalf("late check-in without override error=%v called=%v", err, repo.checkInCalled)
 	}
 
@@ -237,5 +268,174 @@ func TestLateCheckInRequiresAndAuditsOverrideReason(t *testing.T) {
 	}
 	if repo.checkInReason == nil || *repo.checkInReason != reason {
 		t.Fatalf("audited late check-in reason = %v, want %q", repo.checkInReason, reason)
+	}
+}
+
+func TestNoShowCanBeCheckedInUntilEndOfSameLocalDay(t *testing.T) {
+	now := time.Date(2026, 9, 7, 15, 30, 0, 0, time.UTC) // 22:30 WIB
+	appointment := &response.Appointment{
+		ID: uuid.NewString(), AppointmentNumber: "APT-TEST-20260907-0003",
+		HospitalID: uuid.NewString(), AppointmentDate: "2026-09-07", Timezone: "Asia/Jakarta",
+		Status:           entity.AppointmentNoShow,
+		ScheduledStartAt: time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC),
+		ScheduledEndAt:   time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC),
+	}
+	repo := &fakeRepository{appointment: appointment}
+	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
+	service.now = func() time.Time { return now }
+	code := service.verificationCode(appointment.ID, appointment.AppointmentNumber)
+
+	reason := "Dokter masih melayani pasien overtime"
+	result, err := service.CheckIn(context.Background(), appointment.HospitalID, uuid.NewString(), request.VerifyAppointmentRequest{
+		AppointmentNumber: appointment.AppointmentNumber,
+		VerificationCode:  code,
+		ForceLateCheckIn:  true,
+		OverrideReason:    &reason,
+	})
+	if err != nil || result == nil || !repo.checkInCalled {
+		t.Fatalf("same-day NO_SHOW check-in result=%v error=%v called=%v", result, err, repo.checkInCalled)
+	}
+	if repo.checkInReason == nil || *repo.checkInReason != reason {
+		t.Fatalf("override reason = %v, want %q", repo.checkInReason, reason)
+	}
+
+	repo.checkInCalled = false
+	now = time.Date(2026, 9, 7, 17, 1, 0, 0, time.UTC) // 00:01 WIB next day
+	_, err = service.CheckIn(context.Background(), appointment.HospitalID, uuid.NewString(), request.VerifyAppointmentRequest{
+		AppointmentNumber: appointment.AppointmentNumber,
+		VerificationCode:  code,
+		ForceLateCheckIn:  true,
+		OverrideReason:    &reason,
+	})
+	if !errors.Is(err, constant.ErrAppointmentCheckInExpired) || repo.checkInCalled {
+		t.Fatalf("next-day check-in error=%v called=%v", err, repo.checkInCalled)
+	}
+}
+
+func TestCheckInLookupRequiresTwoIdentityFacts(t *testing.T) {
+	service := NewService(&fakeRepository{}, nil, "test-secret-at-least-thirty-two-characters")
+	_, err := service.LookupCheckIn(context.Background(), uuid.NewString(), uuid.NewString(), request.CheckInLookupRequest{
+		Identity: &request.CheckInIdentity{Name: "Siti"},
+	})
+	if !errors.Is(err, constant.ErrCheckInIdentityInsufficient) {
+		t.Fatalf("single-field identity error = %v", err)
+	}
+
+	dob := "1990-01-01"
+	filter, err := normalizeCheckInIdentity(request.CheckInIdentity{
+		IdentityType: "passport", IdentityNumber: " A-12 34 ", DateOfBirth: &dob,
+	})
+	if err != nil || filter.IdentityType != "PASSPORT" || filter.IdentityNumber != "A-12 34" {
+		t.Fatalf("generic identity filter = %+v, error=%v", filter, err)
+	}
+}
+
+func TestCheckInGrantIsBoundToReceptionist(t *testing.T) {
+	now := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
+	appointment := &response.Appointment{
+		ID: uuid.NewString(), AppointmentNumber: "APT-TEST-20260907-0004",
+		HospitalID: uuid.NewString(), AppointmentDate: "2026-09-07", Timezone: "Asia/Jakarta",
+		Status: entity.AppointmentConfirmed, ScheduledStartAt: now.Add(10 * time.Minute),
+	}
+	repo := &fakeRepository{appointment: appointment}
+	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
+	service.now = func() time.Time { return now }
+	receptionistID := uuid.NewString()
+	code := service.verificationCode(appointment.ID, appointment.AppointmentNumber)
+	lookup, err := service.LookupCheckIn(context.Background(), appointment.HospitalID, receptionistID, request.CheckInLookupRequest{
+		AppointmentNumber: appointment.AppointmentNumber, VerificationCode: code,
+	})
+	if err != nil || lookup.Count != 1 {
+		t.Fatalf("LookupCheckIn() result=%+v error=%v", lookup, err)
+	}
+	_, err = service.ConfirmCheckIn(context.Background(), appointment.HospitalID, uuid.NewString(), appointment.ID, request.ConfirmCheckInRequest{
+		CheckInToken: lookup.Candidates[0].CheckInToken,
+	})
+	if !errors.Is(err, constant.ErrCheckInTokenInvalidOrExpired) || repo.checkInCalled {
+		t.Fatalf("cross-receptionist grant error=%v called=%v", err, repo.checkInCalled)
+	}
+	_, err = service.ConfirmCheckIn(context.Background(), appointment.HospitalID, receptionistID, appointment.ID, request.ConfirmCheckInRequest{
+		CheckInToken: lookup.Candidates[0].CheckInToken,
+	})
+	if err != nil || !repo.checkInCalled || repo.checkInMethod != entity.CheckInMethodCode {
+		t.Fatalf("bound grant error=%v called=%v method=%q", err, repo.checkInCalled, repo.checkInMethod)
+	}
+}
+
+func TestCreateWalkInUsesReceptionistConsentAndCurrentDate(t *testing.T) {
+	now := time.Date(2026, 9, 7, 1, 15, 0, 0, time.UTC) // Monday 08:15 WIB
+	schedule := repository.Schedule{
+		ID: uuid.NewString(), AffiliationID: uuid.NewString(), HospitalID: uuid.NewString(),
+		HospitalCode: "HSP-MO-001", DoctorID: uuid.NewString(), DepartmentID: uuid.NewString(),
+		DayOfWeek: 1, StartTime: "08:00", EndTime: "10:00", Timezone: "Asia/Jakarta",
+		BookingMode: entity.BookingModeFixedSlot, SlotDurationMinutes: 30, Capacity: 1,
+	}
+	appointment := &response.Appointment{ID: uuid.NewString(), AppointmentNumber: "APT-HSPMO001-20260907-0005"}
+	repo := &fakeRepository{schedules: []repository.Schedule{schedule}, appointment: appointment}
+	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
+	service.now = func() time.Time { return now }
+	start := "08:00"
+	result, _, err := service.CreateWalkInAppointment(context.Background(), schedule.HospitalID, uuid.NewString(), uuid.NewString(), request.CreateWalkInAppointmentRequest{
+		ScheduleID: schedule.ID, StartTime: &start, ReasonForVisit: "Demam",
+		ConsentVersion: "2026-09", Patient: request.WalkInPatientRequest{
+			FirstName: "Siti", LastName: "Aminah", Phone: "081234567890",
+			DateOfBirth: "1990-01-01", Gender: "P", IdentityType: "NIK",
+			IdentityNumber: "3174000000000001",
+		},
+	})
+	if err != nil || result == nil {
+		t.Fatalf("CreateWalkInAppointment() result=%v error=%v", result, err)
+	}
+	if repo.walkInInput.AppointmentDate != "2026-09-07" || repo.walkInInput.Patient.IdentityNormalized != "3174000000000001" {
+		t.Fatalf("walk-in input = %+v", repo.walkInInput)
+	}
+}
+
+func TestWalkInPatientSelectionMustUseExactlyOneMode(t *testing.T) {
+	recordID := uuid.NewString()
+	medikaOneID := uuid.NewString()
+	_, err := normalizeWalkInPatient(request.WalkInPatientRequest{
+		PatientRecordID: &recordID,
+		MedikaOneID:     &medikaOneID,
+	})
+	if !errors.Is(err, constant.ErrWalkInPatientModeInvalid) {
+		t.Fatalf("ambiguous patient selection error = %v", err)
+	}
+
+	_, err = normalizeWalkInPatient(request.WalkInPatientRequest{})
+	if !errors.Is(err, constant.ErrWalkInPatientDataRequired) {
+		t.Fatalf("missing patient selection error = %v", err)
+	}
+}
+
+func TestWalkInCapacityOverrideRequiresAdminAndReason(t *testing.T) {
+	now := time.Date(2026, 9, 7, 1, 15, 0, 0, time.UTC)
+	schedule := repository.Schedule{
+		ID: uuid.NewString(), AffiliationID: uuid.NewString(), HospitalID: uuid.NewString(),
+		DoctorID: uuid.NewString(), DepartmentID: uuid.NewString(), DayOfWeek: 1,
+		StartTime: "08:00", EndTime: "10:00", Timezone: "Asia/Jakarta",
+		BookingMode: entity.BookingModeSessionQueue, SlotDurationMinutes: 30, Capacity: 1,
+	}
+	patientRecordID := uuid.NewString()
+	repo := &fakeRepository{schedules: []repository.Schedule{schedule}, appointment: &response.Appointment{ID: uuid.NewString()}}
+	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
+	service.now = func() time.Time { return now }
+	req := request.CreateWalkInAppointmentRequest{
+		ScheduleID: schedule.ID, ReasonForVisit: "Kontrol", ConsentVersion: "2026-09",
+		Patient: request.WalkInPatientRequest{PatientRecordID: &patientRecordID}, CapacityOverride: true,
+	}
+	_, _, err := service.CreateWalkInAppointment(context.Background(), schedule.HospitalID, uuid.NewString(), uuid.NewString(), req)
+	if !errors.Is(err, constant.ErrWalkInCapacityOverrideReasonRequired) {
+		t.Fatalf("missing override reason error = %v", err)
+	}
+	reason := "Dokter menyetujui pasien tambahan"
+	req.CapacityOverrideReason = &reason
+	_, _, err = service.CreateWalkInAppointment(context.Background(), schedule.HospitalID, uuid.NewString(), uuid.NewString(), req)
+	if !errors.Is(err, constant.ErrWalkInCapacityOverrideForbidden) {
+		t.Fatalf("receptionist override error = %v", err)
+	}
+	repo.overrideAllowed = true
+	if _, _, err := service.CreateWalkInAppointment(context.Background(), schedule.HospitalID, uuid.NewString(), uuid.NewString(), req); err != nil {
+		t.Fatalf("admin override error = %v", err)
 	}
 }

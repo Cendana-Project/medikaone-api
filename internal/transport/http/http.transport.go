@@ -193,6 +193,10 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentReschedule),
 			t.appointmentController.ReschedulePatientAppointment,
 		)
+		protected.POST("/patient-records/claim",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPatientRecordClaim),
+			t.appointmentController.ClaimPatientRecord,
+		)
 
 		protected.GET("/doctor/appointments",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
@@ -315,6 +319,18 @@ func (t *Transport) InitRoute() {
 		tenant.POST("/hospitals/:hospital_id/appointments/check-in",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentCheckIn),
 			t.appointmentController.CheckIn,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/check-in/lookup",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentCheckIn),
+			t.appointmentController.LookupCheckIn,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/check-in",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentCheckIn),
+			t.appointmentController.ConfirmCheckIn,
+		)
+		tenant.POST("/hospitals/:hospital_id/walk-in-appointments",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentWalkInCreate),
+			t.appointmentController.CreateWalkInAppointment,
 		)
 		tenant.GET("/hospitals/:hospital_id/appointment-queue",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentQueue),

@@ -80,6 +80,28 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 | `PASSWORD_PROCESSING_BUSY` | Retry dengan backoff singkat. |
 | `EMAIL_DELIVERY_BUSY` | Retry pengiriman email dengan backoff singkat. |
 
+## Kode check-in dan walk-in
+
+| Kode | Tindakan client |
+| --- | --- |
+| `CHECK_IN_LOOKUP_MODE_INVALID` | Kirim tepat satu mode: QR, nomor+kode, atau identitas. |
+| `CHECK_IN_IDENTITY_INSUFFICIENT` | Minta minimal dua fakta; nama harus bersama tanggal lahir. |
+| `APPOINTMENT_VERIFICATION_CODE_INVALID` | Periksa kembali kode milik appointment. |
+| `APPOINTMENT_QR_INVALID` | Minta pasien membuka ulang detail appointment atau gunakan lookup manual. |
+| `CHECK_IN_TOKEN_INVALID_OR_EXPIRED` | Ulangi lookup; grant hanya berlaku lima menit dan terikat pada petugas. |
+| `APPOINTMENT_LATE_OVERRIDE_REASON_REQUIRED` | Tampilkan input alasan sebelum konfirmasi terlambat/NO_SHOW. |
+| `APPOINTMENT_CHECK_IN_EXPIRED` | Tolak check-in karena tanggal appointment sudah lewat. |
+| `APPOINTMENT_ALREADY_CHECKED_IN` | Muat antrean/detail terkini; jangan mengulang mutasi. |
+| `WALK_IN_CAPACITY_FULL` | Pilih slot/sesi lain atau eskalasi keputusan ke admin. |
+| `WALK_IN_PATIENT_MODE_INVALID` | Kirim tepat satu cara memilih pasien; jangan mencampur ID dan identitas lengkap. |
+| `WALK_IN_PATIENT_NOT_FOUND` | Periksa kembali patient record ID atau MedikaOne ID pasien. |
+| `WALK_IN_PATIENT_IDENTITY_CONFLICT` | Jangan menimpa data; eskalasi verifikasi karena nomor identitas memiliki tanggal lahir berbeda. |
+| `WALK_IN_CAPACITY_OVERRIDE_FORBIDDEN` | Login sebagai admin; resepsionis tidak boleh override. |
+| `WALK_IN_CAPACITY_OVERRIDE_REASON_REQUIRED` | Admin harus memberikan alasan audit. |
+| `PATIENT_RECORD_NOT_FOUND` | Periksa identitas dan tanggal lahir yang dimasukkan pasien. |
+| `PATIENT_RECORD_ALREADY_CLAIMED` | Hentikan klaim mandiri dan eskalasi verifikasi kepemilikan. |
+| `PATIENT_RECORD_IDENTITY_MISMATCH` | Samakan profil akun dengan identitas record melalui proses terverifikasi. |
+
 Pesan sukses didefinisikan di `internal/constant/message.constant.go`. Error
 statis didefinisikan di `internal/constant/custom_error.constant.go` dan
 dirender hanya melalui `internal/util/error.go`.
