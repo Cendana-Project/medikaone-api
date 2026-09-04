@@ -39,7 +39,7 @@ func CreateDemoUserActive(db *gorm.DB, seedKey, email, firstName, lastName, rawP
 		return nil, errors.New("seed key/email/password/role wajib diisi")
 	}
 
-	isGlobalRole := roleSlug == constant.RoleSuperAdmin || roleSlug == constant.RolePatient
+	isGlobalRole := isGlobalDemoRole(roleSlug)
 	var role entity.Role
 	if isGlobalRole {
 		if err := db.Where("slug = ? AND active = TRUE AND deleted_at IS NULL", roleSlug).First(&role).Error; err != nil {
@@ -111,4 +111,8 @@ func CreateDemoUserActive(db *gorm.DB, seedKey, email, firstName, lastName, rawP
 		return nil, err
 	}
 	return &user, nil
+}
+
+func isGlobalDemoRole(roleSlug string) bool {
+	return roleSlug == constant.RoleSuperAdmin || roleSlug == constant.RolePatient
 }

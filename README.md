@@ -363,6 +363,15 @@ database hanya menyimpan hash SHA-256 token revision aktif.
 
 Credential akun fixture privileged memang sengaja hardcoded untuk mempermudah development/staging saat ini. Ini adalah keputusan desain sementara, bukan secret production; command `seed` menolak berjalan pada `ENV=production`.
 
+Role fixture disusun berdasarkan scope berikut:
+
+- `superadmin@medikaone.id`: role global `SUPER_ADMIN`; dapat memilih semua hospital aktif tanpa membership atau role tenant.
+- `patient001@medikaone.id` sampai `patient003@medikaone.id`: role global `PATIENT`; bukan akun staff hospital.
+- `admin001@medikaone.id`, `nurse001@medikaone.id`, `receptionist001@medikaone.id`, dan `bod001@medikaone.id`: membership aktif dan role tenant yang sesuai pada `HSP-MO-001`.
+- `doctor001@medikaone.id` sampai `doctor003@medikaone.id`: membership aktif dan role tenant `DOCTOR` pada `HSP-MO-001`.
+
+Seeder merekonsiliasi role fixture tenant secara idempotent dan membersihkan membership/role `HSP-MO-001` yang keliru dari fixture global-only. Login hospital untuk user non-super mewajibkan membership serta sedikitnya satu role tenant aktif; global `SUPER_ADMIN` menjadi satu-satunya pengecualian.
+
 Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
 Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command menolak DSN non-loopback/fallback agar label environment yang salah tidak memasang akun demo pada database remote:

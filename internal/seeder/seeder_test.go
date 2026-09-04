@@ -37,6 +37,41 @@ func TestDemoUserSeedKeysAreUnique(t *testing.T) {
 	}
 }
 
+func TestDemoAccountRoleScopesAreComplete(t *testing.T) {
+	wantTenantRoles := map[string]string{
+		"admin001@medikaone.id":        "ADMIN",
+		"nurse001@medikaone.id":        "NURSE",
+		"receptionist001@medikaone.id": "RECEPTIONIST",
+		"bod001@medikaone.id":          "BOD",
+		"doctor001@medikaone.id":       "DOCTOR",
+		"doctor002@medikaone.id":       "DOCTOR",
+		"doctor003@medikaone.id":       "DOCTOR",
+	}
+	wantGlobalRoles := map[string]string{
+		"superadmin@medikaone.id": "SUPER_ADMIN",
+		"patient001@medikaone.id": "PATIENT",
+		"patient002@medikaone.id": "PATIENT",
+		"patient003@medikaone.id": "PATIENT",
+	}
+
+	for _, fixture := range sampleUserSeeds() {
+		if isGlobalDemoRole(fixture.RoleSlug) {
+			if want, ok := wantGlobalRoles[fixture.Email]; !ok || fixture.RoleSlug != want {
+				t.Errorf("unexpected global fixture role: email=%s role=%s", fixture.Email, fixture.RoleSlug)
+			}
+			delete(wantGlobalRoles, fixture.Email)
+			continue
+		}
+		if want, ok := wantTenantRoles[fixture.Email]; !ok || fixture.RoleSlug != want {
+			t.Errorf("unexpected tenant fixture role: email=%s role=%s", fixture.Email, fixture.RoleSlug)
+		}
+		delete(wantTenantRoles, fixture.Email)
+	}
+	if len(wantGlobalRoles) != 0 || len(wantTenantRoles) != 0 {
+		t.Fatalf("missing fixture role declarations: global=%v tenant=%v", wantGlobalRoles, wantTenantRoles)
+	}
+}
+
 func TestEnvironmentSuperadminMayOnlyReuseCanonicalSuperadminFixture(t *testing.T) {
 	key, err := envSuperadminKey(" SUPERADMIN@medikaone.id ")
 	if err != nil {

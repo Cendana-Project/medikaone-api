@@ -129,7 +129,7 @@ func (ctl *Controller) Me(c *gin.Context) {
 	util.HandleResponse(c, resp, nil)
 }
 
-// GET /v1/tenant/me (tenant-scoped; wajib hint & membership)
+// GET /v1/tenant/me (tenant-scoped; wajib hint dan tenant role, kecuali global SUPER_ADMIN)
 func (ctl *Controller) TenantMe(c *gin.Context) {
 	userUUID, err := util.GetUserIDFromContext(c)
 	if err != nil || userUUID == nil {
@@ -166,16 +166,12 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 
-	// cek membership
-	isMember, err := ctl.userRepo.IsMemberOfHospital(ctx, userID, hosp.ID)
+	globalRoleSlug, err := ctl.userRepo.GetUserRoleSlug(ctx, userID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
-	if !isMember {
-		util.HandleError(c, constant.ErrUserNotLinkedToHospital)
-		return
-	}
+	isSuper := strings.EqualFold(globalRoleSlug, constant.RoleSuperAdmin)
 
 	u, err := ctl.userRepo.GetByID(ctx, userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -191,15 +187,28 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 
-	// role scoped hospital (UPPER)
-	roleSlug, err := ctl.userRepo.GetHospitalRoleSlug(ctx, userID, hosp.ID)
+	isMember := false
+	hospitalRole := ""
+	if !isSuper {
+		// Non-super users need both an active membership and an active role in
+		// the selected hospital.
+		var memberErr error
+		isMember, memberErr = ctl.userRepo.IsMemberOfHospital(ctx, userID, hosp.ID)
+		if memberErr != nil {
+			util.HandleError(c, memberErr)
+			return
+		}
+		if isMember {
+			hospitalRole, err = ctl.userRepo.GetHospitalRoleSlug(ctx, userID, hosp.ID)
+			if err != nil {
+				util.HandleError(c, err)
+				return
+			}
+		}
+	}
+	roleSlug, err := auth.ResolveHospitalSessionRole(isSuper, isMember, hospitalRole)
 	if err != nil {
 		util.HandleError(c, err)
-		return
-	}
-	roleSlug = strings.ToUpper(roleSlug)
-	if roleSlug == "" {
-		util.HandleError(c, constant.ErrHospitalMembershipRoleRequired)
 		return
 	}
 

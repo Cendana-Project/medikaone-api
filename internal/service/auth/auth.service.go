@@ -1502,17 +1502,44 @@ func (s *Service) LoginHospital(ctx context.Context, identifier, password, hospi
 	}
 	s.deleteRedisKeysBestEffort(ctx, rateKey)
 
-	ok, lerr := s.hosp.WithTx(tx).IsUserLinkedToHospital(ctx, u.ID, hID)
-	if lerr != nil {
+	roles := s.roles.WithTx(tx)
+	isSuper, roleErr := roles.IsUserSuperAdmin(ctx, u.ID)
+	if roleErr != nil {
 		return nil, constant.ErrInternalServerError
-	}
-	if !ok {
-		return nil, constant.ErrUserNotLinkedToHospital
 	}
 
-	rs, rerr := s.roles.WithTx(tx).ListHospitalRolesByUser(ctx, hID, u.ID)
-	if rerr != nil {
-		return nil, constant.ErrInternalServerError
+	var rs []entity.Role
+	if isSuper {
+		// A global SUPER_ADMIN may select any active hospital without a tenant
+		// membership. The response still exposes an explicit role so clients do
+		// not receive a successful hospital session with an empty role.
+		resolvedRole, accessErr := ResolveHospitalSessionRole(true, false, "")
+		if accessErr != nil {
+			return nil, accessErr
+		}
+		superRole, findErr := roles.FindBySlug(ctx, resolvedRole)
+		if findErr != nil || superRole == nil {
+			return nil, constant.ErrInternalServerError
+		}
+		rs = []entity.Role{*superRole}
+	} else {
+		ok, linkErr := s.hosp.WithTx(tx).IsUserLinkedToHospital(ctx, u.ID, hID)
+		if linkErr != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		if ok {
+			rs, roleErr = roles.ListHospitalRolesByUser(ctx, hID, u.ID)
+			if roleErr != nil {
+				return nil, constant.ErrInternalServerError
+			}
+		}
+		hospitalRole := ""
+		if len(rs) > 0 {
+			hospitalRole = rs[0].Slug
+		}
+		if _, accessErr := ResolveHospitalSessionRole(false, ok, hospitalRole); accessErr != nil {
+			return nil, accessErr
+		}
 	}
 	rbrief := make([]response.RoleBrief, 0, len(rs))
 	for _, r := range rs {
