@@ -72,7 +72,7 @@ Server default berjalan pada `http://localhost:8080`. Endpoint operasional:
 - `GET /_internal/readyz` - readiness PostgreSQL dan Redis;
 - `GET /_internal/healthz` - alias readiness untuk hosting lama.
 
-Kontrak kode dan pesan error API didokumentasikan di
+Kontrak kode serta pesan sukses/error API didokumentasikan di
 [`docs/api-error-contract.md`](docs/api-error-contract.md). Client harus
 melakukan branching menggunakan kode pada `message` dan menampilkan bahasa
 yang sesuai dari `message_detail`.

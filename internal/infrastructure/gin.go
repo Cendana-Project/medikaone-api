@@ -140,7 +140,10 @@ func accessLogClientFingerprint(clientIP string) string {
 func registerHealthRoutes(r *gin.Engine) {
 	internal := r.Group("/_internal")
 	internal.GET("/livez", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "alive"})
+		resp := constant.NewSuccessResponse(constant.MsgServiceAlive)
+		resp.StatusCode = http.StatusOK
+		resp.Data = gin.H{"status": "alive"}
+		util.HandleResponse(c, resp, nil)
 	})
 	readiness := func(c *gin.Context) {
 		checks := snapshotHealthChecks()
@@ -164,10 +167,15 @@ func registerHealthRoutes(r *gin.Engine) {
 		}
 
 		if !ready {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+			resp := constant.ErrServiceNotReady.ToResponse()
+			resp.Data = gin.H{"status": "not_ready"}
+			util.HandleResponse(c, &resp, nil)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+		resp := constant.NewSuccessResponse(constant.MsgServiceReady)
+		resp.StatusCode = http.StatusOK
+		resp.Data = gin.H{"status": "ready"}
+		util.HandleResponse(c, resp, nil)
 	}
 	internal.GET("/readyz", readiness)
 	// Backward-compatible alias for existing hosting health-check configuration.

@@ -95,8 +95,8 @@ func TestChooseRoleRejectsPrivilegedSelfAssignment(t *testing.T) {
 		constant.RoleDoctor,
 		constant.RoleNurse,
 	} {
-		if err := service.ChooseRole(context.Background(), "user-1", role); err != constant.ErrForbidden {
-			t.Fatalf("role %s: expected forbidden, got %v", role, err)
+		if err := service.ChooseRole(context.Background(), "user-1", role); err != constant.ErrSelfServicePatientRoleOnly {
+			t.Fatalf("role %s: expected self-service role error, got %v", role, err)
 		}
 	}
 }
@@ -104,8 +104,8 @@ func TestChooseRoleRejectsPrivilegedSelfAssignment(t *testing.T) {
 func TestSetProfileRejectsDoctorSelfService(t *testing.T) {
 	service := &Service{}
 	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self"}`)
-	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleDoctor, &profile); err != constant.ErrForbidden {
-		t.Fatalf("expected forbidden, got %v", err)
+	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleDoctor, &profile); err != constant.ErrSelfServicePatientRoleOnly {
+		t.Fatalf("expected self-service role error, got %v", err)
 	}
 }
 

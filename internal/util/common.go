@@ -73,9 +73,15 @@ func HandleResponse(ctx *gin.Context, resp *response.BaseResponse, err error) {
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		resp.Message = response.MessageOK
+		if resp.Message == "" {
+			resp.Message = string(constant.MsgSuccess)
+		}
 		if resp.MessageDetail == (response.MessageDetail{}) {
-			resp.MessageDetail = constant.GetMessageDetail(constant.MsgSuccess)
+			resp.MessageDetail = constant.GetMessageDetail(constant.MessageCode(resp.Message))
+			if resp.MessageDetail == (response.MessageDetail{}) {
+				resp.Message = string(constant.MsgSuccess)
+				resp.MessageDetail = constant.GetMessageDetail(constant.MsgSuccess)
+			}
 		}
 	}
 

@@ -89,7 +89,7 @@ func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repo
 			}
 		}
 		if !allowed {
-			resp := constant.ErrForbidden.ToResponse()
+			resp := constant.NewRequiredPermissionError(required...).ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return

@@ -89,6 +89,36 @@ func NewUnknownFieldError(field string) response.CustomError {
 	)
 }
 
+func NewDuplicateFieldValueError(field string) response.CustomError {
+	field = safeFieldName(field)
+	return apiError(
+		"DUPLICATE_FIELD_VALUE", http.StatusConflict,
+		"Field value already exists", fmt.Sprintf("The value of the %q field is already in use.", field),
+		"Nilai field sudah digunakan", fmt.Sprintf("Nilai field %q sudah digunakan.", field),
+	)
+}
+
+// NewRequiredPermissionError identifies the exact permission alternatives
+// accepted by an endpoint without creating an unstable code per permission.
+func NewRequiredPermissionError(required ...string) response.CustomError {
+	permissions := make([]string, 0, len(required))
+	for _, permission := range required {
+		permission = safeFieldName(permission)
+		if permission != "request" {
+			permissions = append(permissions, permission)
+		}
+	}
+	if len(permissions) == 0 {
+		return ErrForbidden
+	}
+	joined := strings.Join(permissions, ", ")
+	return apiError(
+		"REQUIRED_PERMISSION_MISSING", http.StatusForbidden,
+		"Required permission missing", fmt.Sprintf("This action requires at least one of these permissions: %s.", joined),
+		"Izin yang diperlukan belum dimiliki", fmt.Sprintf("Tindakan ini memerlukan minimal salah satu izin berikut: %s.", joined),
+	)
+}
+
 var (
 	// Common request and server errors.
 	ErrInternalServerError = apiError(
@@ -184,6 +214,11 @@ var (
 		"SERVICE_UNAVAILABLE", http.StatusServiceUnavailable,
 		"Service unavailable", "The service is temporarily unavailable. Please try again later.",
 		"Layanan tidak tersedia", "Layanan sementara tidak tersedia. Silakan coba lagi nanti.",
+	)
+	ErrServiceNotReady = apiError(
+		"SERVICE_NOT_READY", http.StatusServiceUnavailable,
+		"Service not ready", "One or more required service dependencies are not ready.",
+		"Layanan belum siap", "Satu atau beberapa dependensi layanan yang diperlukan belum siap.",
 	)
 
 	// Input and format errors.
@@ -348,6 +383,26 @@ var (
 		"SUPER_ADMIN_REQUIRED", http.StatusForbidden,
 		"Super admin access required", "Only a super administrator can perform this action.",
 		"Akses super admin diperlukan", "Hanya super administrator yang dapat melakukan tindakan ini.",
+	)
+	ErrDoctorRoleRequired = apiError(
+		"DOCTOR_ROLE_REQUIRED", http.StatusForbidden,
+		"Doctor access required", "An active DOCTOR role is required to perform this action.",
+		"Akses dokter diperlukan", "Role DOCTOR yang aktif diperlukan untuk melakukan tindakan ini.",
+	)
+	ErrSelfServicePatientRoleOnly = apiError(
+		"SELF_SERVICE_PATIENT_ROLE_ONLY", http.StatusForbidden,
+		"Role unavailable for self-service", "Only the PATIENT role can be selected or initialized through this self-service endpoint.",
+		"Role tidak tersedia untuk layanan mandiri", "Hanya role PATIENT yang dapat dipilih atau diinisialisasi melalui endpoint layanan mandiri ini.",
+	)
+	ErrAccountInactive = apiError(
+		"ACCOUNT_INACTIVE", http.StatusForbidden,
+		"Account is not active", "This action requires an active account.",
+		"Akun tidak aktif", "Tindakan ini memerlukan akun yang aktif.",
+	)
+	ErrHospitalMembershipRoleRequired = apiError(
+		"HOSPITAL_MEMBERSHIP_ROLE_REQUIRED", http.StatusForbidden,
+		"Hospital membership role required", "The account does not have an active role in the selected hospital.",
+		"Role keanggotaan rumah sakit diperlukan", "Akun tidak memiliki role aktif pada rumah sakit yang dipilih.",
 	)
 	ErrAccountRoleNotFound = apiError(
 		"ACCOUNT_ROLE_NOT_FOUND", http.StatusNotFound,
@@ -584,7 +639,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrRegistrationPINAttemptsExceeded, ErrLoginAttemptsExceeded,
 		ErrPasswordResetRequestsExceeded, ErrPasswordResetPINAttemptsExceeded,
 		ErrPasswordProcessingBusy, ErrEmailDeliveryBusy, ErrRequestTooLarge,
-		ErrServiceUnavailable, ErrInvalidEmail, ErrInvalidUsername, ErrInvalidPassword,
+		ErrServiceUnavailable, ErrServiceNotReady, ErrInvalidEmail, ErrInvalidUsername, ErrInvalidPassword,
 		ErrPasswordSimilarToUserInfo, ErrInvalidDateFormat, ErrInvalidUUIDFormat,
 		ErrInvalidIdempotencyKey,
 		ErrRecordNotFound, ErrUserNotFound, ErrEmailAlreadyExists, ErrUsernameAlreadyExists,
@@ -593,7 +648,9 @@ func APIErrorCatalog() []response.CustomError {
 		ErrRegistrationPINInvalidOrExpired, ErrPasswordResetPINInvalidOrExpired,
 		ErrInvalidResetToken, ErrEmailNotVerified, ErrEmailAlreadyActive, ErrEmailSendFailed,
 		ErrInvalidRoleID, ErrRoleAlreadyExist, ErrRoleNotFound, ErrRoleNotAssigned,
-		ErrRoleAlreadyAssigned, ErrRoleInUse, ErrOnlySuperAdmin, ErrAccountRoleNotFound,
+		ErrRoleAlreadyAssigned, ErrRoleInUse, ErrOnlySuperAdmin, ErrDoctorRoleRequired,
+		ErrSelfServicePatientRoleOnly, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
+		ErrAccountRoleNotFound,
 		ErrUnauthorizedUpdate, ErrNewPasswordSame, ErrPasswordNotMatch, ErrProfileAlreadySet,
 		ErrRegistrationError, ErrHospitalNotFound, ErrHospitalContextRequired,
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,

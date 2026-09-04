@@ -47,7 +47,9 @@ func writeError(ctx *gin.Context, custom response.CustomError) {
 
 func mapValidationErrors(validationErrors validator.ValidationErrors) response.CustomError {
 	if len(validationErrors) == 0 {
-		return constant.ErrValidationError
+		return constant.NewInvalidFieldValueError(
+			"request", "valid according to the API contract", "valid sesuai kontrak API",
+		)
 	}
 
 	fieldError := validationErrors[0]
@@ -77,7 +79,7 @@ func mapValidationErrors(validationErrors validator.ValidationErrors) response.C
 		case "nik":
 			return constant.ErrDuplicateNIK
 		default:
-			return constant.ErrConflict
+			return constant.NewDuplicateFieldValueError(field)
 		}
 	case "numeric":
 		return constant.NewInvalidFieldValueError(field, "numeric", "berupa angka")
@@ -129,5 +131,5 @@ func MapValidationError(err error) error {
 	if errors.As(err, &validationErrors) {
 		return mapValidationErrors(validationErrors)
 	}
-	return constant.ErrValidationError
+	return constant.ErrInternalServerError
 }

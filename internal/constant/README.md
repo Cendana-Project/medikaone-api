@@ -15,5 +15,14 @@ Aturan error publik:
 - Error validasi field dibuat melalui helper `New*Error` agar nama field ikut
   disebut tanpa menciptakan kode baru untuk setiap DTO.
 
+Aturan response sukses:
+
+- Setiap outcome endpoint menggunakan `MessageCode` yang spesifik dari
+  `message.constant.go`; jangan gunakan `SUCCESS` generik pada handler baru.
+- Buat response melalui `NewSuccessResponse(code)` agar kode dan detail
+  bilingual selalu berasal dari katalog yang sama.
+- Retry idempoten menggunakan kode berbeda dari operasi yang membuat resource
+  baru.
+
 Test katalog akan gagal jika ada kode duplikat, format kode tidak standar,
 status HTTP tidak valid, atau terjemahan tidak lengkap.

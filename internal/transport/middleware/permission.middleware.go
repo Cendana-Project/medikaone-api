@@ -49,7 +49,7 @@ func RequirePermissions(roleRepo *rolerepo.Repository, required ...string) gin.H
 			}
 		}
 		if !allowed {
-			resp := constant.ErrForbidden.ToResponse()
+			resp := constant.NewRequiredPermissionError(required...).ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return
@@ -135,7 +135,7 @@ func RequireDoctor(roleRepo *rolerepo.Repository) gin.HandlerFunc {
 			}
 		}
 		if !globalDoctor && !tenantDoctor {
-			resp := constant.ErrForbidden.ToResponse()
+			resp := constant.ErrDoctorRoleRequired.ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return

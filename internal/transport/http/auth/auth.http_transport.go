@@ -43,7 +43,7 @@ func (ctl *Controller) Register(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgRegistrationChallengeCreated)
 	resp.StatusCode = http.StatusOK
 	resp.Data = result
 	util.HandleResponse(c, resp, nil)
@@ -60,7 +60,7 @@ func (ctl *Controller) ResendPIN(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgRegistrationPINResent)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"challenge_id": req.ChallengeID, "email": email, "status": "pending"}
 	util.HandleResponse(c, resp, nil)
@@ -83,7 +83,7 @@ func (ctl *Controller) VerifyPIN(c *gin.Context) {
 	// A newly verified account has not selected a public role yet.
 	roleSlug := ""
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgRegistrationVerified)
 	resp.StatusCode = http.StatusOK
 	resp.Data = response.LoginResponse{
 		AccessToken:           tokens.AccessToken,
@@ -119,7 +119,7 @@ func (ctl *Controller) LoginPublic(c *gin.Context) {
 		roleSlug = roles[0].Slug
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPublicLoginSucceeded)
 	resp.StatusCode = http.StatusOK
 	resp.Data = response.LoginResponse{
 		AccessToken:           tokens.AccessToken,
@@ -156,7 +156,7 @@ func (ctl *Controller) LoginHospital(c *gin.Context) {
 		roleSlug = res.Roles[0].Slug
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgHospitalLoginSucceeded)
 	resp.StatusCode = http.StatusOK
 	resp.Data = response.LoginHospitalResponse{
 		AccessToken:           res.AccessToken,
@@ -195,7 +195,7 @@ func (ctl *Controller) Refresh(c *gin.Context) {
 		}
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgTokensRefreshed)
 	resp.StatusCode = http.StatusOK
 	resp.Data = response.LoginResponse{
 		AccessToken:           tokens.AccessToken,
@@ -224,7 +224,7 @@ func (ctl *Controller) ChooseRole(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPatientRoleSelected)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"role": role}
 	util.HandleResponse(c, resp, nil)
@@ -241,7 +241,7 @@ func (ctl *Controller) PasswordForgot(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPasswordResetPINSent)
 	resp.Data = result
 	util.HandleResponse(c, resp, nil)
 }
@@ -262,7 +262,7 @@ func (ctl *Controller) PasswordResetVerifyPIN(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPasswordResetPINVerified)
 	resp.Data = result
 	util.HandleResponse(c, resp, nil)
 }
@@ -277,7 +277,7 @@ func (ctl *Controller) PasswordReset(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPasswordResetCompleted)
 	resp.Data = gin.H{"status": "password_updated"}
 	util.HandleResponse(c, resp, nil)
 }
@@ -297,7 +297,7 @@ func (ctl *Controller) PasswordChange(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPasswordChanged)
 	resp.Data = gin.H{"status": "password_changed"}
 	util.HandleResponse(c, resp, nil)
 }
@@ -331,7 +331,7 @@ func (ctl *Controller) SetProfile(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgPatientProfileCompleted)
 	resp.StatusCode = http.StatusOK
 	resp.Data = res
 	util.HandleResponse(c, resp, nil)
@@ -360,7 +360,7 @@ func (ctl *Controller) Logout(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgLogoutCompleted)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{
 		"status":         "logout_success",
@@ -381,7 +381,7 @@ func (ctl *Controller) LogoutAll(c *gin.Context) {
 		return
 	}
 
-	resp := response.NewResponseOK()
+	resp := constant.NewSuccessResponse(constant.MsgAllSessionsLoggedOut)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"status": "logout_all_success"}
 	util.HandleResponse(c, resp, nil)
