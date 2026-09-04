@@ -21,6 +21,7 @@ type fakeRepository struct {
 	completed   bool
 	vitalSaved  bool
 	correction  *request.CorrectConsultationNoteRequest
+	completeErr error
 }
 
 func (f *fakeRepository) GetAppointmentContext(context.Context, string) (*repository.AppointmentContext, error) {
@@ -62,6 +63,9 @@ func (f *fakeRepository) SaveConsultationDraft(context.Context, string, string, 
 	return nil
 }
 func (f *fakeRepository) CompleteConsultation(context.Context, string, string, time.Time) error {
+	if f.completeErr != nil {
+		return f.completeErr
+	}
 	f.completed = true
 	return nil
 }
@@ -137,6 +141,24 @@ func TestCompleteExaminationRequiresSOAPAndPrimaryDiagnosis(t *testing.T) {
 	}
 	_, err = service.CompleteDoctorExamination(context.Background(), appointment.DoctorID, appointment.AppointmentID)
 	if err != nil || !repo.completed {
+		t.Fatalf("error=%v completed=%v", err, repo.completed)
+	}
+}
+
+func TestCompleteExaminationRequiresPrescriptionDecision(t *testing.T) {
+	appointment := appointmentFixture()
+	value := "completed"
+	repo := &fakeRepository{
+		appointment: appointment,
+		completeErr: repository.ErrPrescriptionDecisionRequired,
+		encounter: &response.MedicalEncounter{Consultation: &response.ConsultationNote{
+			Subjective: &value, Objective: &value, Assessment: &value, Plan: &value,
+			Diagnoses: []response.Diagnosis{{Type: "PRIMARY", Name: "Influenza"}},
+		}},
+	}
+	service := NewService(repo, &fakeStorage{}, 10*1024*1024, time.Minute)
+	_, err := service.CompleteDoctorExamination(context.Background(), appointment.DoctorID, appointment.AppointmentID)
+	if !errors.Is(err, constant.ErrPrescriptionDecisionRequired) || repo.completed {
 		t.Fatalf("error=%v completed=%v", err, repo.completed)
 	}
 }

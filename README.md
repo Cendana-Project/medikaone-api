@@ -105,6 +105,7 @@ Environment variable utama untuk deployment:
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | URL project dan server-only secret key Supabase; jangan pernah kirim secret key ke client |
 | `SUPABASE_STORAGE_BUCKET` | Bucket private kontrak dokter; default `doctor-contracts` |
 | `SUPABASE_MEDICAL_STORAGE_BUCKET` | Bucket private lampiran rekam medis; default `medical-records` |
+| `SUPABASE_PROFILE_STORAGE_BUCKET` | Bucket private foto profil; default `profile-images` |
 | `SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES` | Maksimum upload; aplikasi membatasi paling tinggi 10 MB |
 | `SUPABASE_STORAGE_SIGNED_URL_TTL` | Masa berlaku URL download private; default `5m` |
 | `AUTH_PIN_TTL`, `AUTH_PIN_MAX_ATTEMPTS` | Masa berlaku dan batas percobaan PIN |
@@ -199,6 +200,25 @@ Endpoint auth lain:
 - `PUT /v1/auth/password` (Bearer access token)
 - `POST /v1/auth/logout` (Bearer access token; mencabut satu keluarga sesi, body `refresh_token` opsional sebagai pemeriksaan konsistensi)
 - `POST /v1/auth/logout-all` (Bearer access token)
+
+## Profil pengguna
+
+`GET /v1/profile` mengambil profil global akun yang sedang login; `GET /v1/me`
+tetap menjadi alias kompatibilitas. `PATCH /v1/profile` mengubah username,
+nama, telepon, tanggal lahir, alamat, gender, atau NIK milik sendiri. Email
+sengaja tidak dapat diubah tanpa alur verifikasi terpisah. Field klinis khusus
+pasien/dokter tetap dikelola melalui `PUT /v1/profile/patient` dan
+`PUT /v1/profile/doctor`.
+
+Foto profil memakai tiga operasi authenticated: `PUT /v1/profile/photo`
+(multipart field `file`), `GET /v1/profile/photo` (signed URL), dan
+`DELETE /v1/profile/photo`. Hanya JPEG/PNG valid dengan ukuran maksimum 10 MB
+dan dimensi maksimum 4096x4096. Buat private bucket Supabase `profile-images`
+dengan public access **OFF**; jika memakai nama lain, set
+`SUPABASE_PROFILE_STORAGE_BUCKET`. Di dashboard Supabase, allowlist MIME bucket
+dapat dibatasi ke `image/jpeg,image/png` dan file-size limit ke 10 MB. Client
+tidak boleh menerima `SUPABASE_SECRET_KEY` atau menyimpan signed URL sebagai
+URL permanen.
 
 Reset password menggunakan tiga tahap. `POST /v1/auth/password/forgot` menerima `email` dan selalu mengembalikan bentuk respons yang sama, termasuk `challenge_id`, agar keberadaan akun tidak bocor.
 
@@ -328,9 +348,49 @@ dan encounter. API hanya mengembalikan signed URL berdurasi pendek setelah
 otorisasi; object storage tidak boleh dibuat public. Bucket rekam medis wajib
 terpisah dari bucket kontrak dokter.
 
+## Resep elektronik
+
+Dokter pemilik appointment dapat membuat draft resep setelah diagnosis utama
+tersimpan. Sebelum pemeriksaan diselesaikan, dokter wajib menerbitkan resep atau
+mencatat keputusan `NO_MEDICATION` beserta alasannya. Satu encounter memiliki
+satu agregat resep; koreksi membuat revision baru dan tidak menimpa revision
+yang telah terbit. Pembatalan juga mempertahankan isi, dokumen, serta audit
+trail. Admin dan perawat hanya dapat melihat/mencetak, sedangkan resepsionis
+tidak memiliki akses resep.
+
+Issue, koreksi, dan pembatalan menerima `expected_revision_id` dari response
+draft/detail terbaru. Nilai ini menjadi optimistic lock agar request paralel
+atau UI yang stale tidak menerbitkan maupun membatalkan revision yang salah.
+Setiap penyimpanan ulang draft menghasilkan revision ID baru.
+
+Katalog obat bersifat per rumah sakit dan dikelola admin. Isi resep menyimpan
+snapshot nama, bentuk sediaan, serta kekuatan sehingga perubahan katalog tidak
+mengubah histori. Saat terbit, identitas pasien, rumah sakit, dokter/SIP, dan
+alergi yang ditinjau juga di-snapshot agar PDF dan verifikasi tidak berubah
+ketika profil diedit kemudian. Item `NON_COMPOUND` dan racikan `COMPOUND` didukung. Obat
+narkotika/psikotropika ditolak pada fase ini; stok, harga, dispensing, dan
+pembayaran belum termasuk.
+
+Saat issue atau koreksi, server menghasilkan PDF dan QR verifikasi, mengunggah
+PDF ke bucket private Supabase `medical-records`, lalu menyimpan metadata dan
+SHA-256 dokumen dalam transaksi penerbitan. Jika upload atau transaksi gagal,
+resep tidak menjadi terbit dan object yatim dibersihkan. Akses cetak selalu
+melalui signed URL. Set `SERVER_BASE_URL` (HTTPS pada staging/production) agar
+QR berisi URL endpoint verifikasi publik. Token QR acak tidak disimpan mentah;
+database hanya menyimpan hash SHA-256 token revision aktif.
+
 ## Seeder dan reset staging
 
 Credential akun fixture privileged memang sengaja hardcoded untuk mempermudah development/staging saat ini. Ini adalah keputusan desain sementara, bukan secret production; command `seed` menolak berjalan pada `ENV=production`.
+
+Role fixture disusun berdasarkan scope berikut:
+
+- `superadmin@medikaone.id`: role global `SUPER_ADMIN`; dapat memilih semua hospital aktif tanpa membership atau role tenant.
+- `patient001@medikaone.id` sampai `patient003@medikaone.id`: role global `PATIENT`; bukan akun staff hospital.
+- `admin001@medikaone.id`, `nurse001@medikaone.id`, `receptionist001@medikaone.id`, dan `bod001@medikaone.id`: membership aktif dan role tenant yang sesuai pada `HSP-MO-001`.
+- `doctor001@medikaone.id` sampai `doctor003@medikaone.id`: membership aktif dan role tenant `DOCTOR` pada `HSP-MO-001`.
+
+Seeder merekonsiliasi role fixture tenant secara idempotent dan membersihkan membership/role `HSP-MO-001` yang keliru dari fixture global-only. Login hospital untuk user non-super mewajibkan membership serta sedikitnya satu role tenant aktif; global `SUPER_ADMIN` menjadi satu-satunya pengecualian.
 
 Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
@@ -393,7 +453,7 @@ CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integrat
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Kode baru membaca kolom dari migration `20260901010000_harden_user_hospitals.sql`, jadi migration wajib selesai sebelum server baru menerima traffic.
+- Server memerlukan migration terbaru `20260905090000_prescription.sql`; jalankan migration sebelum deployment baru menerima traffic.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
 - Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.

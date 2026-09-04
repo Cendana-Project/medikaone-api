@@ -93,6 +93,20 @@ type DoctorProfileRequest struct {
 	Specialty *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
 }
 
+// UpdateUserProfileRequest changes identity-neutral account details. Email is
+// intentionally excluded because changing it requires a separate verification
+// flow. Role-specific clinical fields remain on the patient/doctor endpoints.
+type UpdateUserProfileRequest struct {
+	Username  *string `json:"username,omitempty" validate:"omitempty,min=3,max=64,username"`
+	FirstName *string `json:"first_name,omitempty" validate:"omitempty,max=100"`
+	LastName  *string `json:"last_name,omitempty" validate:"omitempty,max=100"`
+	Phone     *string `json:"phone,omitempty" validate:"omitempty,max=32"`
+	DOB       *string `json:"dob,omitempty"`
+	Address   *string `json:"address,omitempty" validate:"omitempty,max=1000"`
+	Gender    *string `json:"gender,omitempty"`
+	NIK       *string `json:"nik,omitempty"`
+}
+
 type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token" validate:"omitempty,max=4096"`
 }

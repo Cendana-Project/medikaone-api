@@ -11,6 +11,7 @@ import (
 	doctorHospitalCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	examinationCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
+	prescriptionCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/prescription"
 	userCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
 	transportmw "github.com/Cendana-Project/medikaone-api/internal/transport/middleware"
@@ -29,6 +30,7 @@ type Transport struct {
 	doctorHospitalController *doctorHospitalCtrl.Controller
 	appointmentController    *appointmentCtrl.Controller
 	examinationController    *examinationCtrl.Controller
+	prescriptionController   *prescriptionCtrl.Controller
 	warmupController         *warmupCtrl.Controller
 
 	roleRepo *roleRepo.Repository
@@ -63,6 +65,10 @@ func (t *Transport) WithExaminationController(c *examinationCtrl.Controller) *Tr
 	t.examinationController = c
 	return t
 }
+func (t *Transport) WithPrescriptionController(c *prescriptionCtrl.Controller) *Transport {
+	t.prescriptionController = c
+	return t
+}
 func (t *Transport) WithRoleRepository(repo *roleRepo.Repository) *Transport {
 	t.roleRepo = repo
 	return t
@@ -93,6 +99,13 @@ func (t *Transport) InitRoute() {
 	t.router.GET("/ping", func(c *gin.Context) { t.warmupController.Ping(c) })
 
 	v1 := t.router.Group("/v1")
+	v1.GET("/prescriptions/verify/:token",
+		transportmw.RateLimitPublicPrescriptionVerificationByIP(
+			t.rdb, config.Env.Auth.PublicIPRateLimit, config.Env.Auth.PublicIPRateWindow,
+			config.Env.Server.ClientIPHeader,
+		),
+		t.prescriptionController.Verify,
+	)
 
 	// ========== AUTH — PUBLIC ==========
 	auth := v1.Group("/auth")
@@ -121,6 +134,11 @@ func (t *Transport) InitRoute() {
 	protected.Use(transportmw.AuthRequired(t.rdb, t.userRepo))
 	{
 		protected.GET("/me", t.userController.Me)
+		protected.GET("/profile", t.userController.Profile)
+		protected.PATCH("/profile", t.userController.UpdateProfile)
+		protected.PUT("/profile/photo", t.userController.UploadProfilePhoto)
+		protected.GET("/profile/photo", t.userController.GetProfilePhotoURL)
+		protected.DELETE("/profile/photo", t.userController.DeleteProfilePhoto)
 
 		protected.POST("/auth/choose-role", t.authController.ChooseRole)
 
@@ -224,6 +242,38 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
 			t.examinationController.GetDoctorExamination,
 		)
+		protected.GET("/doctor/appointments/:appointment_id/medications",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionView),
+			t.prescriptionController.ListDoctorMedications,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/prescription",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionView),
+			t.prescriptionController.GetDoctorPrescription,
+		)
+		protected.PUT("/doctor/appointments/:appointment_id/prescription",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionWrite),
+			t.prescriptionController.SaveDraft,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/prescription/no-medication",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionWrite),
+			t.prescriptionController.MarkNoMedication,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/prescription/issue",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionWrite),
+			t.prescriptionController.Issue,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/prescription/corrections",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionCorrect),
+			t.prescriptionController.Correct,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/prescription/cancel",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionCorrect),
+			t.prescriptionController.Cancel,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/prescription/document-url",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionPrint),
+			t.prescriptionController.GetDoctorDocumentURL,
+		)
 		protected.GET("/doctor/appointments/:appointment_id/medical-history",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
 			t.examinationController.ListDoctorMedicalHistory,
@@ -263,6 +313,18 @@ func (t *Transport) InitRoute() {
 		protected.GET("/medical-record-attachments/:attachment_id/url",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionMedicalRecordSelfView),
 			t.examinationController.GetPatientAttachmentURL,
+		)
+		protected.GET("/prescriptions",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionSelfView),
+			t.prescriptionController.ListPatientPrescriptions,
+		)
+		protected.GET("/prescriptions/:prescription_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionSelfView),
+			t.prescriptionController.GetPatientPrescription,
+		)
+		protected.GET("/prescriptions/:prescription_id/document-url",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPrescriptionSelfView),
+			t.prescriptionController.GetPatientDocumentURL,
 		)
 		protected.POST("/doctor/schedule-change-requests",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
@@ -393,6 +455,26 @@ func (t *Transport) InitRoute() {
 		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id/examination",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationView),
 			t.examinationController.GetHospitalExamination,
+		)
+		tenant.GET("/hospitals/:hospital_id/medications",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionPrescriptionView),
+			t.prescriptionController.ListHospitalMedications,
+		)
+		tenant.POST("/hospitals/:hospital_id/medications",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionMedicationCatalogManage),
+			t.prescriptionController.CreateMedication,
+		)
+		tenant.PUT("/hospitals/:hospital_id/medications/:medication_id",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionMedicationCatalogManage),
+			t.prescriptionController.UpdateMedication,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id/prescription",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionPrescriptionView),
+			t.prescriptionController.GetHospitalPrescription,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id/prescription/document-url",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionPrescriptionPrint),
+			t.prescriptionController.GetHospitalDocumentURL,
 		)
 		tenant.PUT("/hospitals/:hospital_id/appointments/:appointment_id/examination/vitals",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationVitalsWrite),

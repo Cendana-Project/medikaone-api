@@ -102,6 +102,22 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 | `PATIENT_RECORD_ALREADY_CLAIMED` | Hentikan klaim mandiri dan eskalasi verifikasi kepemilikan. |
 | `PATIENT_RECORD_IDENTITY_MISMATCH` | Samakan profil akun dengan identitas record melalui proses terverifikasi. |
 
+## Kode resep dan katalog obat
+
+| Kode | Tindakan client |
+| --- | --- |
+| `PRESCRIPTION_PRIMARY_DIAGNOSIS_REQUIRED` | Simpan diagnosis utama pada draft konsultasi sebelum membuka resep. |
+| `PRESCRIPTION_DOCTOR_SIP_REQUIRED` | Lengkapi SIP pada profil dokter sebelum membuat atau menerbitkan resep. |
+| `PRESCRIPTION_ITEMS_REQUIRED` | Tambahkan minimal satu item obat atau gunakan flow `NO_MEDICATION`. |
+| `PRESCRIPTION_ALLERGY_REVIEW_REQUIRED` | Tampilkan alergi pasien dan minta dokter mengonfirmasi peninjauan. |
+| `PRESCRIPTION_DECISION_REQUIRED` | Terbitkan resep atau catat `NO_MEDICATION` sebelum complete examination. |
+| `PRESCRIPTION_COMPOUND_INVALID` | Cocokkan komponen dengan tipe item racikan/non-racikan. |
+| `CONTROLLED_MEDICATION_UNSUPPORTED` | Hentikan flow elektronik dan ikuti prosedur khusus rumah sakit. |
+| `PRESCRIPTION_CONCURRENT_UPDATE` | Muat ulang resep sebelum mengulangi koreksi/issue. |
+| `PRESCRIPTION_VERIFICATION_INVALID` | Jangan gunakan dokumen; token salah, dibatalkan, atau sudah digantikan. |
+| `MEDICATION_CATALOG_NOT_FOUND` | Muat ulang katalog aktif rumah sakit. |
+| `MEDICATION_CATALOG_DUPLICATE` | Gunakan kode katalog yang berbeda. |
+
 Pesan sukses didefinisikan di `internal/constant/message.constant.go`. Error
 statis didefinisikan di `internal/constant/custom_error.constant.go` dan
 dirender hanya melalui `internal/util/error.go`.

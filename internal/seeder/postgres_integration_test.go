@@ -3,8 +3,11 @@ package seeder
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -23,6 +27,8 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	appointmentrepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
+	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	userhttp "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
@@ -149,6 +155,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			"patient_records", "patient_record_events",
 			"medical_encounters", "vital_sign_revisions", "consultation_note_revisions",
 			"encounter_diagnoses", "medical_record_attachments", "medical_record_audit_events",
+			"hospital_medications", "prescriptions", "prescription_revisions",
+			"prescription_items", "prescription_item_components",
+			"prescription_documents", "prescription_audit_events",
 		} {
 			var exists bool
 			if err := sqlDB.QueryRow(`SELECT TO_REGCLASS($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
@@ -236,6 +245,113 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM hospital_user_roles`); got != 7 {
 			t.Fatalf("seeded hospital role assignments = %d, want 7", got)
 		}
+		wantTenantRoles := map[string]string{
+			"admin001@medikaone.id":        constant.RoleAdmin,
+			"nurse001@medikaone.id":        constant.RoleNurse,
+			"receptionist001@medikaone.id": constant.RoleReceptionist,
+			"bod001@medikaone.id":          constant.RoleBOD,
+			"doctor001@medikaone.id":       constant.RoleDoctor,
+			"doctor002@medikaone.id":       constant.RoleDoctor,
+			"doctor003@medikaone.id":       constant.RoleDoctor,
+		}
+		for email, role := range wantTenantRoles {
+			got := scalarInt(t, sqlDB, `
+				SELECT COUNT(*)
+				FROM hospital_user_roles hur
+				JOIN user_hospitals uh ON uh.user_id = hur.user_id AND uh.hospital_id = hur.hospital_id
+				JOIN users u ON u.id = hur.user_id
+				JOIN hospitals h ON h.id = hur.hospital_id
+				JOIN roles r ON r.id = hur.role_id
+				WHERE LOWER(u.email) = LOWER($1) AND UPPER(r.slug) = UPPER($2)
+				  AND h.code = 'HSP-MO-001'
+				  AND uh.is_active = TRUE AND uh.deleted_at IS NULL
+			`, email, role)
+			if got != 1 {
+				t.Errorf("tenant fixture %s has %d active %s roles at HSP-MO-001, want 1", email, got, role)
+			}
+		}
+		for _, email := range []string{
+			"superadmin@medikaone.id",
+			"patient001@medikaone.id",
+			"patient002@medikaone.id",
+			"patient003@medikaone.id",
+		} {
+			got := scalarInt(t, sqlDB, `
+				SELECT COUNT(*)
+				FROM user_hospitals uh
+				JOIN users u ON u.id = uh.user_id
+				JOIN hospitals h ON h.id = uh.hospital_id
+				WHERE LOWER(u.email) = LOWER($1) AND h.code = 'HSP-MO-001'
+			`, email)
+			if got != 0 {
+				t.Errorf("global fixture %s has %d tenant memberships at HSP-MO-001, want 0", email, got)
+			}
+		}
+
+		t.Run("global superadmin selects hospital without tenant membership", func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/tenant/me", nil)
+			ctx.Set(string(constant.UserID), stableIDs["user"])
+			ctx.Set("hospital_hint", "HSP-MO-002")
+
+			controller := userhttp.NewController(nil, userrepo.NewRepository(db))
+			controller.TenantMe(ctx)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("tenant me status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+			}
+			var payload struct {
+				Data struct {
+					Role      string `json:"role"`
+					Hospitals []struct {
+						Code string `json:"code"`
+					} `json:"hospitals"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode tenant me response: %v", err)
+			}
+			if payload.Data.Role != constant.RoleSuperAdmin {
+				t.Fatalf("tenant me role = %q, want %q", payload.Data.Role, constant.RoleSuperAdmin)
+			}
+			if len(payload.Data.Hospitals) != 1 || payload.Data.Hospitals[0].Code != "HSP-MO-002" {
+				t.Fatalf("tenant me hospitals = %+v, want selected HSP-MO-002", payload.Data.Hospitals)
+			}
+		})
+
+		t.Run("seeder reconciles stale demo hospital roles", func(t *testing.T) {
+			adminID := scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'admin001@medikaone.id'`)
+			nurseRoleID := scalarString(t, sqlDB, `SELECT id::text FROM roles WHERE slug = 'NURSE'`)
+			if _, err := sqlDB.Exec(`
+				INSERT INTO user_hospitals (user_id, hospital_id, is_active, is_primary, created_at, updated_at)
+				VALUES ($1, $2, TRUE, FALSE, NOW(), NOW())
+				ON CONFLICT (user_id, hospital_id) DO UPDATE SET is_active = TRUE, deleted_at = NULL
+			`, stableIDs["user"], stableIDs["hospital"]); err != nil {
+				t.Fatalf("insert stale global membership: %v", err)
+			}
+			if _, err := sqlDB.Exec(`
+				INSERT INTO hospital_user_roles (hospital_id, user_id, role_id, created_at)
+				VALUES ($1, $2, $3, NOW()), ($1, $4, $3, NOW())
+				ON CONFLICT (hospital_id, user_id, role_id) DO NOTHING
+			`, stableIDs["hospital"], stableIDs["user"], nurseRoleID, adminID); err != nil {
+				t.Fatalf("insert stale fixture roles: %v", err)
+			}
+
+			if err := Run(db); err != nil {
+				t.Fatalf("reconcile seed: %v", err)
+			}
+			if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM user_hospitals WHERE user_id = $1 AND hospital_id = $2`, stableIDs["user"], stableIDs["hospital"]); got != 0 {
+				t.Fatalf("global superadmin canonical memberships after reconcile = %d, want 0", got)
+			}
+			if got := scalarInt(t, sqlDB, `
+				SELECT COUNT(*)
+				FROM hospital_user_roles hur
+				JOIN roles r ON r.id = hur.role_id
+				WHERE hur.user_id = $1 AND hur.hospital_id = $2 AND r.slug <> 'ADMIN'
+			`, adminID, stableIDs["hospital"]); got != 0 {
+				t.Fatalf("admin stale canonical roles after reconcile = %d, want 0", got)
+			}
+		})
 		if _, err := sqlDB.Exec(`UPDATE users SET seed_key = 'forged:fixture' WHERE seed_key IS NOT NULL`); err == nil {
 			t.Fatal("database allowed immutable user fixture provenance to change")
 		}

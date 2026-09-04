@@ -21,6 +21,7 @@ var (
 	ErrConsultationDraftNotFound    = errors.New("consultation draft not found")
 	ErrConsultationRevisionNotFound = errors.New("finalized consultation revision not found")
 	ErrAttachmentNotFound           = errors.New("medical attachment not found")
+	ErrPrescriptionDecisionRequired = errors.New("prescription decision required")
 )
 
 type Repository struct{ db *gorm.DB }
@@ -333,6 +334,16 @@ func (r *Repository) CompleteConsultation(ctx context.Context, appointmentID, ac
 		encounterID, err := ensureEncounter(ctx, tx, appointment, now)
 		if err != nil {
 			return err
+		}
+		var prescriptionStatus string
+		prescriptionResult := tx.Raw(`
+			SELECT status FROM prescriptions WHERE encounter_id = ? FOR UPDATE
+		`, encounterID).Scan(&prescriptionStatus)
+		if prescriptionResult.Error != nil {
+			return prescriptionResult.Error
+		}
+		if prescriptionResult.RowsAffected == 0 || (prescriptionStatus != "ISSUED" && prescriptionStatus != "NO_MEDICATION") {
+			return ErrPrescriptionDecisionRequired
 		}
 		result := tx.Exec(`
 			UPDATE consultation_note_revisions SET status = 'FINALIZED', finalized_by = ?,

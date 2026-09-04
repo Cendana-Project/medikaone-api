@@ -11,6 +11,12 @@ import (
 
 var createTableName = regexp.MustCompile(`(?im)^\s*CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+"?([a-zA-Z0-9_]+)"?`)
 
+func TestSeedDefinitionsAreComplete(t *testing.T) {
+	if err := ValidateDefinitions(); err != nil {
+		t.Fatalf("invalid seed definitions: %v", err)
+	}
+}
+
 func TestDemoUserEmailsAreUnique(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, email := range demoUserEmails() {
@@ -34,6 +40,41 @@ func TestDemoUserSeedKeysAreUnique(t *testing.T) {
 	}
 	if len(seen) != len(sampleUserSeeds())+1 {
 		t.Fatalf("seed key set size = %d, want %d sample keys plus env superadmin", len(seen), len(sampleUserSeeds()))
+	}
+}
+
+func TestDemoAccountRoleScopesAreComplete(t *testing.T) {
+	wantTenantRoles := map[string]string{
+		"admin001@medikaone.id":        "ADMIN",
+		"nurse001@medikaone.id":        "NURSE",
+		"receptionist001@medikaone.id": "RECEPTIONIST",
+		"bod001@medikaone.id":          "BOD",
+		"doctor001@medikaone.id":       "DOCTOR",
+		"doctor002@medikaone.id":       "DOCTOR",
+		"doctor003@medikaone.id":       "DOCTOR",
+	}
+	wantGlobalRoles := map[string]string{
+		"superadmin@medikaone.id": "SUPER_ADMIN",
+		"patient001@medikaone.id": "PATIENT",
+		"patient002@medikaone.id": "PATIENT",
+		"patient003@medikaone.id": "PATIENT",
+	}
+
+	for _, fixture := range sampleUserSeeds() {
+		if isGlobalDemoRole(fixture.RoleSlug) {
+			if want, ok := wantGlobalRoles[fixture.Email]; !ok || fixture.RoleSlug != want {
+				t.Errorf("unexpected global fixture role: email=%s role=%s", fixture.Email, fixture.RoleSlug)
+			}
+			delete(wantGlobalRoles, fixture.Email)
+			continue
+		}
+		if want, ok := wantTenantRoles[fixture.Email]; !ok || fixture.RoleSlug != want {
+			t.Errorf("unexpected tenant fixture role: email=%s role=%s", fixture.Email, fixture.RoleSlug)
+		}
+		delete(wantTenantRoles, fixture.Email)
+	}
+	if len(wantGlobalRoles) != 0 || len(wantTenantRoles) != 0 {
+		t.Fatalf("missing fixture role declarations: global=%v tenant=%v", wantGlobalRoles, wantTenantRoles)
 	}
 }
 

@@ -78,3 +78,43 @@ func TestExaminationMigrationEnforcesAppendOnlyFinalRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestPrescriptionMigrationEnforcesAppendOnlyIssuedRecords(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260905090000_prescription.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"trg_prescription_revision_immutable",
+		"trg_prescription_item_immutable",
+		"trg_prescription_component_immutable",
+		"trg_prescription_revision_validate_issue",
+		"fk_prescription_revision_supersedes_same_parent",
+		"chk_prescription_item_not_controlled",
+		"patient_allergies_snapshot",
+		"prescription_documents",
+		"revision_id UUID REFERENCES prescription_revisions(id) ON DELETE SET NULL",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("prescription migration is missing %s", required)
+		}
+	}
+}
+
+func TestProfilePhotoMigrationEnforcesPrivateObjectMetadata(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260905150000_user_profile_photo.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"avatar_bucket", "avatar_object_path", "avatar_content_type",
+		"chk_users_avatar_complete", "chk_users_avatar_content_type",
+		"chk_users_avatar_file_size", "ux_users_avatar_object_path",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("profile photo migration is missing %s", required)
+		}
+	}
+}

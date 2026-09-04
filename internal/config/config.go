@@ -105,6 +105,7 @@ type Redis struct {
 
 type Server struct {
 	Port               string        `mapstructure:"port"`
+	BaseURL            string        `mapstructure:"base_url"`
 	CORSAllowedOrigins []string      `mapstructure:"cors_allowed_origins"`
 	ClientIPHeader     string        `mapstructure:"client_ip_header"`
 	ReadHeaderTimeout  time.Duration `mapstructure:"read_header_timeout"`
@@ -138,6 +139,7 @@ type Storage struct {
 	Provider         string          `mapstructure:"provider"`
 	Bucket           string          `mapstructure:"bucket"`
 	MedicalBucket    string          `mapstructure:"medical_bucket"`
+	ProfileBucket    string          `mapstructure:"profile_bucket"`
 	MaxFileSizeBytes int64           `mapstructure:"max_file_size_bytes"`
 	SignedURLTTL     time.Duration   `mapstructure:"signed_url_ttl"`
 	Supabase         SupabaseStorage `mapstructure:"supabase"`
@@ -338,6 +340,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.provider", "supabase")
 	v.SetDefault("storage.bucket", "doctor-contracts")
 	v.SetDefault("storage.medical_bucket", "medical-records")
+	v.SetDefault("storage.profile_bucket", "profile-images")
 	v.SetDefault("storage.max_file_size_bytes", 10*1024*1024)
 	v.SetDefault("storage.signed_url_ttl", "5m")
 }
@@ -348,6 +351,7 @@ func bindEnvVariables(v *viper.Viper) {
 		"log_level":                   "LOG_LEVEL",
 		"graceful_shutdown_timeout":   "GRACEFUL_SHUTDOWN_TIMEOUT",
 		"server.cors_allowed_origins": "SERVER_CORS_ALLOWED_ORIGINS",
+		"server.base_url":             "SERVER_BASE_URL",
 		"server.client_ip_header":     "SERVER_CLIENT_IP_HEADER",
 		"server.read_header_timeout":  "SERVER_READ_HEADER_TIMEOUT",
 		"server.read_timeout":         "SERVER_READ_TIMEOUT",
@@ -385,6 +389,7 @@ func bindEnvVariables(v *viper.Viper) {
 		"storage.provider":            "STORAGE_PROVIDER",
 		"storage.bucket":              "SUPABASE_STORAGE_BUCKET",
 		"storage.medical_bucket":      "SUPABASE_MEDICAL_STORAGE_BUCKET",
+		"storage.profile_bucket":      "SUPABASE_PROFILE_STORAGE_BUCKET",
 		"storage.max_file_size_bytes": "SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES",
 		"storage.signed_url_ttl":      "SUPABASE_STORAGE_SIGNED_URL_TTL",
 		"storage.supabase.url":        "SUPABASE_URL",
@@ -424,6 +429,7 @@ func normalize(c *EnvConfig) {
 	c.Env = strings.ToLower(strings.TrimSpace(c.Env))
 	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
 	c.Server.Port = strings.TrimSpace(c.Server.Port)
+	c.Server.BaseURL = strings.TrimRight(strings.TrimSpace(c.Server.BaseURL), "/")
 	c.Server.ClientIPHeader = strings.TrimSpace(c.Server.ClientIPHeader)
 	c.Database.DSN = strings.TrimSpace(c.Database.DSN)
 	c.Database.AdminDSN = strings.TrimSpace(c.Database.AdminDSN)
@@ -435,6 +441,7 @@ func normalize(c *EnvConfig) {
 	c.Storage.Provider = strings.ToLower(strings.TrimSpace(c.Storage.Provider))
 	c.Storage.Bucket = strings.TrimSpace(c.Storage.Bucket)
 	c.Storage.MedicalBucket = strings.TrimSpace(c.Storage.MedicalBucket)
+	c.Storage.ProfileBucket = strings.TrimSpace(c.Storage.ProfileBucket)
 	c.Storage.Supabase.URL = strings.TrimRight(strings.TrimSpace(c.Storage.Supabase.URL), "/")
 	c.Storage.Supabase.SecretKey = strings.TrimSpace(c.Storage.Supabase.SecretKey)
 
@@ -476,6 +483,15 @@ func (c *EnvConfig) Validate() error {
 	}
 	if len(c.Server.CORSAllowedOrigins) == 0 {
 		errs = append(errs, fmt.Errorf("server.cors_allowed_origins must contain at least one origin"))
+	}
+	if requireTransportSecurity && c.Server.BaseURL == "" {
+		errs = append(errs, fmt.Errorf("server.base_url is required in staging and production"))
+	} else if c.Server.BaseURL != "" {
+		if err := validateURL(c.Server.BaseURL, "server.base_url", "https", "http"); err != nil {
+			errs = append(errs, err)
+		} else if requireTransportSecurity && !strings.HasPrefix(strings.ToLower(c.Server.BaseURL), "https://") {
+			errs = append(errs, fmt.Errorf("server.base_url must use HTTPS in staging and production"))
+		}
 	}
 	for _, origin := range c.Server.CORSAllowedOrigins {
 		if err := validateOrigin(origin, requireTransportSecurity); err != nil {
@@ -604,6 +620,11 @@ func (c *EnvConfig) Validate() error {
 		errs = append(errs, fmt.Errorf("storage.medical_bucket is required"))
 	} else if c.Storage.MedicalBucket == c.Storage.Bucket {
 		errs = append(errs, fmt.Errorf("storage.medical_bucket must be separate from storage.bucket"))
+	}
+	if c.Storage.ProfileBucket == "" {
+		errs = append(errs, fmt.Errorf("storage.profile_bucket is required"))
+	} else if c.Storage.ProfileBucket == c.Storage.Bucket || c.Storage.ProfileBucket == c.Storage.MedicalBucket {
+		errs = append(errs, fmt.Errorf("storage.profile_bucket must be separate from contract and medical buckets"))
 	}
 	if err := validateURL(c.Storage.Supabase.URL, "storage.supabase.url", "https"); err != nil {
 		errs = append(errs, err)

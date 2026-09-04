@@ -1,7 +1,9 @@
 package user
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -15,16 +17,22 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	"github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	usersvc "github.com/Cendana-Project/medikaone-api/internal/service/user"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type Controller struct {
-	svc      *auth.Service
-	userRepo *userrepo.Repository
+	svc        *auth.Service
+	userRepo   *userrepo.Repository
+	profileSvc *usersvc.Service
 }
 
-func NewController(svc *auth.Service, ur *userrepo.Repository) *Controller {
-	return &Controller{svc: svc, userRepo: ur}
+func NewController(svc *auth.Service, ur *userrepo.Repository, profileServices ...*usersvc.Service) *Controller {
+	controller := &Controller{svc: svc, userRepo: ur}
+	if len(profileServices) > 0 {
+		controller.profileSvc = profileServices[0]
+	}
+	return controller
 }
 
 // PUT /v1/profile/patient (protected)
@@ -73,54 +81,10 @@ func (ctl *Controller) Me(c *gin.Context) {
 	userID := userUUID.String()
 	ctx := c.Request.Context()
 
-	u, err := ctl.userRepo.GetByID(ctx, userID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		util.HandleError(c, constant.ErrUserNotFound)
-		return
-	}
+	dto, err := ctl.globalProfile(ctx, userID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
-	}
-	if u == nil {
-		util.HandleError(c, constant.ErrUserNotFound)
-		return
-	}
-
-	// role global (boleh kosong), normalisasi ke UPPER
-	roleSlug, err := ctl.userRepo.GetUserRoleSlug(ctx, userID)
-	if err != nil {
-		util.HandleError(c, err)
-		return
-	}
-	roleSlug = strings.ToUpper(roleSlug)
-	dto := toMeDTO(u, roleSlug)
-
-	h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
-	if err != nil {
-		util.HandleError(c, err)
-		return
-	}
-	if h != nil || w != nil || a != nil || m != nil {
-		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
-	}
-	sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
-	if err != nil {
-		util.HandleError(c, err)
-		return
-	}
-	if sip != nil || spec != nil {
-		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
-	}
-	hospitals, err := ctl.userRepo.ListHospitalsByUserID(ctx, userID)
-	if err != nil {
-		util.HandleError(c, constant.ErrInternalServerError)
-		return
-	}
-	for _, hospital := range hospitals {
-		dto.Hospitals = append(dto.Hospitals, response.HospitalBrief{
-			ID: hospital.ID, Code: hospital.Code, Name: hospital.Name,
-		})
 	}
 
 	resp := constant.NewSuccessResponse(constant.MsgUserProfileRetrieved)
@@ -129,7 +93,150 @@ func (ctl *Controller) Me(c *gin.Context) {
 	util.HandleResponse(c, resp, nil)
 }
 
-// GET /v1/tenant/me (tenant-scoped; wajib hint & membership)
+// GET /v1/profile is the explicit profile resource. GET /v1/me remains as a
+// backwards-compatible alias used by existing clients.
+func (ctl *Controller) Profile(c *gin.Context) { ctl.Me(c) }
+
+func (ctl *Controller) UpdateProfile(c *gin.Context) {
+	if ctl.profileSvc == nil {
+		util.HandleError(c, constant.ErrInternalServerError)
+		return
+	}
+	var req request.UpdateUserProfileRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	userID := util.GetUserID(c)
+	if err := ctl.profileSvc.Update(c.Request.Context(), userID, req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	dto, err := ctl.globalProfile(c.Request.Context(), userID)
+	if err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	resp := constant.NewSuccessResponse(constant.MsgUserProfileUpdated)
+	resp.StatusCode = http.StatusOK
+	resp.Data = dto
+	util.HandleResponse(c, resp, nil)
+}
+
+func (ctl *Controller) UploadProfilePhoto(c *gin.Context) {
+	if ctl.profileSvc == nil {
+		util.HandleError(c, constant.ErrInternalServerError)
+		return
+	}
+	maxFileSize := ctl.profileSvc.MaxFileSize()
+	// Multipart boundaries and headers need a small allowance beyond the file
+	// limit. The file content itself is independently capped below.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxFileSize+(1<<20))
+	if err := c.Request.ParseMultipartForm(maxFileSize + (1 << 20)); err != nil {
+		util.HandleError(c, constant.ErrProfilePhotoInvalid)
+		return
+	}
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		util.HandleError(c, constant.ErrProfilePhotoInvalid)
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	if err != nil || int64(len(content)) > maxFileSize {
+		util.HandleError(c, constant.ErrProfilePhotoInvalid)
+		return
+	}
+	result, err := ctl.profileSvc.UploadPhoto(c.Request.Context(), util.GetUserID(c), usersvc.UploadedPhoto{Content: content})
+	if err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	resp := constant.NewSuccessResponse(constant.MsgProfilePhotoUploaded)
+	resp.StatusCode = http.StatusOK
+	resp.Data = result
+	util.HandleResponse(c, resp, nil)
+}
+
+func (ctl *Controller) GetProfilePhotoURL(c *gin.Context) {
+	if ctl.profileSvc == nil {
+		util.HandleError(c, constant.ErrInternalServerError)
+		return
+	}
+	result, err := ctl.profileSvc.GetPhotoURL(c.Request.Context(), util.GetUserID(c))
+	if err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	resp := constant.NewSuccessResponse(constant.MsgProfilePhotoURLRetrieved)
+	resp.StatusCode = http.StatusOK
+	resp.Data = result
+	util.HandleResponse(c, resp, nil)
+}
+
+func (ctl *Controller) DeleteProfilePhoto(c *gin.Context) {
+	if ctl.profileSvc == nil {
+		util.HandleError(c, constant.ErrInternalServerError)
+		return
+	}
+	if err := ctl.profileSvc.DeletePhoto(c.Request.Context(), util.GetUserID(c)); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	resp := constant.NewSuccessResponse(constant.MsgProfilePhotoDeleted)
+	resp.StatusCode = http.StatusOK
+	resp.Data = gin.H{"deleted": true}
+	util.HandleResponse(c, resp, nil)
+}
+
+func (ctl *Controller) globalProfile(ctx context.Context, userID string) (*response.MeResponse, error) {
+	u, err := ctl.userRepo.GetByID(ctx, userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, constant.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, constant.ErrUserNotFound
+	}
+
+	// role global (boleh kosong), normalisasi ke UPPER
+	roleSlug, err := ctl.userRepo.GetUserRoleSlug(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	roleSlug = strings.ToUpper(roleSlug)
+	dto := toMeDTO(u, roleSlug)
+
+	h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if h != nil || w != nil || a != nil || m != nil {
+		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
+	}
+	sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if sip != nil || spec != nil {
+		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
+	}
+	hospitals, err := ctl.userRepo.ListHospitalsByUserID(ctx, userID)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	for _, hospital := range hospitals {
+		dto.Hospitals = append(dto.Hospitals, response.HospitalBrief{
+			ID: hospital.ID, Code: hospital.Code, Name: hospital.Name,
+		})
+	}
+
+	return &dto, nil
+}
+
+// GET /v1/tenant/me (tenant-scoped; wajib hint dan tenant role, kecuali global SUPER_ADMIN)
 func (ctl *Controller) TenantMe(c *gin.Context) {
 	userUUID, err := util.GetUserIDFromContext(c)
 	if err != nil || userUUID == nil {
@@ -166,16 +273,12 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 
-	// cek membership
-	isMember, err := ctl.userRepo.IsMemberOfHospital(ctx, userID, hosp.ID)
+	globalRoleSlug, err := ctl.userRepo.GetUserRoleSlug(ctx, userID)
 	if err != nil {
 		util.HandleError(c, err)
 		return
 	}
-	if !isMember {
-		util.HandleError(c, constant.ErrUserNotLinkedToHospital)
-		return
-	}
+	isSuper := strings.EqualFold(globalRoleSlug, constant.RoleSuperAdmin)
 
 	u, err := ctl.userRepo.GetByID(ctx, userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -191,15 +294,28 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 		return
 	}
 
-	// role scoped hospital (UPPER)
-	roleSlug, err := ctl.userRepo.GetHospitalRoleSlug(ctx, userID, hosp.ID)
+	isMember := false
+	hospitalRole := ""
+	if !isSuper {
+		// Non-super users need both an active membership and an active role in
+		// the selected hospital.
+		var memberErr error
+		isMember, memberErr = ctl.userRepo.IsMemberOfHospital(ctx, userID, hosp.ID)
+		if memberErr != nil {
+			util.HandleError(c, memberErr)
+			return
+		}
+		if isMember {
+			hospitalRole, err = ctl.userRepo.GetHospitalRoleSlug(ctx, userID, hosp.ID)
+			if err != nil {
+				util.HandleError(c, err)
+				return
+			}
+		}
+	}
+	roleSlug, err := auth.ResolveHospitalSessionRole(isSuper, isMember, hospitalRole)
 	if err != nil {
 		util.HandleError(c, err)
-		return
-	}
-	roleSlug = strings.ToUpper(roleSlug)
-	if roleSlug == "" {
-		util.HandleError(c, constant.ErrHospitalMembershipRoleRequired)
 		return
 	}
 
@@ -245,7 +361,7 @@ func toMeDTO(u *entity.User, roleSlug string) response.MeResponse {
 		s := u.VerifiedAt.UTC().Format(time.RFC3339)
 		verifiedStr = &s
 	}
-	return response.MeResponse{
+	dto := response.MeResponse{
 		ID:         u.ID,
 		Email:      u.Email,
 		Username:   u.Username,
@@ -259,4 +375,10 @@ func toMeDTO(u *entity.User, roleSlug string) response.MeResponse {
 		VerifiedAt: verifiedStr,
 		Role:       roleSlug, // sudah dinormalisasi UPPER di pemanggil
 	}
+	if u.AvatarContentType != nil && u.AvatarFileSize != nil && u.AvatarUpdatedAt != nil && u.AvatarObjectPath != nil {
+		dto.ProfilePhoto = &response.ProfilePhotoMetadata{
+			ContentType: *u.AvatarContentType, FileSize: *u.AvatarFileSize, UpdatedAt: u.AvatarUpdatedAt.UTC(),
+		}
+	}
+	return dto
 }

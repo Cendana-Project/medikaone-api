@@ -21,6 +21,13 @@ const resetAllDataSQL = `
 		INTO table_list
 		FROM (VALUES
 			('public', 'notifications'),
+			('public', 'prescription_audit_events'),
+			('public', 'prescription_documents'),
+			('public', 'prescription_item_components'),
+			('public', 'prescription_items'),
+			('public', 'prescription_revisions'),
+			('public', 'prescriptions'),
+			('public', 'hospital_medications'),
 			('public', 'medical_record_audit_events'),
 			('public', 'medical_record_attachments'),
 			('public', 'encounter_diagnoses'),
@@ -106,6 +113,9 @@ func ClearAllData(db *gorm.DB) error {
 }
 
 func seedAll(tx *gorm.DB) error {
+	if err := ValidateDefinitions(); err != nil {
+		return fmt.Errorf("validate seed definitions: %w", err)
+	}
 	if err := SeedRoles(tx); err != nil {
 		return fmt.Errorf("seed roles: %w", err)
 	}

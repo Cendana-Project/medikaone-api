@@ -17,6 +17,7 @@ import (
 	doctorHospitalRepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
 	examinationRepo "github.com/Cendana-Project/medikaone-api/internal/repository/examination"
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
+	prescriptionRepo "github.com/Cendana-Project/medikaone-api/internal/repository/prescription"
 	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	appointmentSvc "github.com/Cendana-Project/medikaone-api/internal/service/appointment"
@@ -24,6 +25,8 @@ import (
 	doctorHospitalSvc "github.com/Cendana-Project/medikaone-api/internal/service/doctor_hospital"
 	examinationSvc "github.com/Cendana-Project/medikaone-api/internal/service/examination"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
+	prescriptionSvc "github.com/Cendana-Project/medikaone-api/internal/service/prescription"
+	userSvc "github.com/Cendana-Project/medikaone-api/internal/service/user"
 	storageclient "github.com/Cendana-Project/medikaone-api/internal/storage"
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
 	appointmentHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
@@ -31,6 +34,7 @@ import (
 	doctorHospitalHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	examinationHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
+	prescriptionHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/prescription"
 	userHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
 	"github.com/sirupsen/logrus"
@@ -63,6 +67,7 @@ func runServer(parent context.Context) (returnErr error) {
 	dhRepo := doctorHospitalRepo.NewRepository(gormDB)
 	aRepo := appointmentRepo.NewRepository(gormDB)
 	eRepo := examinationRepo.NewRepository(gormDB)
+	pRepo := prescriptionRepo.NewRepository(gormDB)
 	privateStorage, err := storageclient.NewSupabaseClient(config.Env.Storage)
 	if err != nil {
 		return fmt.Errorf("configure private storage: %w", err)
@@ -70,6 +75,10 @@ func runServer(parent context.Context) (returnErr error) {
 	medicalStorage, err := storageclient.NewSupabaseClientForBucket(config.Env.Storage, config.Env.Storage.MedicalBucket)
 	if err != nil {
 		return fmt.Errorf("configure medical storage: %w", err)
+	}
+	profileStorage, err := storageclient.NewSupabaseClientForBucket(config.Env.Storage, config.Env.Storage.ProfileBucket)
+	if err != nil {
+		return fmt.Errorf("configure profile storage: %w", err)
 	}
 	sender := email.NewSMTPSender(&email.Config{
 		Enabled:     config.Env.SMTP.Enabled,
@@ -99,12 +108,26 @@ func runServer(parent context.Context) (returnErr error) {
 		storageclient.MaxFileSize(config.Env.Storage),
 		storageclient.SignedURLTTL(config.Env.Storage),
 	)
+	prescriptionService := prescriptionSvc.NewService(
+		pRepo,
+		medicalStorage,
+		nil,
+		storageclient.SignedURLTTL(config.Env.Storage),
+		config.Env.Server.BaseURL,
+	)
+	userProfileService := userSvc.NewService(
+		uRepo,
+		profileStorage,
+		storageclient.MaxFileSize(config.Env.Storage),
+		storageclient.SignedURLTTL(config.Env.Storage),
+	)
 	authController := authHTTP.NewController(authService, uRepo)
-	userController := userHTTP.NewController(authService, uRepo)
+	userController := userHTTP.NewController(authService, uRepo, userProfileService)
 	hospitalController := hospHTTP.NewController(hospitalService)
 	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
 	appointmentController := appointmentHTTP.NewController(appointmentService)
 	examinationController := examinationHTTP.NewController(examinationService)
+	prescriptionController := prescriptionHTTP.NewController(prescriptionService)
 	warmupController := warmupHTTP.NewController()
 
 	httpTransport.NewTransport().
@@ -115,6 +138,7 @@ func runServer(parent context.Context) (returnErr error) {
 		WithDoctorHospitalController(doctorHospitalController).
 		WithAppointmentController(appointmentController).
 		WithExaminationController(examinationController).
+		WithPrescriptionController(prescriptionController).
 		WithWarmupController(warmupController).
 		WithRoleRepository(rRepo).
 		WithHospitalRepository(hRepo).

@@ -28,10 +28,14 @@ const (
 	MsgLogoutCompleted              MessageCode = "LOGOUT_COMPLETED"
 	MsgAllSessionsLoggedOut         MessageCode = "ALL_SESSIONS_LOGGED_OUT"
 
-	MsgPatientProfileUpdated  MessageCode = "PATIENT_PROFILE_UPDATED"
-	MsgDoctorProfileUpdated   MessageCode = "DOCTOR_PROFILE_UPDATED"
-	MsgUserProfileRetrieved   MessageCode = "USER_PROFILE_RETRIEVED"
-	MsgTenantProfileRetrieved MessageCode = "TENANT_PROFILE_RETRIEVED"
+	MsgPatientProfileUpdated    MessageCode = "PATIENT_PROFILE_UPDATED"
+	MsgDoctorProfileUpdated     MessageCode = "DOCTOR_PROFILE_UPDATED"
+	MsgUserProfileRetrieved     MessageCode = "USER_PROFILE_RETRIEVED"
+	MsgUserProfileUpdated       MessageCode = "USER_PROFILE_UPDATED"
+	MsgProfilePhotoUploaded     MessageCode = "PROFILE_PHOTO_UPLOADED"
+	MsgProfilePhotoURLRetrieved MessageCode = "PROFILE_PHOTO_URL_RETRIEVED"
+	MsgProfilePhotoDeleted      MessageCode = "PROFILE_PHOTO_DELETED"
+	MsgTenantProfileRetrieved   MessageCode = "TENANT_PROFILE_RETRIEVED"
 
 	MsgHospitalCreated      MessageCode = "HOSPITAL_CREATED"
 	MsgHospitalAdminCreated MessageCode = "HOSPITAL_ADMIN_CREATED"
@@ -103,6 +107,19 @@ const (
 	MsgMedicalRecordRetrieved        MessageCode = "MEDICAL_RECORD_RETRIEVED"
 	MsgMedicalAttachmentUploaded     MessageCode = "MEDICAL_ATTACHMENT_UPLOADED"
 	MsgMedicalAttachmentURLRetrieved MessageCode = "MEDICAL_ATTACHMENT_URL_RETRIEVED"
+
+	MsgMedicationCatalogCreated          MessageCode = "MEDICATION_CATALOG_CREATED"
+	MsgMedicationCatalogUpdated          MessageCode = "MEDICATION_CATALOG_UPDATED"
+	MsgMedicationCatalogListed           MessageCode = "MEDICATION_CATALOG_LISTED"
+	MsgPrescriptionDraftSaved            MessageCode = "PRESCRIPTION_DRAFT_SAVED"
+	MsgNoMedicationRecorded              MessageCode = "NO_MEDICATION_RECORDED"
+	MsgPrescriptionIssued                MessageCode = "PRESCRIPTION_ISSUED"
+	MsgPrescriptionCorrected             MessageCode = "PRESCRIPTION_CORRECTED"
+	MsgPrescriptionCancelled             MessageCode = "PRESCRIPTION_CANCELLED"
+	MsgPrescriptionRetrieved             MessageCode = "PRESCRIPTION_RETRIEVED"
+	MsgPrescriptionsListed               MessageCode = "PRESCRIPTIONS_LISTED"
+	MsgPrescriptionDocumentURLRetrieved  MessageCode = "PRESCRIPTION_DOCUMENT_URL_RETRIEVED"
+	MsgPrescriptionVerificationCompleted MessageCode = "PRESCRIPTION_VERIFICATION_COMPLETED"
 )
 
 func successDetail(titleEng, titleIdn string) response.MessageDetail {
@@ -136,6 +153,10 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgPatientProfileUpdated:                 successDetail("Patient profile updated", "Profil pasien berhasil diperbarui"),
 	MsgDoctorProfileUpdated:                  successDetail("Doctor profile updated", "Profil dokter berhasil diperbarui"),
 	MsgUserProfileRetrieved:                  successDetail("User profile retrieved", "Profil pengguna berhasil diambil"),
+	MsgUserProfileUpdated:                    successDetail("User profile updated", "Profil pengguna berhasil diperbarui"),
+	MsgProfilePhotoUploaded:                  successDetail("Profile photo uploaded", "Foto profil berhasil diunggah"),
+	MsgProfilePhotoURLRetrieved:              successDetail("Profile photo URL retrieved", "URL foto profil berhasil diambil"),
+	MsgProfilePhotoDeleted:                   successDetail("Profile photo deleted", "Foto profil berhasil dihapus"),
 	MsgTenantProfileRetrieved:                successDetail("Hospital-scoped profile retrieved", "Profil dalam lingkup rumah sakit berhasil diambil"),
 	MsgHospitalCreated:                       successDetail("Hospital created", "Rumah sakit berhasil dibuat"),
 	MsgHospitalAdminCreated:                  successDetail("Hospital administrator created", "Administrator rumah sakit berhasil dibuat"),
@@ -204,6 +225,18 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgMedicalRecordRetrieved:                successDetail("Medical record retrieved", "Rekam medis berhasil diambil"),
 	MsgMedicalAttachmentUploaded:             successDetail("Medical attachment uploaded", "Lampiran medis berhasil diunggah"),
 	MsgMedicalAttachmentURLRetrieved:         successDetail("Medical attachment URL retrieved", "URL lampiran medis berhasil diambil"),
+	MsgMedicationCatalogCreated:              successDetail("Medication catalogue entry created", "Obat katalog berhasil dibuat"),
+	MsgMedicationCatalogUpdated:              successDetail("Medication catalogue entry updated", "Obat katalog berhasil diperbarui"),
+	MsgMedicationCatalogListed:               successDetail("Medication catalogue retrieved", "Daftar katalog obat berhasil diambil"),
+	MsgPrescriptionDraftSaved:                successDetail("Prescription draft saved", "Draft resep berhasil disimpan"),
+	MsgNoMedicationRecorded:                  successDetail("No-medication decision recorded", "Keputusan tanpa obat berhasil dicatat"),
+	MsgPrescriptionIssued:                    successDetail("Prescription issued", "Resep berhasil diterbitkan"),
+	MsgPrescriptionCorrected:                 successDetail("Prescription correction issued", "Koreksi resep berhasil diterbitkan"),
+	MsgPrescriptionCancelled:                 successDetail("Prescription cancelled", "Resep berhasil dibatalkan"),
+	MsgPrescriptionRetrieved:                 successDetail("Prescription retrieved", "Resep berhasil diambil"),
+	MsgPrescriptionsListed:                   successDetail("Prescriptions retrieved", "Daftar resep berhasil diambil"),
+	MsgPrescriptionDocumentURLRetrieved:      successDetail("Prescription PDF URL retrieved", "URL PDF resep berhasil diambil"),
+	MsgPrescriptionVerificationCompleted:     successDetail("Prescription verification completed", "Verifikasi resep berhasil diselesaikan"),
 }
 
 func GetMessageDetail(code MessageCode) response.MessageDetail {

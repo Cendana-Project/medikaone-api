@@ -431,6 +431,21 @@ var (
 		"Profile already completed", "The profile has already been completed and cannot be initialized again.",
 		"Profil sudah dilengkapi", "Profil sudah dilengkapi dan tidak dapat diinisialisasi kembali.",
 	)
+	ErrProfileUpdateEmpty = apiError(
+		"PROFILE_UPDATE_EMPTY", http.StatusBadRequest,
+		"Profile update is empty", "Provide at least one supported profile field to update.",
+		"Pembaruan profil kosong", "Isi minimal satu field profil yang didukung untuk diperbarui.",
+	)
+	ErrProfilePhotoInvalid = apiError(
+		"PROFILE_PHOTO_INVALID", http.StatusBadRequest,
+		"Profile photo is invalid", "Upload a valid JPEG or PNG image no larger than 10 MB and no larger than 4096 by 4096 pixels.",
+		"Foto profil tidak valid", "Unggah gambar JPEG atau PNG yang valid dengan ukuran maksimal 10 MB dan dimensi maksimal 4096 kali 4096 piksel.",
+	)
+	ErrProfilePhotoNotFound = apiError(
+		"PROFILE_PHOTO_NOT_FOUND", http.StatusNotFound,
+		"Profile photo not found", "This account does not have a profile photo.",
+		"Foto profil tidak ditemukan", "Akun ini belum memiliki foto profil.",
+	)
 	ErrRegistrationError = apiError(
 		"REGISTRATION_FAILED", http.StatusInternalServerError,
 		"Registration failed", "The server could not complete account registration. Try again later.",
@@ -777,6 +792,101 @@ var (
 		"Medical attachment not found", "The medical attachment does not exist or is not visible to this user.",
 		"Lampiran medis tidak ditemukan", "Lampiran medis tidak tersedia atau tidak dapat dilihat oleh pengguna ini.",
 	)
+	ErrPrescriptionNotFound = apiError(
+		"PRESCRIPTION_NOT_FOUND", http.StatusNotFound,
+		"Prescription not found", "The prescription does not exist or is not visible to this user.",
+		"Resep tidak ditemukan", "Resep tidak tersedia atau tidak dapat dilihat oleh pengguna ini.",
+	)
+	ErrPrescriptionNotAvailable = apiError(
+		"PRESCRIPTION_NOT_AVAILABLE", http.StatusNotFound,
+		"Issued prescription not available", "This examination does not have an issued prescription available for hospital access.",
+		"Resep terbit belum tersedia", "Pemeriksaan ini belum memiliki resep terbit yang dapat diakses rumah sakit.",
+	)
+	ErrPrescriptionInvalidState = apiError(
+		"PRESCRIPTION_STATE_CONFLICT", http.StatusConflict,
+		"Prescription state conflict", "The prescription action is not available in the examination's current state.",
+		"Konflik status resep", "Tindakan resep tidak tersedia pada status pemeriksaan saat ini.",
+	)
+	ErrPrescriptionPrimaryDiagnosisRequired = apiError(
+		"PRESCRIPTION_PRIMARY_DIAGNOSIS_REQUIRED", http.StatusConflict,
+		"Primary diagnosis required", "Save a primary diagnosis before creating a prescription.",
+		"Diagnosis utama diperlukan", "Simpan diagnosis utama sebelum membuat resep.",
+	)
+	ErrPrescriptionDoctorSIPRequired = apiError(
+		"PRESCRIPTION_DOCTOR_SIP_REQUIRED", http.StatusConflict,
+		"Doctor SIP required", "Complete the prescribing doctor's SIP number before creating or issuing an electronic prescription.",
+		"SIP dokter diperlukan", "Lengkapi nomor SIP dokter pemberi resep sebelum membuat atau menerbitkan resep elektronik.",
+	)
+	ErrPrescriptionItemsRequired = apiError(
+		"PRESCRIPTION_ITEMS_REQUIRED", http.StatusBadRequest,
+		"Prescription items required", "Add at least one medication item to the prescription draft.",
+		"Item resep diperlukan", "Tambahkan minimal satu item obat ke draft resep.",
+	)
+	ErrPrescriptionScheduleRequired = apiError(
+		"PRESCRIPTION_SCHEDULE_REQUIRED", http.StatusBadRequest,
+		"Medication schedule required", "Each medication must specify frequency, interval, or as-needed use.",
+		"Jadwal penggunaan obat diperlukan", "Setiap obat wajib memiliki frekuensi, interval, atau aturan bila perlu.",
+	)
+	ErrPrescriptionCompoundInvalid = apiError(
+		"PRESCRIPTION_COMPOUND_INVALID", http.StatusBadRequest,
+		"Compound prescription item invalid", "A compound item must contain components and cannot directly reference one catalogue medication; a non-compound item cannot contain components.",
+		"Item resep racikan tidak valid", "Item racikan wajib memiliki komponen dan tidak boleh langsung merujuk satu obat katalog; item non-racikan tidak boleh memiliki komponen.",
+	)
+	ErrControlledMedicationUnsupported = apiError(
+		"CONTROLLED_MEDICATION_UNSUPPORTED", http.StatusUnprocessableEntity,
+		"Controlled medication unsupported", "Narcotic and psychotropic medications cannot be prescribed in this release.",
+		"Obat terkendali belum didukung", "Obat narkotika dan psikotropika belum dapat diresepkan pada rilis ini.",
+	)
+	ErrPrescriptionDraftRequired = apiError(
+		"PRESCRIPTION_DRAFT_REQUIRED", http.StatusConflict,
+		"Prescription draft required", "Save a prescription draft containing at least one medication before issuing it.",
+		"Draft resep diperlukan", "Simpan draft resep yang berisi minimal satu obat sebelum menerbitkannya.",
+	)
+	ErrPrescriptionAllergyReviewRequired = apiError(
+		"PRESCRIPTION_ALLERGY_REVIEW_REQUIRED", http.StatusBadRequest,
+		"Allergy review confirmation required", "Confirm that the patient's recorded allergies were reviewed before issuing the prescription.",
+		"Konfirmasi tinjauan alergi diperlukan", "Konfirmasikan bahwa alergi pasien yang tercatat sudah ditinjau sebelum resep diterbitkan.",
+	)
+	ErrPrescriptionDecisionRequired = apiError(
+		"PRESCRIPTION_DECISION_REQUIRED", http.StatusConflict,
+		"Prescription decision required", "Issue a prescription or explicitly record no medication before completing the examination.",
+		"Keputusan resep diperlukan", "Terbitkan resep atau catat secara eksplisit bahwa tidak ada obat sebelum menyelesaikan pemeriksaan.",
+	)
+	ErrPrescriptionCorrectionInvalidState = apiError(
+		"PRESCRIPTION_CORRECTION_STATE_CONFLICT", http.StatusConflict,
+		"Prescription cannot be corrected", "Only an issued prescription can be superseded by a correction.",
+		"Resep tidak dapat dikoreksi", "Hanya resep yang sudah diterbitkan yang dapat digantikan oleh koreksi.",
+	)
+	ErrPrescriptionCancellationInvalidState = apiError(
+		"PRESCRIPTION_CANCELLATION_STATE_CONFLICT", http.StatusConflict,
+		"Prescription cannot be cancelled", "Only the currently issued prescription can be cancelled.",
+		"Resep tidak dapat dibatalkan", "Hanya resep yang sedang berstatus terbit yang dapat dibatalkan.",
+	)
+	ErrPrescriptionConcurrentUpdate = apiError(
+		"PRESCRIPTION_CONCURRENT_UPDATE", http.StatusConflict,
+		"Prescription changed concurrently", "Reload the prescription because another update was completed first.",
+		"Resep berubah secara bersamaan", "Muat ulang resep karena perubahan lain diselesaikan lebih dahulu.",
+	)
+	ErrPrescriptionPDFGenerationFailed = apiError(
+		"PRESCRIPTION_PDF_GENERATION_FAILED", http.StatusInternalServerError,
+		"Prescription PDF generation failed", "The prescription could not be issued because its PDF document could not be generated.",
+		"Pembuatan PDF resep gagal", "Resep tidak dapat diterbitkan karena dokumen PDF-nya gagal dibuat.",
+	)
+	ErrPrescriptionVerificationInvalid = apiError(
+		"PRESCRIPTION_VERIFICATION_INVALID", http.StatusNotFound,
+		"Prescription verification invalid", "The verification token is invalid, cancelled, or has been superseded.",
+		"Verifikasi resep tidak valid", "Token verifikasi tidak valid, resep dibatalkan, atau resep sudah digantikan revisi baru.",
+	)
+	ErrMedicationCatalogNotFound = apiError(
+		"MEDICATION_CATALOG_NOT_FOUND", http.StatusNotFound,
+		"Medication catalogue entry not found", "The medication is inactive, missing, or belongs to another hospital.",
+		"Obat katalog tidak ditemukan", "Obat tidak aktif, tidak tersedia, atau berasal dari rumah sakit lain.",
+	)
+	ErrMedicationCatalogDuplicate = apiError(
+		"MEDICATION_CATALOG_DUPLICATE", http.StatusConflict,
+		"Medication catalogue code already exists", "The medication code is already used in this hospital catalogue.",
+		"Kode katalog obat sudah digunakan", "Kode obat sudah digunakan dalam katalog rumah sakit ini.",
+	)
 )
 
 // APIErrorCatalog exposes every static public error for contract tests and API
@@ -802,6 +912,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrSelfServicePatientRoleOnly, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
 		ErrAccountRoleNotFound,
 		ErrUnauthorizedUpdate, ErrNewPasswordSame, ErrPasswordNotMatch, ErrProfileAlreadySet,
+		ErrProfileUpdateEmpty, ErrProfilePhotoInvalid, ErrProfilePhotoNotFound,
 		ErrRegistrationError, ErrHospitalNotFound, ErrHospitalContextRequired,
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,
@@ -831,5 +942,15 @@ func APIErrorCatalog() []response.CustomError {
 		ErrVitalsDraftNotFound, ErrVitalsRevisionNotFound, ErrVitalsContentRequired, ErrBloodPressureInvalid,
 		ErrClinicalSOAPRequired, ErrConsultationDraftNotFound, ErrConsultationRevisionNotFound, ErrDiagnosisRequired,
 		ErrMedicalAttachmentInvalid, ErrMedicalAttachmentNotFound,
+		ErrPrescriptionNotFound, ErrPrescriptionNotAvailable, ErrPrescriptionInvalidState,
+		ErrPrescriptionPrimaryDiagnosisRequired, ErrPrescriptionItemsRequired,
+		ErrPrescriptionDoctorSIPRequired,
+		ErrPrescriptionScheduleRequired, ErrPrescriptionCompoundInvalid,
+		ErrControlledMedicationUnsupported, ErrPrescriptionDraftRequired,
+		ErrPrescriptionAllergyReviewRequired, ErrPrescriptionDecisionRequired,
+		ErrPrescriptionCorrectionInvalidState, ErrPrescriptionCancellationInvalidState,
+		ErrPrescriptionConcurrentUpdate, ErrPrescriptionPDFGenerationFailed,
+		ErrPrescriptionVerificationInvalid, ErrMedicationCatalogNotFound,
+		ErrMedicationCatalogDuplicate,
 	}
 }

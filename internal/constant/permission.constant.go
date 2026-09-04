@@ -64,6 +64,16 @@ const (
 	PermissionMedicalRecordSelfView        = "medical_record.self.view"
 )
 
+// Electronic prescriptions and hospital medication catalogue.
+const (
+	PermissionPrescriptionView        = "prescription.view"
+	PermissionPrescriptionWrite       = "prescription.write"
+	PermissionPrescriptionCorrect     = "prescription.correct"
+	PermissionPrescriptionPrint       = "prescription.print"
+	PermissionMedicationCatalogManage = "medication_catalog.manage"
+	PermissionPrescriptionSelfView    = "prescription.self.view"
+)
+
 // ==========================
 // DEFAULT ROLE → PERMISSIONS
 // ==========================
@@ -92,6 +102,9 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionExaminationView, PermissionExaminationVitalsWrite,
 		PermissionExaminationConsultationWrite, PermissionExaminationCorrect,
 		PermissionExaminationAttachmentManage, PermissionMedicalRecordSelfView,
+		PermissionPrescriptionView, PermissionPrescriptionWrite,
+		PermissionPrescriptionCorrect, PermissionPrescriptionPrint,
+		PermissionMedicationCatalogManage, PermissionPrescriptionSelfView,
 	},
 
 	// admin RS
@@ -109,6 +122,8 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 		PermissionExaminationView, PermissionExaminationVitalsWrite,
 		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
+		PermissionPrescriptionView, PermissionPrescriptionPrint,
+		PermissionMedicationCatalogManage,
 	},
 
 	// nurse
@@ -120,6 +135,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentQueue, PermissionDoctorScheduleView,
 		PermissionExaminationView, PermissionExaminationVitalsWrite,
 		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
+		PermissionPrescriptionView, PermissionPrescriptionPrint,
 	},
 
 	// receptionist
@@ -148,6 +164,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionPatientView, PermissionPatientEdit,
 		PermissionPatientRecordClaim,
 		PermissionMedicalRecordSelfView,
+		PermissionPrescriptionSelfView,
 	},
 
 	// doctor (minimum untuk update profil)
@@ -158,5 +175,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionEMRView,
 		PermissionExaminationView, PermissionExaminationConsultationWrite,
 		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
+		PermissionPrescriptionView, PermissionPrescriptionWrite,
+		PermissionPrescriptionCorrect, PermissionPrescriptionPrint,
 	},
 }

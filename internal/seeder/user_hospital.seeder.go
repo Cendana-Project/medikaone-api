@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
-
-	"github.com/Cendana-Project/medikaone-api/internal/constant"
 )
 
 func getHospitalIDBySeedKey(db *gorm.DB, seedKey string) (string, error) {
@@ -61,25 +59,33 @@ func SeedUserHospitals(db *gorm.DB) error {
 		return err
 	}
 
-	assignments := []struct {
-		email string
-		role  string
-	}{
-		{"admin001@medikaone.id", constant.RoleAdmin},
-		{"nurse001@medikaone.id", constant.RoleNurse},
-		{"receptionist001@medikaone.id", constant.RoleReceptionist},
-		{"bod001@medikaone.id", constant.RoleBOD},
-		{"doctor001@medikaone.id", constant.RoleDoctor},
-		{"doctor002@medikaone.id", constant.RoleDoctor},
-		{"doctor003@medikaone.id", constant.RoleDoctor},
-	}
-
-	for _, assignment := range assignments {
-		userID, userErr := getUserIDBySeedKey(db, demoUserSeedKey(assignment.email))
+	// Derive tenant assignments from the canonical user fixtures instead of
+	// maintaining a second, drift-prone account list. SUPER_ADMIN and PATIENT
+	// are intentionally global-only; every other fixture role is tenant-scoped.
+	for _, assignment := range sampleUserSeeds() {
+		userID, userErr := getUserIDBySeedKey(db, demoUserSeedKey(assignment.Email))
 		if userErr != nil {
 			return userErr
 		}
-		roleID, roleErr := getActiveRoleIDBySlug(db, assignment.role)
+		if isGlobalDemoRole(assignment.RoleSlug) {
+			// Reconcile legacy/partial demo seeds. Global-only fixture accounts do
+			// not need a tenant membership in order to select a hospital.
+			if err := db.Exec(`
+				DELETE FROM hospital_user_roles
+				WHERE hospital_id = ? AND user_id = ?
+			`, hospitalID, userID).Error; err != nil {
+				return fmt.Errorf("remove tenant roles from global fixture %s: %w", assignment.Email, err)
+			}
+			if err := db.Exec(`
+				DELETE FROM user_hospitals
+				WHERE hospital_id = ? AND user_id = ?
+			`, hospitalID, userID).Error; err != nil {
+				return fmt.Errorf("remove tenant membership from global fixture %s: %w", assignment.Email, err)
+			}
+			continue
+		}
+
+		roleID, roleErr := getActiveRoleIDBySlug(db, assignment.RoleSlug)
 		if roleErr != nil {
 			return roleErr
 		}
@@ -89,7 +95,7 @@ func SeedUserHospitals(db *gorm.DB) error {
 			SET is_primary = FALSE, updated_at = NOW()
 			WHERE user_id = ? AND hospital_id <> ? AND deleted_at IS NULL
 		`, userID, hospitalID).Error; err != nil {
-			return fmt.Errorf("reset primary membership for %s: %w", assignment.email, err)
+			return fmt.Errorf("reset primary membership for %s: %w", assignment.Email, err)
 		}
 		if err := db.Exec(`
 			INSERT INTO user_hospitals (
@@ -102,14 +108,22 @@ func SeedUserHospitals(db *gorm.DB) error {
 				updated_at = NOW(),
 				deleted_at = NULL
 		`, userID, hospitalID).Error; err != nil {
-			return fmt.Errorf("link user %s to hospital: %w", assignment.email, err)
+			return fmt.Errorf("link user %s to hospital: %w", assignment.Email, err)
+		}
+		// A demo tenant account has one canonical role in its canonical
+		// hospital. Remove stale roles left by older/partial seed runs.
+		if err := db.Exec(`
+			DELETE FROM hospital_user_roles
+			WHERE hospital_id = ? AND user_id = ? AND role_id <> ?
+		`, hospitalID, userID, roleID).Error; err != nil {
+			return fmt.Errorf("reconcile tenant roles for %s: %w", assignment.Email, err)
 		}
 		if err := db.Exec(`
 			INSERT INTO hospital_user_roles (hospital_id, user_id, role_id, created_at)
 			VALUES (?, ?, ?, NOW())
 			ON CONFLICT (hospital_id, user_id, role_id) DO NOTHING
 		`, hospitalID, userID, roleID).Error; err != nil {
-			return fmt.Errorf("assign tenant role %s to %s: %w", assignment.role, assignment.email, err)
+			return fmt.Errorf("assign tenant role %s to %s: %w", assignment.RoleSlug, assignment.Email, err)
 		}
 	}
 
