@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	appointmentrepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
@@ -145,6 +146,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			"doctor_schedule_change_requests", "doctor_schedule_change_items",
 			"doctor_schedule_change_events", "appointment_daily_counters",
 			"appointments", "appointment_status_events", "appointment_reminders",
+			"patient_records", "patient_record_events",
 		} {
 			var exists bool
 			if err := sqlDB.QueryRow(`SELECT TO_REGCLASS($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
@@ -209,14 +211,19 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM roles WHERE deleted_at IS NULL`); got != 7 {
 			t.Fatalf("active seeded roles = %d, want 7", got)
 		}
-		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM permissions WHERE deleted_at IS NULL`); got != 26 {
-			t.Fatalf("active seeded permissions = %d, want 26", got)
+		wantPermissions := len(uniquePermSlugsFromDefaults())
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM permissions WHERE deleted_at IS NULL`); got != wantPermissions {
+			t.Fatalf("active seeded permissions = %d, want %d", got, wantPermissions)
 		}
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM user_roles`); got != 4 {
 			t.Fatalf("seeded global role assignments = %d, want 4", got)
 		}
-		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM role_permissions`); got != 90 {
-			t.Fatalf("seeded role permission assignments = %d, want 90", got)
+		wantRolePermissions := 0
+		for _, permissions := range constant.DefaultRolePermissions {
+			wantRolePermissions += len(permissions)
+		}
+		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM role_permissions`); got != wantRolePermissions {
+			t.Fatalf("seeded role permission assignments = %d, want %d", got, wantRolePermissions)
 		}
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM hospitals WHERE deleted_at IS NULL`); got != 2 {
 			t.Fatalf("active seeded hospitals = %d, want 2", got)
@@ -586,10 +593,65 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM appointments WHERE schedule_id = $1`, scheduleID); got != 1 {
 			t.Fatalf("persisted competing appointments = %d, want 1", got)
 		}
+
+		receptionistID := scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'receptionist001@medikaone.id'`)
+		walkIn, replay, err := repo.CreateWalkIn(context.Background(), appointmentrepo.WalkInInput{
+			ActorID: receptionistID,
+			Patient: appointmentrepo.WalkInPatientInput{
+				FirstName: "Walk In", LastName: "Claim", Email: stringPointer("patient001@medikaone.id"),
+				Phone: "081200000001", DateOfBirth: "1990-01-01", Gender: "L",
+				IdentityType: "OTHER", IdentityNumber: "IT-CLAIM-001", IdentityNormalized: "ITCLAIM001",
+			},
+			Schedule: schedule, AppointmentDate: appointmentDate,
+			ScheduledStartAt: start.Add(30 * time.Minute), ScheduledEndAt: start.Add(60 * time.Minute),
+			ReasonForVisit: "walk-in integration test", ConsentVersion: "it-v1",
+			IdempotencyKey: uuid.NewString(), IdempotencyRequestHash: strings.Repeat("b", 64), Now: now,
+		})
+		if err != nil {
+			t.Fatalf("create walk-in appointment: %v", err)
+		}
+		if replay || walkIn.Status != "WAITING_VITALS" || walkIn.Source != "WALK_IN" || walkIn.PatientID != nil {
+			t.Fatalf("walk-in result = %#v, replay=%v; want new unclaimed WAITING_VITALS appointment", walkIn, replay)
+		}
+		claimed, err := repo.ClaimPatientRecord(
+			context.Background(), patientIDs[0], "OTHER", "IT-CLAIM-001", "1990-01-01", now.Add(time.Minute),
+		)
+		if err != nil {
+			t.Fatalf("claim walk-in patient record: %v", err)
+		}
+		if claimed.UserID == nil || *claimed.UserID != patientIDs[0] {
+			t.Fatalf("claimed patient user = %v, want %s", claimed.UserID, patientIDs[0])
+		}
+		if got := scalarString(t, sqlDB, `SELECT patient_id::text FROM appointments WHERE id = $1`, walkIn.ID); got != patientIDs[0] {
+			t.Fatalf("walk-in appointment patient after claim = %s, want %s", got, patientIDs[0])
+		}
+
+		overrideReason := "Dokter menyetujui pasien tambahan"
+		override, replay, err := repo.CreateWalkIn(context.Background(), appointmentrepo.WalkInInput{
+			ActorID: adminID,
+			Patient: appointmentrepo.WalkInPatientInput{
+				FirstName: "Walk In", LastName: "Override", Phone: "081299999999",
+				DateOfBirth: "1991-02-03", Gender: "P", IdentityType: "OTHER",
+				IdentityNumber: "IT-OVERRIDE-002", IdentityNormalized: "ITOVERRIDE002",
+			},
+			Schedule: schedule, AppointmentDate: appointmentDate,
+			ScheduledStartAt: start.Add(30 * time.Minute), ScheduledEndAt: start.Add(60 * time.Minute),
+			ReasonForVisit: "capacity override integration test", ConsentVersion: "it-v1",
+			IdempotencyKey: uuid.NewString(), IdempotencyRequestHash: strings.Repeat("c", 64),
+			CapacityOverride: true, CapacityOverrideReason: &overrideReason, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("create capacity-override walk-in appointment: %v", err)
+		}
+		if replay || !override.CapacityOverridden || override.CapacityOverrideReason == nil || *override.CapacityOverrideReason != overrideReason {
+			t.Fatalf("capacity override result = %#v, replay=%v", override, replay)
+		}
 	}); !ok {
 		t.FailNow()
 	}
 }
+
+func stringPointer(value string) *string { return &value }
 
 type integrationDatabaseTarget struct {
 	database string

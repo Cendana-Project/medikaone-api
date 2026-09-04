@@ -26,4 +26,12 @@ const (
 	AttendancePending = "PENDING"
 	AttendancePresent = "PRESENT"
 	AttendanceNoShow  = "NO_SHOW"
+
+	AppointmentSourceScheduled = "SCHEDULED"
+	AppointmentSourceWalkIn    = "WALK_IN"
+
+	CheckInMethodQR       = "QR"
+	CheckInMethodCode     = "CODE"
+	CheckInMethodIdentity = "IDENTITY"
+	CheckInMethodWalkIn   = "WALK_IN"
 )

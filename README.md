@@ -249,6 +249,46 @@ Operasi tenant menggunakan `:hospital_id` pada path atau header `X-Hospital-ID`/
 - Hospital admin aktif hanya dapat membuat staff pada hospital tempat ia masih menjadi member aktif.
 - Endpoint staff menerima `DOCTOR`, `NURSE`, `RECEPTIONIST`, atau `BOD`; role `ADMIN` harus melalui endpoint khusus super admin.
 
+## Check-in resepsionis dan walk-in
+
+Check-in bukan self-service. Hanya petugas rumah sakit dengan permission
+`appointment.checkin` yang dapat mencari appointment dan mengonfirmasi
+kedatangan. Pencarian tersedia melalui QR opsional, pasangan nomor appointment
+dan kode verifikasi, atau minimal dua fakta identitas. Pencarian identitas memakai
+body `POST` agar data pribadi tidak masuk query string/access log.
+
+Alur yang direkomendasikan:
+
+1. `POST /v1/hospitals/:hospital_id/appointments/check-in/lookup` mengembalikan
+   kandidat yang telah dimasking dan `check_in_token` berumur lima menit serta
+   terikat pada petugas, rumah sakit, dan appointment.
+2. Petugas memeriksa identitas pasien lalu memanggil
+   `POST /v1/hospitals/:hospital_id/appointments/:appointment_id/check-in`.
+3. Status menjadi `WAITING_VITALS`, attendance menjadi `PRESENT`, dan nomor
+   antrean yang telah dibuat saat booking diaktifkan.
+
+Window normal adalah 30 menit sebelum hingga 15 menit sesudah waktu mulai.
+Sesudah batas tersebut atau dari status `NO_SHOW`, check-in tetap dapat
+dilakukan sampai pukul 23:59:59 pada tanggal appointment menurut timezone
+jadwal, termasuk setelah sesi praktik berakhir, tetapi `override_reason` wajib
+diisi dan tersimpan pada audit trail. Endpoint satu tahap lama tetap tersedia
+sementara untuk kompatibilitas client.
+
+Resepsionis/admin dapat membuat appointment walk-in hari berjalan melalui
+`POST /v1/hospitals/:hospital_id/walk-in-appointments`. Pasien dapat ditunjuk
+dengan `patient_record_id`, `medikaone_id`, atau data identitas lengkap. Consent
+dicatat sebagai `RECEPTIONIST_INFORMED`, appointment langsung masuk
+`WAITING_VITALS`, dan mendapat nomor antrean berikutnya tanpa prioritas.
+Kapasitas tetap berlaku; hanya admin/super admin dapat memakai
+`capacity_override=true` dan wajib memberikan alasan.
+
+Pasien tanpa akun disimpan pada `patient_records`. Setelah mempunyai akun
+PATIENT, pasien dapat memanggil `POST /v1/patient-records/claim` dengan identitas
+dan tanggal lahir. Klaim memerlukan kecocokan NIK/MedikaOne ID; untuk
+PASSPORT/OTHER juga diperlukan kecocokan email atau telepon akun. Semua
+appointment guest pada record tersebut kemudian ditautkan ke akun secara
+atomik.
+
 ## Seeder dan reset staging
 
 Credential akun fixture privileged memang sengaja hardcoded untuk mempermudah development/staging saat ini. Ini adalah keputusan desain sementara, bukan secret production; command `seed` menolak berjalan pada `ENV=production`.

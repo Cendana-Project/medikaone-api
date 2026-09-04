@@ -37,14 +37,17 @@ const (
 
 // Appointment
 const (
-	PermissionAppointmentView       = "appointment.view"
-	PermissionAppointmentEdit       = "appointment.edit"
-	PermissionAppointmentCreate     = "appointment.create"
-	PermissionAppointmentCancel     = "appointment.cancel"
-	PermissionAppointmentReschedule = "appointment.reschedule"
-	PermissionAppointmentCheckIn    = "appointment.checkin"
-	PermissionAppointmentQueue      = "appointment.queue"
-	PermissionAppointmentComplete   = "appointment.complete"
+	PermissionAppointmentView                   = "appointment.view"
+	PermissionAppointmentEdit                   = "appointment.edit"
+	PermissionAppointmentCreate                 = "appointment.create"
+	PermissionAppointmentCancel                 = "appointment.cancel"
+	PermissionAppointmentReschedule             = "appointment.reschedule"
+	PermissionAppointmentCheckIn                = "appointment.checkin"
+	PermissionAppointmentQueue                  = "appointment.queue"
+	PermissionAppointmentComplete               = "appointment.complete"
+	PermissionAppointmentWalkInCreate           = "appointment.walkin.create"
+	PermissionAppointmentWalkInOverrideCapacity = "appointment.walkin.override_capacity"
+	PermissionPatientRecordClaim                = "patient_record.claim"
 
 	PermissionDoctorScheduleView    = "doctor_schedule.view"
 	PermissionDoctorSchedulePropose = "doctor_schedule.propose"
@@ -73,6 +76,8 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentView, PermissionAppointmentEdit, PermissionAppointmentCreate,
 		PermissionAppointmentCancel, PermissionAppointmentReschedule, PermissionAppointmentCheckIn,
 		PermissionAppointmentQueue, PermissionAppointmentComplete,
+		PermissionAppointmentWalkInCreate, PermissionAppointmentWalkInOverrideCapacity,
+		PermissionPatientRecordClaim,
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 	},
 
@@ -87,6 +92,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentView, PermissionAppointmentEdit, PermissionAppointmentCreate,
 		PermissionAppointmentCancel, PermissionAppointmentReschedule, PermissionAppointmentCheckIn,
 		PermissionAppointmentQueue, PermissionAppointmentComplete,
+		PermissionAppointmentWalkInCreate, PermissionAppointmentWalkInOverrideCapacity,
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 	},
 
@@ -104,6 +110,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentView, PermissionAppointmentEdit,
 		PermissionAppointmentCancel, PermissionAppointmentReschedule,
 		PermissionAppointmentCheckIn, PermissionAppointmentQueue,
+		PermissionAppointmentWalkInCreate,
 		PermissionDoctorScheduleView,
 		PermissionPatientView,
 		PermissionBillingView, PermissionBillingEdit,
@@ -122,6 +129,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentView, PermissionAppointmentCreate,
 		PermissionAppointmentCancel, PermissionAppointmentReschedule,
 		PermissionPatientView, PermissionPatientEdit,
+		PermissionPatientRecordClaim,
 	},
 
 	// doctor (minimum untuk update profil)

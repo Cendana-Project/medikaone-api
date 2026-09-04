@@ -2,12 +2,14 @@ package appointment
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	repository "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	service "github.com/Cendana-Project/medikaone-api/internal/service/appointment"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
@@ -189,8 +191,61 @@ func (ctl *Controller) CheckIn(c *gin.Context) {
 	respond(c, constant.MsgAppointmentCheckedIn, http.StatusOK, result, err)
 }
 
+func (ctl *Controller) LookupCheckIn(c *gin.Context) {
+	var req request.CheckInLookupRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.LookupCheckIn(c.Request.Context(), hospitalID(c), util.GetUserID(c), req)
+	respond(c, constant.MsgAppointmentCheckInLookupCompleted, http.StatusOK, result, err)
+}
+
+func (ctl *Controller) ConfirmCheckIn(c *gin.Context) {
+	var req request.ConfirmCheckInRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.ConfirmCheckIn(c.Request.Context(), hospitalID(c), util.GetUserID(c), c.Param("appointment_id"), req)
+	respond(c, constant.MsgAppointmentCheckedIn, http.StatusOK, result, err)
+}
+
+func (ctl *Controller) CreateWalkInAppointment(c *gin.Context) {
+	var req request.CreateWalkInAppointmentRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, replay, err := ctl.service.CreateWalkInAppointment(
+		c.Request.Context(), hospitalID(c), util.GetUserID(c), c.GetHeader("Idempotency-Key"), req,
+	)
+	status, code := http.StatusCreated, constant.MsgWalkInAppointmentCreated
+	if replay {
+		status, code = http.StatusOK, constant.MsgWalkInAppointmentCreationReplayed
+	}
+	respond(c, code, status, result, err)
+}
+
+func (ctl *Controller) ClaimPatientRecord(c *gin.Context) {
+	var req request.ClaimPatientRecordRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.ClaimPatientRecord(c.Request.Context(), util.GetUserID(c), req)
+	respond(c, constant.MsgPatientRecordClaimed, http.StatusOK, result, err)
+}
+
 func (ctl *Controller) ListHospitalQueue(c *gin.Context) {
-	result, err := ctl.service.ListHospitalQueue(c.Request.Context(), hospitalID(c), c.Query("date"))
+	page, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page", "1")))
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("limit", "20")))
+	result, err := ctl.service.ListHospitalQueuePage(c.Request.Context(), repository.QueueFilter{
+		HospitalID: hospitalID(c), Date: strings.TrimSpace(c.Query("date")),
+		DoctorID: strings.TrimSpace(c.Query("doctor_id")), DepartmentID: strings.TrimSpace(c.Query("department_id")),
+		Status: strings.TrimSpace(c.Query("status")), BookingMode: strings.TrimSpace(c.Query("booking_mode")),
+		Reference: strings.TrimSpace(c.Query("reference")), Page: page, Limit: limit,
+	})
 	respond(c, constant.MsgHospitalAppointmentQueueListed, http.StatusOK, result, err)
 }
 

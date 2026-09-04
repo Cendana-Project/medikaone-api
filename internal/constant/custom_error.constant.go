@@ -612,6 +612,96 @@ var (
 		"Appointment verification invalid", "The appointment verification code is incorrect or has already been used.",
 		"Verifikasi appointment tidak valid", "Kode verifikasi appointment salah atau sudah digunakan.",
 	)
+	ErrCheckInLookupModeInvalid = apiError(
+		"CHECK_IN_LOOKUP_MODE_INVALID", http.StatusBadRequest,
+		"Check-in lookup mode invalid", "Use exactly one lookup mode: QR payload, appointment number with verification code, or patient identity.",
+		"Mode pencarian check-in tidak valid", "Gunakan tepat satu mode pencarian: payload QR, nomor appointment dengan kode verifikasi, atau identitas pasien.",
+	)
+	ErrCheckInIdentityInsufficient = apiError(
+		"CHECK_IN_IDENTITY_INSUFFICIENT", http.StatusBadRequest,
+		"Patient identity is insufficient", "Provide at least two matching identity fields. A name must be accompanied by date of birth.",
+		"Identitas pasien belum cukup", "Kirim sekurangnya dua data identitas yang cocok. Nama wajib disertai tanggal lahir.",
+	)
+	ErrAppointmentQRInvalid = apiError(
+		"APPOINTMENT_QR_INVALID", http.StatusBadRequest,
+		"Appointment QR is invalid", "The QR payload is invalid, expired, or belongs to another hospital.",
+		"QR appointment tidak valid", "Payload QR tidak valid, sudah kedaluwarsa, atau berasal dari rumah sakit lain.",
+	)
+	ErrAppointmentVerificationCodeInvalid = apiError(
+		"APPOINTMENT_VERIFICATION_CODE_INVALID", http.StatusBadRequest,
+		"Appointment verification code is invalid", "The verification code does not match this appointment.",
+		"Kode verifikasi appointment tidak valid", "Kode verifikasi tidak cocok dengan appointment ini.",
+	)
+	ErrCheckInTokenInvalidOrExpired = apiError(
+		"CHECK_IN_TOKEN_INVALID_OR_EXPIRED", http.StatusBadRequest,
+		"Check-in confirmation token is invalid", "Run the check-in lookup again because the confirmation token is invalid or has expired.",
+		"Token konfirmasi check-in tidak valid", "Ulangi pencarian check-in karena token konfirmasi tidak valid atau sudah kedaluwarsa.",
+	)
+	ErrAppointmentAlreadyCheckedIn = apiError(
+		"APPOINTMENT_ALREADY_CHECKED_IN", http.StatusConflict,
+		"Appointment already checked in", "This appointment has already entered the hospital service queue.",
+		"Appointment sudah check-in", "Appointment ini sudah masuk ke antrean pelayanan rumah sakit.",
+	)
+	ErrAppointmentCheckInExpired = apiError(
+		"APPOINTMENT_CHECK_IN_EXPIRED", http.StatusConflict,
+		"Appointment check-in has expired", "Late check-in is only allowed until the end of the appointment date in the schedule timezone.",
+		"Waktu check-in appointment sudah berakhir", "Check-in terlambat hanya diizinkan sampai akhir tanggal appointment sesuai zona waktu jadwal.",
+	)
+	ErrAppointmentLateOverrideReasonRequired = apiError(
+		"APPOINTMENT_LATE_OVERRIDE_REASON_REQUIRED", http.StatusBadRequest,
+		"Late check-in reason required", "Provide an override reason to check in an appointment after the grace period or from NO_SHOW.",
+		"Alasan override check-in terlambat diperlukan", "Isi alasan override untuk check-in setelah batas toleransi atau dari status NO_SHOW.",
+	)
+	ErrWalkInPatientDataRequired = apiError(
+		"WALK_IN_PATIENT_DATA_REQUIRED", http.StatusBadRequest,
+		"Walk-in patient data required", "Provide a patient record ID, MedikaOne ID, or the complete minimum identity for a new walk-in patient.",
+		"Data pasien walk-in diperlukan", "Kirim ID patient record, ID MedikaOne, atau identitas minimum yang lengkap untuk pasien walk-in baru.",
+	)
+	ErrWalkInPatientModeInvalid = apiError(
+		"WALK_IN_PATIENT_MODE_INVALID", http.StatusBadRequest,
+		"Walk-in patient selection is ambiguous", "Use exactly one patient selection mode: patient record ID, MedikaOne ID, or complete patient identity.",
+		"Pilihan pasien walk-in ambigu", "Gunakan tepat satu cara memilih pasien: ID patient record, ID MedikaOne, atau identitas pasien lengkap.",
+	)
+	ErrWalkInPatientNotFound = apiError(
+		"WALK_IN_PATIENT_NOT_FOUND", http.StatusNotFound,
+		"Walk-in patient not found", "No patient matches the supplied patient record ID or MedikaOne ID.",
+		"Pasien walk-in tidak ditemukan", "Tidak ada pasien yang cocok dengan ID patient record atau ID MedikaOne yang diberikan.",
+	)
+	ErrWalkInPatientIdentityConflict = apiError(
+		"WALK_IN_PATIENT_IDENTITY_CONFLICT", http.StatusConflict,
+		"Walk-in patient identity conflicts", "The identity number already exists with a different date of birth; do not create or overwrite the patient record.",
+		"Identitas pasien walk-in berkonflik", "Nomor identitas sudah tercatat dengan tanggal lahir berbeda; jangan membuat atau menimpa patient record.",
+	)
+	ErrWalkInCapacityFull = apiError(
+		"WALK_IN_CAPACITY_FULL", http.StatusConflict,
+		"Walk-in capacity is full", "The selected doctor schedule has no remaining capacity for a walk-in patient.",
+		"Kapasitas walk-in penuh", "Jadwal dokter yang dipilih tidak memiliki sisa kapasitas untuk pasien walk-in.",
+	)
+	ErrWalkInCapacityOverrideForbidden = apiError(
+		"WALK_IN_CAPACITY_OVERRIDE_FORBIDDEN", http.StatusForbidden,
+		"Walk-in capacity override forbidden", "Only a hospital administrator may exceed the configured appointment capacity.",
+		"Override kapasitas walk-in tidak diizinkan", "Hanya administrator rumah sakit yang dapat melebihi kapasitas appointment.",
+	)
+	ErrWalkInCapacityOverrideReasonRequired = apiError(
+		"WALK_IN_CAPACITY_OVERRIDE_REASON_REQUIRED", http.StatusBadRequest,
+		"Capacity override reason required", "Provide an auditable reason when exceeding the configured walk-in capacity.",
+		"Alasan override kapasitas diperlukan", "Isi alasan yang dapat diaudit saat melebihi kapasitas walk-in.",
+	)
+	ErrPatientRecordNotFound = apiError(
+		"PATIENT_RECORD_NOT_FOUND", http.StatusNotFound,
+		"Patient record not found", "No patient record matches the supplied identity and date of birth.",
+		"Patient record tidak ditemukan", "Tidak ada patient record yang cocok dengan identitas dan tanggal lahir yang diberikan.",
+	)
+	ErrPatientRecordAlreadyClaimed = apiError(
+		"PATIENT_RECORD_ALREADY_CLAIMED", http.StatusConflict,
+		"Patient record already claimed", "This patient record is already linked to another MedikaOne account.",
+		"Patient record sudah diklaim", "Patient record ini sudah ditautkan ke akun MedikaOne lain.",
+	)
+	ErrPatientRecordIdentityMismatch = apiError(
+		"PATIENT_RECORD_IDENTITY_MISMATCH", http.StatusForbidden,
+		"Patient identity does not match", "The authenticated account information does not match the walk-in patient record.",
+		"Identitas pasien tidak cocok", "Informasi akun yang sedang login tidak cocok dengan patient record walk-in.",
+	)
 	ErrAppointmentConsentRequired = apiError(
 		"APPOINTMENT_DATA_CONSENT_REQUIRED", http.StatusBadRequest,
 		"Data-sharing consent required", "Accept the current patient data-sharing consent before booking an appointment.",
@@ -665,7 +755,17 @@ func APIErrorCatalog() []response.CustomError {
 		ErrScheduleChangeHasAppointments, ErrInvalidScheduleChangeState,
 		ErrAppointmentNotFound, ErrAppointmentSlotUnavailable, ErrAppointmentInvalidState,
 		ErrAppointmentCutoffPassed, ErrAppointmentOutsideCheckInWindow,
-		ErrAppointmentInvalidVerification, ErrAppointmentConsentRequired,
+		ErrAppointmentInvalidVerification, ErrCheckInLookupModeInvalid,
+		ErrCheckInIdentityInsufficient, ErrAppointmentQRInvalid,
+		ErrAppointmentVerificationCodeInvalid, ErrCheckInTokenInvalidOrExpired,
+		ErrAppointmentAlreadyCheckedIn, ErrAppointmentCheckInExpired,
+		ErrAppointmentLateOverrideReasonRequired, ErrWalkInPatientDataRequired,
+		ErrWalkInPatientModeInvalid, ErrWalkInPatientNotFound,
+		ErrWalkInPatientIdentityConflict,
+		ErrWalkInCapacityFull, ErrWalkInCapacityOverrideForbidden,
+		ErrWalkInCapacityOverrideReasonRequired, ErrPatientRecordNotFound,
+		ErrPatientRecordAlreadyClaimed, ErrPatientRecordIdentityMismatch,
+		ErrAppointmentConsentRequired,
 		ErrIdempotencyKeyRequired, ErrIdempotencyConflict,
 	}
 }

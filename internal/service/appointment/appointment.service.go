@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
@@ -48,9 +47,15 @@ type Repository interface {
 	GetAppointment(context.Context, string) (*response.Appointment, error)
 	GetAppointmentByNumber(context.Context, string, string) (*response.Appointment, error)
 	ListAppointments(context.Context, repository.AppointmentFilter) ([]response.Appointment, error)
+	ListQueue(context.Context, repository.QueueFilter) (*response.AppointmentPage, error)
 	Cancel(context.Context, string, string, string, time.Time) error
 	Reschedule(context.Context, string, string, string, repository.BookInput) (*response.Appointment, bool, error)
-	CheckIn(context.Context, string, string, *string, time.Time) error
+	CheckIn(context.Context, string, string, string, *string, time.Time) error
+	FindCheckInAppointments(context.Context, string, string, repository.CheckInIdentityFilter) ([]response.Appointment, error)
+	GetPatientRecordForAppointment(context.Context, string) (*repository.PatientRecord, error)
+	CreateWalkIn(context.Context, repository.WalkInInput) (*response.Appointment, bool, error)
+	CanOverrideWalkInCapacity(context.Context, string, string) (bool, error)
+	ClaimPatientRecord(context.Context, string, string, string, string, time.Time) (*repository.PatientRecord, error)
 	Transition(context.Context, string, string, string, *string, time.Time) error
 	MarkNoShows(context.Context, time.Time, time.Time) (int64, error)
 	ClaimDueReminders(context.Context, time.Time, int) ([]response.AppointmentReminder, error)
@@ -167,7 +172,7 @@ func (s *Service) CreateAppointment(ctx context.Context, patientID, idempotencyK
 	if err != nil {
 		return nil, false, mapRepositoryError(err)
 	}
-	created.VerificationCode = s.verificationCode(created.ID, created.AppointmentNumber)
+	s.decoratePatientAppointment(created)
 	return created, replay, nil
 }
 
@@ -176,10 +181,10 @@ func (s *Service) GetPatientAppointment(ctx context.Context, patientID, appointm
 	if err != nil {
 		return nil, err
 	}
-	if row.PatientID != patientID {
+	if row.PatientID == nil || *row.PatientID != patientID {
 		return nil, constant.ErrAppointmentNotFound
 	}
-	row.VerificationCode = s.verificationCode(row.ID, row.AppointmentNumber)
+	s.decoratePatientAppointment(row)
 	return row, nil
 }
 
@@ -322,45 +327,28 @@ func (s *Service) reschedule(ctx context.Context, old *response.Appointment, act
 	if err := validateIdempotencyKey(idempotencyKey); err != nil {
 		return nil, false, err
 	}
-	input, err := s.prepareBookInput(ctx, old.PatientID, idempotencyKey, clientIP, userAgent, req.ScheduleID,
+	if old.PatientID == nil {
+		return nil, false, constant.ErrAppointmentInvalidState
+	}
+	input, err := s.prepareBookInput(ctx, *old.PatientID, idempotencyKey, clientIP, userAgent, req.ScheduleID,
 		req.AppointmentDate, req.StartTime, old.ReasonForVisit, old.Note, old.ConsentVersion)
 	if err != nil {
 		return nil, false, err
 	}
+	input.PatientRecordID = old.PatientRecordID
+	input.CreatedBy = actorID
 	rescheduleHash := sha256.Sum256([]byte(input.IdempotencyRequestHash + "|reschedule:" + old.ID))
 	input.IdempotencyRequestHash = hex.EncodeToString(rescheduleHash[:])
 	row, replay, err := s.repo.Reschedule(ctx, old.ID, actorID, strings.TrimSpace(req.Reason), input)
 	if err != nil {
 		return nil, false, mapRepositoryError(err)
 	}
-	row.VerificationCode = s.verificationCode(row.ID, row.AppointmentNumber)
+	s.decoratePatientAppointment(row)
 	return row, replay, nil
 }
 
 func (s *Service) CheckIn(ctx context.Context, hospitalID, actorID string, req request.VerifyAppointmentRequest) (*response.Appointment, error) {
-	row, err := s.repo.GetAppointmentByNumber(ctx, hospitalID, strings.TrimSpace(req.AppointmentNumber))
-	if err != nil {
-		return nil, mapRepositoryError(err)
-	}
-	expected := s.verificationCode(row.ID, row.AppointmentNumber)
-	provided := strings.ToUpper(strings.TrimSpace(req.VerificationCode))
-	if subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) != 1 {
-		return nil, constant.ErrAppointmentInvalidVerification
-	}
-	now := s.now()
-	if now.Before(row.ScheduledStartAt.Add(-CheckInEarlyWindow)) {
-		return nil, constant.ErrAppointmentOutsideCheckInWindow
-	}
-	if now.After(row.ScheduledStartAt.Add(CheckInLateWindow)) {
-		if !req.ForceLateCheckIn || req.OverrideReason == nil || strings.TrimSpace(*req.OverrideReason) == "" {
-			return nil, constant.ErrAppointmentOutsideCheckInWindow
-		}
-	}
-	overrideReason := cleanOptional(req.OverrideReason)
-	if err := s.repo.CheckIn(ctx, row.ID, actorID, overrideReason, now); err != nil {
-		return nil, mapRepositoryError(err)
-	}
-	return s.GetHospitalAppointment(ctx, hospitalID, row.ID)
+	return s.CheckInLegacy(ctx, hospitalID, actorID, req)
 }
 
 func (s *Service) CompleteVitals(ctx context.Context, hospitalID, actorID, appointmentID string, reason *string) error {
@@ -592,7 +580,7 @@ func (s *Service) prepareBookInput(ctx context.Context, patientID, idempotencyKe
 	}{patientID, scheduleID, appointmentDate, start.UTC().Format(time.RFC3339Nano), reason, consentVersion, note})
 	hash := sha256.Sum256(hashPayload)
 	return repository.BookInput{
-		PatientID: patientID, Schedule: *schedule, AppointmentDate: date.Format("2006-01-02"),
+		PatientID: patientID, CreatedBy: patientID, Schedule: *schedule, AppointmentDate: date.Format("2006-01-02"),
 		ScheduledStartAt: start, ScheduledEndAt: end, ReasonForVisit: reason, Note: note,
 		ConsentVersion: consentVersion, ConsentIP: strings.TrimSpace(clientIP),
 		ConsentUserAgent: strings.TrimSpace(userAgent), IdempotencyKey: idempotencyKey,
@@ -796,6 +784,8 @@ func redactClinicalFields(row *response.Appointment) {
 	row.ReasonForVisit = ""
 	row.Note = nil
 	row.ConsentVersion = ""
+	row.VerificationCode = ""
+	row.QRPayload = ""
 }
 
 func maxInt(a, b int) int {
@@ -821,6 +811,22 @@ func mapRepositoryError(err error) error {
 		return constant.ErrAppointmentInvalidState
 	case errors.Is(err, repository.ErrInvalidVerification):
 		return constant.ErrAppointmentInvalidVerification
+	case errors.Is(err, repository.ErrAppointmentAlreadyCheckedIn):
+		return constant.ErrAppointmentAlreadyCheckedIn
+	case errors.Is(err, repository.ErrPatientRecordNotFound):
+		return constant.ErrPatientRecordNotFound
+	case errors.Is(err, repository.ErrPatientRecordClaimed):
+		return constant.ErrPatientRecordAlreadyClaimed
+	case errors.Is(err, repository.ErrPatientIdentityMismatch):
+		return constant.ErrPatientRecordIdentityMismatch
+	case errors.Is(err, repository.ErrWalkInPatientNotFound):
+		return constant.ErrWalkInPatientNotFound
+	case errors.Is(err, repository.ErrWalkInPatientIdentityConflict):
+		return constant.ErrWalkInPatientIdentityConflict
+	case errors.Is(err, repository.ErrWalkInCapacityFull):
+		return constant.ErrWalkInCapacityFull
+	case errors.Is(err, repository.ErrWalkInCapacityForbidden):
+		return constant.ErrWalkInCapacityOverrideForbidden
 	case errors.Is(err, repository.ErrIdempotencyConflict):
 		return constant.ErrIdempotencyConflict
 	case errors.Is(err, repository.ErrScheduleChangeNotFound):
