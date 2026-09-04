@@ -101,3 +101,20 @@ func TestPrescriptionMigrationEnforcesAppendOnlyIssuedRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestProfilePhotoMigrationEnforcesPrivateObjectMetadata(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260905150000_user_profile_photo.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"avatar_bucket", "avatar_object_path", "avatar_content_type",
+		"chk_users_avatar_complete", "chk_users_avatar_content_type",
+		"chk_users_avatar_file_size", "ux_users_avatar_object_path",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("profile photo migration is missing %s", required)
+		}
+	}
+}

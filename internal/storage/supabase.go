@@ -110,7 +110,7 @@ func (c *SupabaseClient) CreateSignedURL(ctx context.Context, objectPath string,
 	if ttl <= 0 {
 		ttl = defaultSignedTTL
 	}
-	payload := map[string]any{"expiresIn": int64(ttl.Seconds()), "download": true}
+	payload := map[string]any{"expiresIn": int64(ttl.Seconds())}
 	if strings.TrimSpace(downloadName) != "" {
 		payload["download"] = safeDownloadName(downloadName)
 	}

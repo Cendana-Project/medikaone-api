@@ -97,6 +97,19 @@ func (r *Repository) ExistsUsername(ctx context.Context, uname string) (bool, er
 	return cnt > 0, nil
 }
 
+func (r *Repository) ExistsUsernameExcludingUser(ctx context.Context, username, userID string) (bool, error) {
+	if strings.TrimSpace(username) == "" {
+		return false, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&entity.User{}).
+		Where("LOWER(username)=LOWER(?) AND id <> ? AND deleted_at IS NULL", username, userID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *Repository) Create(ctx context.Context, u *entity.User) error {
 	return r.db.WithContext(ctx).Create(u).Error
 }
@@ -115,6 +128,83 @@ func (r *Repository) MarkVerified(ctx context.Context, id string) error {
 func (r *Repository) UpdateByID(ctx context.Context, id string, fields map[string]any) error {
 	fields["updated_at"] = time.Now()
 	return r.db.WithContext(ctx).Model(&entity.User{}).Where("id = ?", id).Updates(fields).Error
+}
+
+type ProfileImageRecord struct {
+	Bucket      string
+	ObjectPath  string
+	ContentType string
+	FileSize    int64
+	UpdatedAt   time.Time
+}
+
+func (r *Repository) ReplaceProfileImage(ctx context.Context, userID string, image ProfileImageRecord) (*ProfileImageRecord, error) {
+	var previous *ProfileImageRecord
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&user, "id = ? AND deleted_at IS NULL", userID).Error; err != nil {
+			return err
+		}
+		if user.AvatarObjectPath != nil && strings.TrimSpace(*user.AvatarObjectPath) != "" {
+			previous = &ProfileImageRecord{
+				Bucket: valueOrEmpty(user.AvatarBucket), ObjectPath: *user.AvatarObjectPath,
+				ContentType: valueOrEmpty(user.AvatarContentType), FileSize: int64ValueOrZero(user.AvatarFileSize),
+				UpdatedAt: timeValueOrZero(user.AvatarUpdatedAt),
+			}
+		}
+		return tx.Model(&entity.User{}).Where("id = ? AND deleted_at IS NULL", userID).Updates(map[string]any{
+			"avatar_bucket": image.Bucket, "avatar_object_path": image.ObjectPath,
+			"avatar_content_type": image.ContentType, "avatar_file_size": image.FileSize,
+			"avatar_updated_at": image.UpdatedAt, "updated_at": image.UpdatedAt,
+		}).Error
+	})
+	return previous, err
+}
+
+func (r *Repository) ClearProfileImage(ctx context.Context, userID string, now time.Time) (*ProfileImageRecord, error) {
+	var previous *ProfileImageRecord
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&user, "id = ? AND deleted_at IS NULL", userID).Error; err != nil {
+			return err
+		}
+		if user.AvatarObjectPath == nil || strings.TrimSpace(*user.AvatarObjectPath) == "" {
+			return nil
+		}
+		previous = &ProfileImageRecord{
+			Bucket: valueOrEmpty(user.AvatarBucket), ObjectPath: *user.AvatarObjectPath,
+			ContentType: valueOrEmpty(user.AvatarContentType), FileSize: int64ValueOrZero(user.AvatarFileSize),
+			UpdatedAt: timeValueOrZero(user.AvatarUpdatedAt),
+		}
+		return tx.Model(&entity.User{}).Where("id = ? AND deleted_at IS NULL", userID).Updates(map[string]any{
+			"avatar_bucket": nil, "avatar_object_path": nil, "avatar_content_type": nil,
+			"avatar_file_size": nil, "avatar_updated_at": nil, "updated_at": now,
+		}).Error
+	})
+	return previous, err
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func int64ValueOrZero(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func timeValueOrZero(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
 }
 
 // ActivatePendingRegistration updates only an account that is still pending.

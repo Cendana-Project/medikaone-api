@@ -105,6 +105,7 @@ Environment variable utama untuk deployment:
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | URL project dan server-only secret key Supabase; jangan pernah kirim secret key ke client |
 | `SUPABASE_STORAGE_BUCKET` | Bucket private kontrak dokter; default `doctor-contracts` |
 | `SUPABASE_MEDICAL_STORAGE_BUCKET` | Bucket private lampiran rekam medis; default `medical-records` |
+| `SUPABASE_PROFILE_STORAGE_BUCKET` | Bucket private foto profil; default `profile-images` |
 | `SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES` | Maksimum upload; aplikasi membatasi paling tinggi 10 MB |
 | `SUPABASE_STORAGE_SIGNED_URL_TTL` | Masa berlaku URL download private; default `5m` |
 | `AUTH_PIN_TTL`, `AUTH_PIN_MAX_ATTEMPTS` | Masa berlaku dan batas percobaan PIN |
@@ -199,6 +200,25 @@ Endpoint auth lain:
 - `PUT /v1/auth/password` (Bearer access token)
 - `POST /v1/auth/logout` (Bearer access token; mencabut satu keluarga sesi, body `refresh_token` opsional sebagai pemeriksaan konsistensi)
 - `POST /v1/auth/logout-all` (Bearer access token)
+
+## Profil pengguna
+
+`GET /v1/profile` mengambil profil global akun yang sedang login; `GET /v1/me`
+tetap menjadi alias kompatibilitas. `PATCH /v1/profile` mengubah username,
+nama, telepon, tanggal lahir, alamat, gender, atau NIK milik sendiri. Email
+sengaja tidak dapat diubah tanpa alur verifikasi terpisah. Field klinis khusus
+pasien/dokter tetap dikelola melalui `PUT /v1/profile/patient` dan
+`PUT /v1/profile/doctor`.
+
+Foto profil memakai tiga operasi authenticated: `PUT /v1/profile/photo`
+(multipart field `file`), `GET /v1/profile/photo` (signed URL), dan
+`DELETE /v1/profile/photo`. Hanya JPEG/PNG valid dengan ukuran maksimum 10 MB
+dan dimensi maksimum 4096x4096. Buat private bucket Supabase `profile-images`
+dengan public access **OFF**; jika memakai nama lain, set
+`SUPABASE_PROFILE_STORAGE_BUCKET`. Di dashboard Supabase, allowlist MIME bucket
+dapat dibatasi ke `image/jpeg,image/png` dan file-size limit ke 10 MB. Client
+tidak boleh menerima `SUPABASE_SECRET_KEY` atau menyimpan signed URL sebagai
+URL permanen.
 
 Reset password menggunakan tiga tahap. `POST /v1/auth/password/forgot` menerima `email` dan selalu mengembalikan bentuk respons yang sama, termasuk `challenge_id`, agar keberadaan akun tidak bocor.
 

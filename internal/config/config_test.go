@@ -346,12 +346,21 @@ func TestValidateRejectsUnsafeMedicalStorage(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsSharedProfileStorage(t *testing.T) {
+	cfg := validConfig()
+	cfg.Storage.ProfileBucket = cfg.Storage.MedicalBucket
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "profile_bucket must be separate") {
+		t.Fatalf("Validate() error = %v, want profile bucket separation error", err)
+	}
+}
+
 func configureStorageEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("STORAGE_ENABLED", "true")
 	t.Setenv("STORAGE_PROVIDER", "supabase")
 	t.Setenv("SUPABASE_STORAGE_BUCKET", "doctor-contracts")
 	t.Setenv("SUPABASE_MEDICAL_STORAGE_BUCKET", "medical-records")
+	t.Setenv("SUPABASE_PROFILE_STORAGE_BUCKET", "profile-images")
 	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
 	t.Setenv("SUPABASE_SECRET_KEY", "sb_secret_test")
 }
@@ -402,7 +411,7 @@ func validConfig() *EnvConfig {
 		},
 		SMTP: SMTP{Enabled: false},
 		Storage: Storage{
-			Enabled: true, Provider: "supabase", Bucket: "doctor-contracts", MedicalBucket: "medical-records",
+			Enabled: true, Provider: "supabase", Bucket: "doctor-contracts", MedicalBucket: "medical-records", ProfileBucket: "profile-images",
 			MaxFileSizeBytes: 10 * 1024 * 1024, SignedURLTTL: 5 * time.Minute,
 			Supabase: SupabaseStorage{URL: "https://project.supabase.co", SecretKey: "sb_secret_test"},
 		},

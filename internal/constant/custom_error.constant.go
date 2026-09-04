@@ -431,6 +431,21 @@ var (
 		"Profile already completed", "The profile has already been completed and cannot be initialized again.",
 		"Profil sudah dilengkapi", "Profil sudah dilengkapi dan tidak dapat diinisialisasi kembali.",
 	)
+	ErrProfileUpdateEmpty = apiError(
+		"PROFILE_UPDATE_EMPTY", http.StatusBadRequest,
+		"Profile update is empty", "Provide at least one supported profile field to update.",
+		"Pembaruan profil kosong", "Isi minimal satu field profil yang didukung untuk diperbarui.",
+	)
+	ErrProfilePhotoInvalid = apiError(
+		"PROFILE_PHOTO_INVALID", http.StatusBadRequest,
+		"Profile photo is invalid", "Upload a valid JPEG or PNG image no larger than 10 MB and no larger than 4096 by 4096 pixels.",
+		"Foto profil tidak valid", "Unggah gambar JPEG atau PNG yang valid dengan ukuran maksimal 10 MB dan dimensi maksimal 4096 kali 4096 piksel.",
+	)
+	ErrProfilePhotoNotFound = apiError(
+		"PROFILE_PHOTO_NOT_FOUND", http.StatusNotFound,
+		"Profile photo not found", "This account does not have a profile photo.",
+		"Foto profil tidak ditemukan", "Akun ini belum memiliki foto profil.",
+	)
 	ErrRegistrationError = apiError(
 		"REGISTRATION_FAILED", http.StatusInternalServerError,
 		"Registration failed", "The server could not complete account registration. Try again later.",
@@ -897,6 +912,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrSelfServicePatientRoleOnly, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
 		ErrAccountRoleNotFound,
 		ErrUnauthorizedUpdate, ErrNewPasswordSame, ErrPasswordNotMatch, ErrProfileAlreadySet,
+		ErrProfileUpdateEmpty, ErrProfilePhotoInvalid, ErrProfilePhotoNotFound,
 		ErrRegistrationError, ErrHospitalNotFound, ErrHospitalContextRequired,
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,

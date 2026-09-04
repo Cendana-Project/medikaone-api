@@ -134,6 +134,11 @@ func (t *Transport) InitRoute() {
 	protected.Use(transportmw.AuthRequired(t.rdb, t.userRepo))
 	{
 		protected.GET("/me", t.userController.Me)
+		protected.GET("/profile", t.userController.Profile)
+		protected.PATCH("/profile", t.userController.UpdateProfile)
+		protected.PUT("/profile/photo", t.userController.UploadProfilePhoto)
+		protected.GET("/profile/photo", t.userController.GetProfilePhotoURL)
+		protected.DELETE("/profile/photo", t.userController.DeleteProfilePhoto)
 
 		protected.POST("/auth/choose-role", t.authController.ChooseRole)
 

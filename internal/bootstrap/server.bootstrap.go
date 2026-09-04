@@ -26,6 +26,7 @@ import (
 	examinationSvc "github.com/Cendana-Project/medikaone-api/internal/service/examination"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
 	prescriptionSvc "github.com/Cendana-Project/medikaone-api/internal/service/prescription"
+	userSvc "github.com/Cendana-Project/medikaone-api/internal/service/user"
 	storageclient "github.com/Cendana-Project/medikaone-api/internal/storage"
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
 	appointmentHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
@@ -75,6 +76,10 @@ func runServer(parent context.Context) (returnErr error) {
 	if err != nil {
 		return fmt.Errorf("configure medical storage: %w", err)
 	}
+	profileStorage, err := storageclient.NewSupabaseClientForBucket(config.Env.Storage, config.Env.Storage.ProfileBucket)
+	if err != nil {
+		return fmt.Errorf("configure profile storage: %w", err)
+	}
 	sender := email.NewSMTPSender(&email.Config{
 		Enabled:     config.Env.SMTP.Enabled,
 		Host:        config.Env.SMTP.Host,
@@ -110,8 +115,14 @@ func runServer(parent context.Context) (returnErr error) {
 		storageclient.SignedURLTTL(config.Env.Storage),
 		config.Env.Server.BaseURL,
 	)
+	userProfileService := userSvc.NewService(
+		uRepo,
+		profileStorage,
+		storageclient.MaxFileSize(config.Env.Storage),
+		storageclient.SignedURLTTL(config.Env.Storage),
+	)
 	authController := authHTTP.NewController(authService, uRepo)
-	userController := userHTTP.NewController(authService, uRepo)
+	userController := userHTTP.NewController(authService, uRepo, userProfileService)
 	hospitalController := hospHTTP.NewController(hospitalService)
 	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
 	appointmentController := appointmentHTTP.NewController(appointmentService)

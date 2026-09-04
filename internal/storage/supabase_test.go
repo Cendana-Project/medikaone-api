@@ -100,6 +100,24 @@ func TestSupabaseClientObjectLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateSignedURLWithoutNameIsInline(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		_ = json.NewEncoder(w).Encode(map[string]string{"signedURL": "/signed/profile"})
+	}))
+	defer server.Close()
+	client := &SupabaseClient{
+		baseURL: server.URL, secretKey: "sb_secret_test", bucket: "profile-images", http: server.Client(),
+	}
+	if _, err := client.CreateSignedURL(context.Background(), "users/user-1/photo.png", time.Minute, ""); err != nil {
+		t.Fatalf("CreateSignedURL() error = %v", err)
+	}
+	if _, exists := payload["download"]; exists {
+		t.Fatalf("inline signed URL unexpectedly contains download option: %#v", payload)
+	}
+}
+
 func TestMaxFileSizeNeverExceedsTenMegabytes(t *testing.T) {
 	if got := MaxFileSize(config.Storage{MaxFileSizeBytes: 20 * 1024 * 1024}); got != defaultMaxFileSize {
 		t.Fatalf("expected hard limit %d, got %d", defaultMaxFileSize, got)

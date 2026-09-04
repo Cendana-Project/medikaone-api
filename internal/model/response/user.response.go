@@ -1,5 +1,7 @@
 package response
 
+import "time"
+
 // MeResponse adalah payload untuk GET /v1/me.
 type MeResponse struct {
 	ID         string  `json:"id"`
@@ -19,7 +21,19 @@ type MeResponse struct {
 	PatientProfile *PatientProfile `json:"patient_profile,omitempty"`
 	DoctorProfile  *DoctorProfile  `json:"doctor_profile,omitempty"`
 	// Untuk staff/doctor yang terkait tenant, tampilkan membership hospital minimal:
-	Hospitals []HospitalBrief `json:"hospitals,omitempty"`
+	Hospitals    []HospitalBrief       `json:"hospitals,omitempty"`
+	ProfilePhoto *ProfilePhotoMetadata `json:"profile_photo,omitempty"`
+}
+
+type ProfilePhotoMetadata struct {
+	ContentType string    `json:"content_type"`
+	FileSize    int64     `json:"file_size"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type ProfilePhotoURL struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // PatientProfile untuk user berperan PATIENT.

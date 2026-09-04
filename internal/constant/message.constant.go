@@ -28,10 +28,14 @@ const (
 	MsgLogoutCompleted              MessageCode = "LOGOUT_COMPLETED"
 	MsgAllSessionsLoggedOut         MessageCode = "ALL_SESSIONS_LOGGED_OUT"
 
-	MsgPatientProfileUpdated  MessageCode = "PATIENT_PROFILE_UPDATED"
-	MsgDoctorProfileUpdated   MessageCode = "DOCTOR_PROFILE_UPDATED"
-	MsgUserProfileRetrieved   MessageCode = "USER_PROFILE_RETRIEVED"
-	MsgTenantProfileRetrieved MessageCode = "TENANT_PROFILE_RETRIEVED"
+	MsgPatientProfileUpdated    MessageCode = "PATIENT_PROFILE_UPDATED"
+	MsgDoctorProfileUpdated     MessageCode = "DOCTOR_PROFILE_UPDATED"
+	MsgUserProfileRetrieved     MessageCode = "USER_PROFILE_RETRIEVED"
+	MsgUserProfileUpdated       MessageCode = "USER_PROFILE_UPDATED"
+	MsgProfilePhotoUploaded     MessageCode = "PROFILE_PHOTO_UPLOADED"
+	MsgProfilePhotoURLRetrieved MessageCode = "PROFILE_PHOTO_URL_RETRIEVED"
+	MsgProfilePhotoDeleted      MessageCode = "PROFILE_PHOTO_DELETED"
+	MsgTenantProfileRetrieved   MessageCode = "TENANT_PROFILE_RETRIEVED"
 
 	MsgHospitalCreated      MessageCode = "HOSPITAL_CREATED"
 	MsgHospitalAdminCreated MessageCode = "HOSPITAL_ADMIN_CREATED"
@@ -149,6 +153,10 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgPatientProfileUpdated:                 successDetail("Patient profile updated", "Profil pasien berhasil diperbarui"),
 	MsgDoctorProfileUpdated:                  successDetail("Doctor profile updated", "Profil dokter berhasil diperbarui"),
 	MsgUserProfileRetrieved:                  successDetail("User profile retrieved", "Profil pengguna berhasil diambil"),
+	MsgUserProfileUpdated:                    successDetail("User profile updated", "Profil pengguna berhasil diperbarui"),
+	MsgProfilePhotoUploaded:                  successDetail("Profile photo uploaded", "Foto profil berhasil diunggah"),
+	MsgProfilePhotoURLRetrieved:              successDetail("Profile photo URL retrieved", "URL foto profil berhasil diambil"),
+	MsgProfilePhotoDeleted:                   successDetail("Profile photo deleted", "Foto profil berhasil dihapus"),
 	MsgTenantProfileRetrieved:                successDetail("Hospital-scoped profile retrieved", "Profil dalam lingkup rumah sakit berhasil diambil"),
 	MsgHospitalCreated:                       successDetail("Hospital created", "Rumah sakit berhasil dibuat"),
 	MsgHospitalAdminCreated:                  successDetail("Hospital administrator created", "Administrator rumah sakit berhasil dibuat"),
