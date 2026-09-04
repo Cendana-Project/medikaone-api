@@ -389,10 +389,10 @@ var (
 		"Doctor access required", "An active DOCTOR role is required to perform this action.",
 		"Akses dokter diperlukan", "Role DOCTOR yang aktif diperlukan untuk melakukan tindakan ini.",
 	)
-	ErrSelfServicePatientRoleOnly = apiError(
-		"SELF_SERVICE_PATIENT_ROLE_ONLY", http.StatusForbidden,
-		"Role unavailable for self-service", "Only the PATIENT role can be selected or initialized through this self-service endpoint.",
-		"Role tidak tersedia untuk layanan mandiri", "Hanya role PATIENT yang dapat dipilih atau diinisialisasi melalui endpoint layanan mandiri ini.",
+	ErrSelfServiceRoleUnavailable = apiError(
+		"SELF_SERVICE_ROLE_UNAVAILABLE", http.StatusForbidden,
+		"Role unavailable for self-service", "Only the PATIENT or DOCTOR role can be selected or initialized through this self-service endpoint.",
+		"Role tidak tersedia untuk layanan mandiri", "Hanya role PATIENT atau DOCTOR yang dapat dipilih atau diinisialisasi melalui endpoint layanan mandiri ini.",
 	)
 	ErrAccountInactive = apiError(
 		"ACCOUNT_INACTIVE", http.StatusForbidden,
@@ -445,6 +445,11 @@ var (
 		"PROFILE_PHOTO_NOT_FOUND", http.StatusNotFound,
 		"Profile photo not found", "This account does not have a profile photo.",
 		"Foto profil tidak ditemukan", "Akun ini belum memiliki foto profil.",
+	)
+	ErrDoctorSIPAlreadyExists = apiError(
+		"DOCTOR_SIP_ALREADY_EXISTS", http.StatusConflict,
+		"Doctor SIP already registered", "This SIP number is already linked to another doctor account.",
+		"SIP dokter sudah terdaftar", "Nomor SIP ini sudah terhubung dengan akun dokter lain.",
 	)
 	ErrRegistrationError = apiError(
 		"REGISTRATION_FAILED", http.StatusInternalServerError,
@@ -909,10 +914,10 @@ func APIErrorCatalog() []response.CustomError {
 		ErrInvalidResetToken, ErrEmailNotVerified, ErrEmailAlreadyActive, ErrEmailSendFailed,
 		ErrInvalidRoleID, ErrRoleAlreadyExist, ErrRoleNotFound, ErrRoleNotAssigned,
 		ErrRoleAlreadyAssigned, ErrRoleInUse, ErrOnlySuperAdmin, ErrDoctorRoleRequired,
-		ErrSelfServicePatientRoleOnly, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
+		ErrSelfServiceRoleUnavailable, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
 		ErrAccountRoleNotFound,
 		ErrUnauthorizedUpdate, ErrNewPasswordSame, ErrPasswordNotMatch, ErrProfileAlreadySet,
-		ErrProfileUpdateEmpty, ErrProfilePhotoInvalid, ErrProfilePhotoNotFound,
+		ErrProfileUpdateEmpty, ErrProfilePhotoInvalid, ErrProfilePhotoNotFound, ErrDoctorSIPAlreadyExists,
 		ErrRegistrationError, ErrHospitalNotFound, ErrHospitalContextRequired,
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,

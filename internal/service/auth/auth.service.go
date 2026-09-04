@@ -733,6 +733,13 @@ func patientProfilePersistenceError(err error) error {
 	return constant.ErrInternalServerError
 }
 
+func doctorProfilePersistenceError(err error) error {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return constant.ErrDoctorSIPAlreadyExists
+	}
+	return constant.ErrInternalServerError
+}
+
 func valueOrEmpty(value *string) string {
 	if value == nil {
 		return ""
@@ -1706,10 +1713,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, idempotencyKey stri
 
 func (s *Service) ChooseRole(ctx context.Context, userID, roleSlug string) error {
 	roleSlug = strings.ToUpper(strings.TrimSpace(roleSlug))
-	if roleSlug != constant.RolePatient {
-		return constant.ErrSelfServicePatientRoleOnly
+	if roleSlug != constant.RolePatient && roleSlug != constant.RoleDoctor {
+		return constant.ErrSelfServiceRoleUnavailable
 	}
-	r, err := s.roles.FindBySlug(ctx, constant.RolePatient)
+	r, err := s.roles.FindBySlug(ctx, roleSlug)
 	if err != nil || r == nil || !r.Active {
 		return constant.ErrAccountRoleNotFound
 	}
@@ -1800,7 +1807,7 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 		"specialty":  req.Specialty,
 	}
 	if err := users.UpsertDoctorProfile(ctx, prof); err != nil {
-		return constant.ErrInternalServerError
+		return doctorProfilePersistenceError(err)
 	}
 	ulog.Infof(ctx, "doctor profile updated user_id=%s", userID)
 	return nil
@@ -1811,16 +1818,42 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		return nil, constant.NewFieldRequiredError("profile")
 	}
 	role := strings.ToUpper(strings.TrimSpace(roleSlugUpper))
-	if role != constant.RolePatient {
-		return nil, constant.ErrSelfServicePatientRoleOnly
-	}
-
-	var req request.PatientProfileRequest
-	if err := ulog.UnmarshalStrictJSON(*rawProfile, &req); err != nil {
-		return nil, ulog.MapJSONDecodeError(err)
-	}
-	if err := ulog.ValidateStruct(&req); err != nil {
-		return nil, ulog.MapValidationError(err)
+	var patientRequest *request.PatientProfileRequest
+	var doctorRequest *request.DoctorProfileRequest
+	switch role {
+	case constant.RolePatient:
+		var input request.PatientProfileRequest
+		if err := ulog.UnmarshalStrictJSON(*rawProfile, &input); err != nil {
+			return nil, ulog.MapJSONDecodeError(err)
+		}
+		if err := ulog.ValidateStruct(&input); err != nil {
+			return nil, ulog.MapValidationError(err)
+		}
+		patientRequest = &input
+	case constant.RoleDoctor:
+		var input request.DoctorProfileRequest
+		if err := ulog.UnmarshalStrictJSON(*rawProfile, &input); err != nil {
+			return nil, ulog.MapJSONDecodeError(err)
+		}
+		if err := ulog.ValidateStruct(&input); err != nil {
+			return nil, ulog.MapValidationError(err)
+		}
+		if input.SIPNumber == nil || strings.TrimSpace(*input.SIPNumber) == "" {
+			return nil, constant.NewFieldRequiredError("sip_number")
+		}
+		sipNumber := strings.TrimSpace(*input.SIPNumber)
+		input.SIPNumber = &sipNumber
+		if input.Specialty != nil {
+			specialty := strings.TrimSpace(*input.Specialty)
+			if specialty == "" {
+				input.Specialty = nil
+			} else {
+				input.Specialty = &specialty
+			}
+		}
+		doctorRequest = &input
+	default:
+		return nil, constant.ErrSelfServiceRoleUnavailable
 	}
 
 	r, err := s.roles.FindBySlug(ctx, role)
@@ -1830,11 +1863,17 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 	if err := s.users.Transaction(ctx, func(tx *gorm.DB) error {
 		users := s.users.WithTx(tx)
 		roles := s.roles.WithTx(tx)
-		profileExists, err := users.ExistsPatientProfile(ctx, userID)
+		var profileExists bool
+		var err error
+		if role == constant.RolePatient {
+			profileExists, err = users.ExistsPatientProfile(ctx, userID)
+		} else {
+			profileExists, err = users.ExistsDoctorProfile(ctx, userID)
+		}
 		if err != nil {
 			return constant.ErrInternalServerError
 		}
-		hasRole, err := roles.UserHasRole(ctx, userID, constant.RolePatient)
+		hasRole, err := roles.UserHasRole(ctx, userID, role)
 		if err != nil {
 			return constant.ErrInternalServerError
 		}
@@ -1842,7 +1881,11 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 			return constant.ErrProfileAlreadySet
 		}
 		if !profileExists {
-			if err := s.completePatientProfile(ctx, users, userID, &req); err != nil {
+			if role == constant.RolePatient {
+				if err := s.completePatientProfile(ctx, users, userID, patientRequest); err != nil {
+					return err
+				}
+			} else if err := s.completeDoctorProfile(ctx, users, userID, doctorRequest); err != nil {
 				return err
 			}
 		}
@@ -1877,11 +1920,19 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		Gender:    u.Gender,
 		NIK:       u.NIK,
 	}
-	h, w, a, m, err := s.users.GetPatientProfileByUserID(ctx, userID)
-	if err != nil {
-		return nil, constant.ErrInternalServerError
+	if role == constant.RolePatient {
+		h, w, a, m, err := s.users.GetPatientProfileByUserID(ctx, userID)
+		if err != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		prof.HeightCM, prof.WeightKG, prof.Allergies, prof.MedicalHistory = h, w, a, m
+	} else {
+		sipNumber, specialty, err := s.users.GetDoctorProfileByUserID(ctx, userID)
+		if err != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		prof.SIPNumber, prof.Specialty = sipNumber, specialty
 	}
-	prof.HeightCM, prof.WeightKG, prof.Allergies, prof.MedicalHistory = h, w, a, m
 
 	ulog.Infof(ctx, "set-profile success user_id=%s role=%s", userID, role)
 	return &response.SetProfileResponse{
