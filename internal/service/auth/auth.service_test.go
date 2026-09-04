@@ -92,20 +92,39 @@ func TestChooseRoleRejectsPrivilegedSelfAssignment(t *testing.T) {
 	for _, role := range []string{
 		constant.RoleSuperAdmin,
 		constant.RoleAdmin,
-		constant.RoleDoctor,
 		constant.RoleNurse,
+		constant.RoleReceptionist,
+		constant.RoleBOD,
 	} {
-		if err := service.ChooseRole(context.Background(), "user-1", role); err != constant.ErrSelfServicePatientRoleOnly {
+		if err := service.ChooseRole(context.Background(), "user-1", role); err != constant.ErrSelfServiceRoleUnavailable {
 			t.Fatalf("role %s: expected self-service role error, got %v", role, err)
 		}
 	}
 }
 
-func TestSetProfileRejectsDoctorSelfService(t *testing.T) {
+func TestSetProfileRejectsPrivilegedSelfService(t *testing.T) {
+	service := &Service{}
+	profile := json.RawMessage(`{"first_name":"Admin","last_name":"Self"}`)
+	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleAdmin, &profile); err != constant.ErrSelfServiceRoleUnavailable {
+		t.Fatalf("expected self-service role error, got %v", err)
+	}
+}
+
+func TestSetProfileDoctorRequiresSIP(t *testing.T) {
 	service := &Service{}
 	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self"}`)
-	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleDoctor, &profile); err != constant.ErrSelfServicePatientRoleOnly {
-		t.Fatalf("expected self-service role error, got %v", err)
+	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleDoctor, &profile); err != constant.NewFieldRequiredError("sip_number") {
+		t.Fatalf("expected required SIP error, got %v", err)
+	}
+}
+
+func TestSelfServiceRequestValidationAllowsDoctor(t *testing.T) {
+	if err := ulog.ValidateStruct(&request.ChooseRoleRequest{Role: constant.RoleDoctor}); err != nil {
+		t.Fatalf("doctor choose-role request rejected: %v", err)
+	}
+	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","sip_number":"SIP-001"}`)
+	if err := ulog.ValidateStruct(&request.SetProfileRequest{Role: constant.RoleDoctor, Profile: &profile}); err != nil {
+		t.Fatalf("doctor set-profile request rejected: %v", err)
 	}
 }
 
@@ -325,6 +344,13 @@ func TestPatientProfilePersistenceErrorMapsUniqueNIKRace(t *testing.T) {
 	err := fmt.Errorf("update user: %w", gorm.ErrDuplicatedKey)
 	if got := patientProfilePersistenceError(err); got != constant.ErrDuplicateNIK {
 		t.Fatalf("expected duplicate NIK error, got %v", got)
+	}
+}
+
+func TestDoctorProfilePersistenceErrorMapsUniqueSIPRace(t *testing.T) {
+	err := fmt.Errorf("upsert doctor profile: %w", gorm.ErrDuplicatedKey)
+	if got := doctorProfilePersistenceError(err); got != constant.ErrDoctorSIPAlreadyExists {
+		t.Fatalf("expected duplicate SIP error, got %v", got)
 	}
 }
 

@@ -20,11 +20,13 @@ const (
 	MsgHospitalLoginSucceeded       MessageCode = "HOSPITAL_LOGIN_SUCCEEDED"
 	MsgTokensRefreshed              MessageCode = "TOKENS_REFRESHED"
 	MsgPatientRoleSelected          MessageCode = "PATIENT_ROLE_SELECTED"
+	MsgDoctorRoleSelected           MessageCode = "DOCTOR_ROLE_SELECTED"
 	MsgPasswordResetPINSent         MessageCode = "PASSWORD_RESET_PIN_SENT"
 	MsgPasswordResetPINVerified     MessageCode = "PASSWORD_RESET_PIN_VERIFIED"
 	MsgPasswordResetCompleted       MessageCode = "PASSWORD_RESET_COMPLETED"
 	MsgPasswordChanged              MessageCode = "PASSWORD_CHANGED"
 	MsgPatientProfileCompleted      MessageCode = "PATIENT_PROFILE_COMPLETED"
+	MsgDoctorProfileCompleted       MessageCode = "DOCTOR_PROFILE_COMPLETED"
 	MsgLogoutCompleted              MessageCode = "LOGOUT_COMPLETED"
 	MsgAllSessionsLoggedOut         MessageCode = "ALL_SESSIONS_LOGGED_OUT"
 
@@ -143,11 +145,13 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgHospitalLoginSucceeded:                successDetail("Hospital login succeeded", "Login rumah sakit berhasil"),
 	MsgTokensRefreshed:                       successDetail("Authentication tokens refreshed", "Token autentikasi berhasil diperbarui"),
 	MsgPatientRoleSelected:                   successDetail("Patient role selected", "Peran pasien berhasil dipilih"),
+	MsgDoctorRoleSelected:                    successDetail("Doctor role selected", "Peran dokter berhasil dipilih"),
 	MsgPasswordResetPINSent:                  successDetail("Password reset PIN sent", "PIN reset password berhasil dikirim"),
 	MsgPasswordResetPINVerified:              successDetail("Password reset PIN verified", "PIN reset password berhasil diverifikasi"),
 	MsgPasswordResetCompleted:                successDetail("Password reset completed", "Reset password berhasil diselesaikan"),
 	MsgPasswordChanged:                       successDetail("Password changed", "Password berhasil diubah"),
 	MsgPatientProfileCompleted:               successDetail("Patient profile completed", "Profil pasien berhasil dilengkapi"),
+	MsgDoctorProfileCompleted:                successDetail("Doctor profile completed", "Profil dokter berhasil dilengkapi"),
 	MsgLogoutCompleted:                       successDetail("Logout completed", "Logout berhasil"),
 	MsgAllSessionsLoggedOut:                  successDetail("All sessions logged out", "Semua sesi berhasil di-logout"),
 	MsgPatientProfileUpdated:                 successDetail("Patient profile updated", "Profil pasien berhasil diperbarui"),

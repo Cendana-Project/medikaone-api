@@ -176,6 +176,7 @@ Registrasi tidak lagi membuat row user sebelum pemilik email membuktikan PIN. In
 1. `POST /v1/auth/register` menerima `email`, `username`, `phone`, dan `password`, lalu mengembalikan `challenge_id`.
 2. `POST /v1/auth/verify-pin` menerima `email`, `challenge_id`, dan `pin`. User baru dibuat dan token diterbitkan hanya jika PIN valid.
 3. `POST /v1/auth/resend-pin` menerima `email` dan `challenge_id` yang sama.
+4. User terverifikasi dapat memilih role global `PATIENT` atau `DOCTOR` melalui `POST /v1/auth/choose-role`, atau memilih sekaligus melengkapi profil melalui `POST /v1/auth/set-profile`. Dokter wajib memberikan nomor SIP unik pada `set-profile`; role staff tenant tetap hanya dapat diberikan oleh admin rumah sakit.
 
 Contoh request verifikasi:
 

@@ -219,12 +219,16 @@ func (ctl *Controller) ChooseRole(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	role := strings.TrimSpace(req.Role)
+	role := strings.ToUpper(strings.TrimSpace(req.Role))
 	if err := ctl.svc.ChooseRole(c.Request.Context(), userID, role); err != nil {
 		util.HandleError(c, err)
 		return
 	}
-	resp := constant.NewSuccessResponse(constant.MsgPatientRoleSelected)
+	message := constant.MsgPatientRoleSelected
+	if role == constant.RoleDoctor {
+		message = constant.MsgDoctorRoleSelected
+	}
+	resp := constant.NewSuccessResponse(message)
 	resp.StatusCode = http.StatusOK
 	resp.Data = gin.H{"role": role}
 	util.HandleResponse(c, resp, nil)
@@ -331,7 +335,11 @@ func (ctl *Controller) SetProfile(c *gin.Context) {
 		return
 	}
 
-	resp := constant.NewSuccessResponse(constant.MsgPatientProfileCompleted)
+	message := constant.MsgPatientProfileCompleted
+	if res.Role == constant.RoleDoctor {
+		message = constant.MsgDoctorProfileCompleted
+	}
+	resp := constant.NewSuccessResponse(message)
 	resp.StatusCode = http.StatusOK
 	resp.Data = res
 	util.HandleResponse(c, resp, nil)

@@ -39,10 +39,10 @@ type LoginHospitalRequest struct {
 	HospitalCode *string `json:"hospital_code" validate:"omitempty,max=64"`
 }
 
-// ChooseRoleRequest only supports the PATIENT self-service role. Privileged
-// and clinical roles must be assigned through an authorized admin workflow.
+// ChooseRoleRequest supports public patient and doctor identities. Privileged
+// hospital staff roles must still be assigned through an admin workflow.
 type ChooseRoleRequest struct {
-	Role string `json:"role" validate:"required,oneof_ci=PATIENT"`
+	Role string `json:"role" validate:"required,oneof_ci=PATIENT DOCTOR"`
 }
 
 type PasswordForgotRequest struct {
@@ -67,7 +67,7 @@ type PasswordChangeRequest struct {
 }
 
 type SetProfileRequest struct {
-	Role    string           `json:"role" validate:"required,oneof_ci=PATIENT"`
+	Role    string           `json:"role" validate:"required,oneof_ci=PATIENT DOCTOR"`
 	Profile *json.RawMessage `json:"profile" validate:"required"`
 }
 
