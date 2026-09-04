@@ -77,6 +77,35 @@ func TestCORSUsesExactConfiguredAllowlist(t *testing.T) {
 	}
 }
 
+func TestCORSAllowsAnyLocalhostPortForDev(t *testing.T) {
+	setGinTestConfig()
+	resetHealthChecksForTest()
+	router := NewGinEngine()
+	router.GET("/resource", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	for _, origin := range []string{"http://localhost:3000", "http://localhost:5173", "https://127.0.0.1:4000"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodOptions, "/resource", nil)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != origin {
+			t.Fatalf("preflight for %s = %d headers=%v", origin, recorder.Code, recorder.Header())
+		}
+	}
+
+	// A host merely containing "localhost" must not slip through (e.g. an attacker-controlled
+	// domain like notlocalhost.evil.com or localhost.evil.com).
+	denied := httptest.NewRecorder()
+	deniedRequest := httptest.NewRequest(http.MethodOptions, "/resource", nil)
+	deniedRequest.Header.Set("Origin", "https://localhost.evil.com")
+	deniedRequest.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	router.ServeHTTP(denied, deniedRequest)
+	if denied.Code != http.StatusForbidden || denied.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("denied preflight = %d headers=%v", denied.Code, denied.Header())
+	}
+}
+
 func TestAccessLogClientFingerprintIsKeyed(t *testing.T) {
 	setGinTestConfig()
 	config.Env.JWT.Secret = "first-secret-with-at-least-32-bytes"

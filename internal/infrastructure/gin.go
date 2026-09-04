@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -19,6 +20,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
+
+// Dev frontends (Vite/CRA/Next) hop ports when the default one is taken, so a fixed
+// allowlist entry per port doesn't scale. This matches any localhost/127.0.0.1 origin
+// regardless of port so local dev always works without touching SERVER_CORS_ALLOWED_ORIGINS;
+// non-localhost origins still go through the strict env-configured allowlist below.
+var localDevOriginPattern = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1)(:\d+)?$`)
 
 func NewGinEngine() *gin.Engine {
 	if config.Env.Env == constant.ProductionEnvironment {
@@ -42,6 +49,7 @@ func NewGinEngine() *gin.Engine {
 	r.Use(limitRequestBody(1 << 20))
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     config.Env.Server.CORSAllowedOrigins,
+		AllowOriginFunc:  func(origin string) bool { return localDevOriginPattern.MatchString(origin) },
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "X-Hospital-ID", "X-Hospital-Code"},
 		ExposeHeaders:    []string{"X-Request-ID"},
