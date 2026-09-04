@@ -101,6 +101,12 @@ Environment variable utama untuk deployment:
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | Kredensial SMTP |
 | `SMTP_FROM`, `SMTP_FROM_NAME` | Sender yang telah diverifikasi oleh provider |
 | `SMTP_TIMEOUT` | Batas satu percobaan SMTP; default `15s` dan harus menyisakan headroom minimal `5s` terhadap `SERVER_WRITE_TIMEOUT` |
+| `STORAGE_ENABLED`, `STORAGE_PROVIDER` | Aktifkan private object storage; provider yang didukung saat ini `supabase` |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | URL project dan server-only secret key Supabase; jangan pernah kirim secret key ke client |
+| `SUPABASE_STORAGE_BUCKET` | Bucket private kontrak dokter; default `doctor-contracts` |
+| `SUPABASE_MEDICAL_STORAGE_BUCKET` | Bucket private lampiran rekam medis; default `medical-records` |
+| `SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES` | Maksimum upload; aplikasi membatasi paling tinggi 10 MB |
+| `SUPABASE_STORAGE_SIGNED_URL_TTL` | Masa berlaku URL download private; default `5m` |
 | `AUTH_PIN_TTL`, `AUTH_PIN_MAX_ATTEMPTS` | Masa berlaku dan batas percobaan PIN |
 | `AUTH_PIN_RESEND_COOLDOWN` | Cooldown registrasi/resend PIN |
 | `AUTH_MAX_ACTIVE_SESSIONS` | Batas refresh-session aktif per akun (default `10`) |
@@ -288,6 +294,39 @@ dan tanggal lahir. Klaim memerlukan kecocokan NIK/MedikaOne ID; untuk
 PASSPORT/OTHER juga diperlukan kecocokan email atau telepon akun. Semua
 appointment guest pada record tersebut kemudian ditautkan ke akun secara
 atomik.
+
+## Pemeriksaan dan rekam medis
+
+Alur pemeriksaan menggunakan status appointment yang sudah ada:
+`WAITING_VITALS` -> `WAITING_DOCTOR` -> `IN_CONSULTATION` -> `COMPLETED`.
+Perawat menyimpan draft vital terlebih dahulu dan finalisasi dilakukan dalam
+transaksi yang sama dengan perpindahan ke antrean dokter. Skala nyeri tidak
+dikumpulkan. BMI dihitung oleh database dari tinggi dan berat sehingga client
+tidak dapat mengirim nilai BMI sendiri.
+
+Dokter menyimpan catatan SOAP (`subjective`, `objective`, `assessment`, dan
+`plan`) sebagai draft. Penyelesaian appointment ditolak sampai seluruh SOAP dan
+tepat satu diagnosis utama tersedia. Catatan yang telah final bersifat
+append-only: koreksi vital atau konsultasi membuat revision baru dengan alasan
+wajib dan mempertahankan revision sebelumnya. Trigger PostgreSQL juga menolak
+update/delete terhadap revision final dan diagnosis terkait, sehingga aturan
+ini tidak hanya bergantung pada handler API. Admin rumah sakit dapat membuat
+koreksi konsultasi melalui endpoint tenant; perawat hanya dapat mengoreksi
+vital. `internal_note` tetap khusus dokter: koreksi admin mempertahankan nilainya
+tanpa dapat membaca atau menimpanya.
+
+Riwayat lintas rumah sakit hanya tersedia bagi dokter yang ditugaskan pada
+appointment ber-consent dan pasien pemilik record. Resepsionis tidak mendapat
+permission pemeriksaan. Dokter dapat membuka detail encounter historis pasien
+yang sama, tetapi `internal_note` dokter sebelumnya tidak pernah diteruskan.
+Setiap baca, perubahan, koreksi, upload, dan pembuatan signed URL dicatat pada
+`medical_record_audit_events`.
+
+Lampiran PDF, JPEG, dan PNG disimpan dalam bucket Supabase private
+`medical-records`, maksimum 10 MB, memakai object path per rumah sakit, pasien,
+dan encounter. API hanya mengembalikan signed URL berdurasi pendek setelah
+otorisasi; object storage tidak boleh dibuat public. Bucket rekam medis wajib
+terpisah dari bucket kontrak dokter.
 
 ## Seeder dan reset staging
 
