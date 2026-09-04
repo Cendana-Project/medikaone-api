@@ -54,6 +54,16 @@ const (
 	PermissionDoctorScheduleApprove = "doctor_schedule.approve"
 )
 
+// Examination and longitudinal medical records.
+const (
+	PermissionExaminationView              = "examination.view"
+	PermissionExaminationVitalsWrite       = "examination.vitals.write"
+	PermissionExaminationConsultationWrite = "examination.consultation.write"
+	PermissionExaminationCorrect           = "examination.correct"
+	PermissionExaminationAttachmentManage  = "examination.attachment.manage"
+	PermissionMedicalRecordSelfView        = "medical_record.self.view"
+)
+
 // ==========================
 // DEFAULT ROLE → PERMISSIONS
 // ==========================
@@ -79,6 +89,9 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentWalkInCreate, PermissionAppointmentWalkInOverrideCapacity,
 		PermissionPatientRecordClaim,
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
+		PermissionExaminationView, PermissionExaminationVitalsWrite,
+		PermissionExaminationConsultationWrite, PermissionExaminationCorrect,
+		PermissionExaminationAttachmentManage, PermissionMedicalRecordSelfView,
 	},
 
 	// admin RS
@@ -94,6 +107,8 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentQueue, PermissionAppointmentComplete,
 		PermissionAppointmentWalkInCreate, PermissionAppointmentWalkInOverrideCapacity,
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
+		PermissionExaminationView, PermissionExaminationVitalsWrite,
+		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
 	},
 
 	// nurse
@@ -103,6 +118,8 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionBillingView,
 		PermissionAppointmentView, PermissionAppointmentEdit,
 		PermissionAppointmentQueue, PermissionDoctorScheduleView,
+		PermissionExaminationView, PermissionExaminationVitalsWrite,
+		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
 	},
 
 	// receptionist
@@ -130,6 +147,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionAppointmentCancel, PermissionAppointmentReschedule,
 		PermissionPatientView, PermissionPatientEdit,
 		PermissionPatientRecordClaim,
+		PermissionMedicalRecordSelfView,
 	},
 
 	// doctor (minimum untuk update profil)
@@ -138,5 +156,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermissionDoctorScheduleView, PermissionDoctorSchedulePropose, PermissionDoctorScheduleApprove,
 		PermissionDoctorView, PermissionDoctorEdit,
 		PermissionEMRView,
+		PermissionExaminationView, PermissionExaminationConsultationWrite,
+		PermissionExaminationCorrect, PermissionExaminationAttachmentManage,
 	},
 }

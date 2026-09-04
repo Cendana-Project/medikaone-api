@@ -57,3 +57,24 @@ func TestHardeningMigrationDownFailsExplicitly(t *testing.T) {
 		t.Fatal("hardening migration Down must fail explicitly instead of restoring unsafe constraints")
 	}
 }
+
+func TestExaminationMigrationEnforcesAppendOnlyFinalRecords(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260904150000_examination.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"trg_vital_revision_immutable",
+		"trg_consultation_revision_immutable",
+		"trg_diagnosis_immutable",
+		"chk_vital_correction_provenance",
+		"chk_consultation_correction_provenance",
+		"fk_vital_supersedes_same_encounter",
+		"fk_consultation_supersedes_same_encounter",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("examination migration is missing %s", required)
+		}
+	}
+}

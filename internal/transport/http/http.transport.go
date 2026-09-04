@@ -9,6 +9,7 @@ import (
 	appointmentCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
 	authCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
 	doctorHospitalCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
+	examinationCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
 	userCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
@@ -27,6 +28,7 @@ type Transport struct {
 	hospitalController       *hospCtrl.Controller
 	doctorHospitalController *doctorHospitalCtrl.Controller
 	appointmentController    *appointmentCtrl.Controller
+	examinationController    *examinationCtrl.Controller
 	warmupController         *warmupCtrl.Controller
 
 	roleRepo *roleRepo.Repository
@@ -55,6 +57,10 @@ func (t *Transport) WithDoctorHospitalController(c *doctorHospitalCtrl.Controlle
 }
 func (t *Transport) WithAppointmentController(c *appointmentCtrl.Controller) *Transport {
 	t.appointmentController = c
+	return t
+}
+func (t *Transport) WithExaminationController(c *examinationCtrl.Controller) *Transport {
+	t.examinationController = c
 	return t
 }
 func (t *Transport) WithRoleRepository(repo *roleRepo.Repository) *Transport {
@@ -211,8 +217,52 @@ func (t *Transport) InitRoute() {
 			t.appointmentController.StartConsultation,
 		)
 		protected.POST("/doctor/appointments/:appointment_id/complete",
-			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentComplete),
-			t.appointmentController.CompleteAppointment,
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationConsultationWrite),
+			t.examinationController.CompleteDoctorExamination,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/examination",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetDoctorExamination,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/medical-history",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.ListDoctorMedicalHistory,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/medical-history/:encounter_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetDoctorHistoricalMedicalRecord,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/medical-history/:encounter_id/attachments/:attachment_id/url",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetDoctorHistoricalAttachmentURL,
+		)
+		protected.PUT("/doctor/appointments/:appointment_id/examination/consultation",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationConsultationWrite),
+			t.examinationController.SaveDoctorConsultationDraft,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/examination/consultation/corrections",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationCorrect),
+			t.examinationController.CorrectDoctorConsultation,
+		)
+		protected.POST("/doctor/appointments/:appointment_id/examination/attachments",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationAttachmentManage),
+			t.examinationController.UploadDoctorAttachment,
+		)
+		protected.GET("/doctor/appointments/:appointment_id/examination/attachments/:attachment_id/url",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetDoctorAttachmentURL,
+		)
+		protected.GET("/medical-records",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionMedicalRecordSelfView),
+			t.examinationController.ListPatientMedicalHistory,
+		)
+		protected.GET("/medical-records/:encounter_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionMedicalRecordSelfView),
+			t.examinationController.GetPatientMedicalRecord,
+		)
+		protected.GET("/medical-record-attachments/:attachment_id/url",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionMedicalRecordSelfView),
+			t.examinationController.GetPatientAttachmentURL,
 		)
 		protected.POST("/doctor/schedule-change-requests",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
@@ -337,8 +387,36 @@ func (t *Transport) InitRoute() {
 			t.appointmentController.ListHospitalQueue,
 		)
 		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/vitals-complete",
-			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionAppointmentQueue),
-			t.appointmentController.CompleteVitals,
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationVitalsWrite),
+			t.examinationController.FinalizeVitals,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id/examination",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetHospitalExamination,
+		)
+		tenant.PUT("/hospitals/:hospital_id/appointments/:appointment_id/examination/vitals",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationVitalsWrite),
+			t.examinationController.SaveVitalDraft,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/examination/vitals/finalize",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationVitalsWrite),
+			t.examinationController.FinalizeVitals,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/examination/vitals/corrections",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationCorrect),
+			t.examinationController.CorrectVitals,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/examination/consultation/corrections",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.examinationController.CorrectHospitalConsultation,
+		)
+		tenant.POST("/hospitals/:hospital_id/appointments/:appointment_id/examination/attachments",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationAttachmentManage),
+			t.examinationController.UploadHospitalAttachment,
+		)
+		tenant.GET("/hospitals/:hospital_id/appointments/:appointment_id/examination/attachments/:attachment_id/url",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionExaminationView),
+			t.examinationController.GetHospitalAttachmentURL,
 		)
 		tenant.POST("/hospitals/:hospital_id/schedule-change-requests",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),

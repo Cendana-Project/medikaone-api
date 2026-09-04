@@ -144,7 +144,7 @@ func TestRequestBodyLimitRejectsChunkedOversizeJSON(t *testing.T) {
 		c.Status(http.StatusNoContent)
 	})
 
-	payload := `{"value":"` + strings.Repeat("a", (1<<20)+1) + `"}`
+	payload := `{"value":"` + strings.Repeat("a", (10<<20)+1) + `"}`
 	request := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
 	request.ContentLength = -1 // exercise streaming/chunked requests too

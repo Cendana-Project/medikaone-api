@@ -137,6 +137,7 @@ type Storage struct {
 	Enabled          bool            `mapstructure:"enabled"`
 	Provider         string          `mapstructure:"provider"`
 	Bucket           string          `mapstructure:"bucket"`
+	MedicalBucket    string          `mapstructure:"medical_bucket"`
 	MaxFileSizeBytes int64           `mapstructure:"max_file_size_bytes"`
 	SignedURLTTL     time.Duration   `mapstructure:"signed_url_ttl"`
 	Supabase         SupabaseStorage `mapstructure:"supabase"`
@@ -336,6 +337,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("storage.provider", "supabase")
 	v.SetDefault("storage.bucket", "doctor-contracts")
+	v.SetDefault("storage.medical_bucket", "medical-records")
 	v.SetDefault("storage.max_file_size_bytes", 10*1024*1024)
 	v.SetDefault("storage.signed_url_ttl", "5m")
 }
@@ -382,6 +384,7 @@ func bindEnvVariables(v *viper.Viper) {
 		"storage.enabled":             "STORAGE_ENABLED",
 		"storage.provider":            "STORAGE_PROVIDER",
 		"storage.bucket":              "SUPABASE_STORAGE_BUCKET",
+		"storage.medical_bucket":      "SUPABASE_MEDICAL_STORAGE_BUCKET",
 		"storage.max_file_size_bytes": "SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES",
 		"storage.signed_url_ttl":      "SUPABASE_STORAGE_SIGNED_URL_TTL",
 		"storage.supabase.url":        "SUPABASE_URL",
@@ -431,6 +434,7 @@ func normalize(c *EnvConfig) {
 	c.SMTP.FromName = strings.TrimSpace(c.SMTP.FromName)
 	c.Storage.Provider = strings.ToLower(strings.TrimSpace(c.Storage.Provider))
 	c.Storage.Bucket = strings.TrimSpace(c.Storage.Bucket)
+	c.Storage.MedicalBucket = strings.TrimSpace(c.Storage.MedicalBucket)
 	c.Storage.Supabase.URL = strings.TrimRight(strings.TrimSpace(c.Storage.Supabase.URL), "/")
 	c.Storage.Supabase.SecretKey = strings.TrimSpace(c.Storage.Supabase.SecretKey)
 
@@ -585,6 +589,33 @@ func (c *EnvConfig) Validate() error {
 		if !c.SMTP.UseSTARTTLS {
 			errs = append(errs, fmt.Errorf("smtp.use_starttls must be true when smtp is enabled"))
 		}
+	}
+
+	if !c.Storage.Enabled {
+		errs = append(errs, fmt.Errorf("storage.enabled must be true"))
+	}
+	if c.Storage.Provider != "supabase" {
+		errs = append(errs, fmt.Errorf("storage.provider must be supabase"))
+	}
+	if c.Storage.Bucket == "" {
+		errs = append(errs, fmt.Errorf("storage.bucket is required"))
+	}
+	if c.Storage.MedicalBucket == "" {
+		errs = append(errs, fmt.Errorf("storage.medical_bucket is required"))
+	} else if c.Storage.MedicalBucket == c.Storage.Bucket {
+		errs = append(errs, fmt.Errorf("storage.medical_bucket must be separate from storage.bucket"))
+	}
+	if err := validateURL(c.Storage.Supabase.URL, "storage.supabase.url", "https"); err != nil {
+		errs = append(errs, err)
+	}
+	if !strings.HasPrefix(c.Storage.Supabase.SecretKey, "sb_secret_") {
+		errs = append(errs, fmt.Errorf("storage.supabase.secret_key must use a server-only sb_secret_ key"))
+	}
+	if c.Storage.MaxFileSizeBytes < 1 || c.Storage.MaxFileSizeBytes > 10*1024*1024 {
+		errs = append(errs, fmt.Errorf("storage.max_file_size_bytes must be between 1 byte and 10 MB"))
+	}
+	if c.Storage.SignedURLTTL <= 0 || c.Storage.SignedURLTTL > 24*time.Hour {
+		errs = append(errs, fmt.Errorf("storage.signed_url_ttl must be positive and no longer than 24 hours"))
 	}
 
 	return errors.Join(errs...)

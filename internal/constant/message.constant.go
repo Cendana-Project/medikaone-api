@@ -91,6 +91,18 @@ const (
 	MsgHospitalScheduleChangesListed         MessageCode = "HOSPITAL_SCHEDULE_CHANGES_LISTED"
 	MsgHospitalScheduleChangeApproved        MessageCode = "HOSPITAL_SCHEDULE_CHANGE_APPROVED"
 	MsgHospitalScheduleChangeRejected        MessageCode = "HOSPITAL_SCHEDULE_CHANGE_REJECTED"
+
+	MsgExaminationRetrieved          MessageCode = "EXAMINATION_RETRIEVED"
+	MsgVitalsDraftSaved              MessageCode = "VITALS_DRAFT_SAVED"
+	MsgVitalsFinalized               MessageCode = "VITALS_FINALIZED"
+	MsgVitalsCorrected               MessageCode = "VITALS_CORRECTED"
+	MsgConsultationDraftSaved        MessageCode = "CONSULTATION_DRAFT_SAVED"
+	MsgExaminationCompleted          MessageCode = "EXAMINATION_COMPLETED"
+	MsgConsultationCorrected         MessageCode = "CONSULTATION_CORRECTED"
+	MsgMedicalHistoryListed          MessageCode = "MEDICAL_HISTORY_LISTED"
+	MsgMedicalRecordRetrieved        MessageCode = "MEDICAL_RECORD_RETRIEVED"
+	MsgMedicalAttachmentUploaded     MessageCode = "MEDICAL_ATTACHMENT_UPLOADED"
+	MsgMedicalAttachmentURLRetrieved MessageCode = "MEDICAL_ATTACHMENT_URL_RETRIEVED"
 )
 
 func successDetail(titleEng, titleIdn string) response.MessageDetail {
@@ -181,6 +193,17 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgHospitalScheduleChangesListed:         successDetail("Hospital schedule change requests retrieved", "Daftar permintaan perubahan jadwal rumah sakit berhasil diambil"),
 	MsgHospitalScheduleChangeApproved:        successDetail("Hospital schedule change request approved", "Permintaan perubahan jadwal rumah sakit berhasil disetujui"),
 	MsgHospitalScheduleChangeRejected:        successDetail("Hospital schedule change request rejected", "Permintaan perubahan jadwal rumah sakit berhasil ditolak"),
+	MsgExaminationRetrieved:                  successDetail("Examination record retrieved", "Data pemeriksaan berhasil diambil"),
+	MsgVitalsDraftSaved:                      successDetail("Vital signs draft saved", "Draft tanda vital berhasil disimpan"),
+	MsgVitalsFinalized:                       successDetail("Vital signs finalized", "Tanda vital berhasil difinalisasi"),
+	MsgVitalsCorrected:                       successDetail("Vital signs correction recorded", "Koreksi tanda vital berhasil dicatat"),
+	MsgConsultationDraftSaved:                successDetail("Consultation draft saved", "Draft konsultasi berhasil disimpan"),
+	MsgExaminationCompleted:                  successDetail("Examination completed", "Pemeriksaan berhasil diselesaikan"),
+	MsgConsultationCorrected:                 successDetail("Consultation correction recorded", "Koreksi konsultasi berhasil dicatat"),
+	MsgMedicalHistoryListed:                  successDetail("Medical history retrieved", "Riwayat pemeriksaan berhasil diambil"),
+	MsgMedicalRecordRetrieved:                successDetail("Medical record retrieved", "Rekam medis berhasil diambil"),
+	MsgMedicalAttachmentUploaded:             successDetail("Medical attachment uploaded", "Lampiran medis berhasil diunggah"),
+	MsgMedicalAttachmentURLRetrieved:         successDetail("Medical attachment URL retrieved", "URL lampiran medis berhasil diambil"),
 }
 
 func GetMessageDetail(code MessageCode) response.MessageDetail {

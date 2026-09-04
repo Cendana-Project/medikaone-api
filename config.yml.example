@@ -71,6 +71,7 @@ storage:
   enabled: true
   provider: "supabase"
   bucket: "doctor-contracts"
+  medical_bucket: "medical-records"
   max_file_size_bytes: 10485760 # 10 MB
   signed_url_ttl: "5m"
   supabase:

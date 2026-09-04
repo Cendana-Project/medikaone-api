@@ -29,6 +29,16 @@ type SupabaseClient struct {
 }
 
 func NewSupabaseClient(cfg config.Storage) (*SupabaseClient, error) {
+	return newSupabaseClient(cfg, cfg.Bucket)
+}
+
+// NewSupabaseClientForBucket reuses the server-only Supabase credentials while
+// keeping data classes in private buckets with independent policies.
+func NewSupabaseClientForBucket(cfg config.Storage, bucket string) (*SupabaseClient, error) {
+	return newSupabaseClient(cfg, bucket)
+}
+
+func newSupabaseClient(cfg config.Storage, bucket string) (*SupabaseClient, error) {
 	if !cfg.Enabled {
 		return nil, errors.New("storage.enabled must be true")
 	}
@@ -43,7 +53,7 @@ func NewSupabaseClient(cfg config.Storage) (*SupabaseClient, error) {
 	if !strings.HasPrefix(strings.TrimSpace(cfg.Supabase.SecretKey), "sb_secret_") {
 		return nil, errors.New("storage.supabase.secret_key must use a server-only sb_secret_ key")
 	}
-	bucket := strings.TrimSpace(cfg.Bucket)
+	bucket = strings.TrimSpace(bucket)
 	if bucket == "" {
 		return nil, errors.New("storage.bucket is required")
 	}

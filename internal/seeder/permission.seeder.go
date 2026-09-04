@@ -53,6 +53,14 @@ func SeedPermissions(db *gorm.DB) error {
 		{Name: "Doctor Schedule View", Slug: constant.PermissionDoctorScheduleView, IsActive: true},
 		{Name: "Doctor Schedule Propose", Slug: constant.PermissionDoctorSchedulePropose, IsActive: true},
 		{Name: "Doctor Schedule Approve", Slug: constant.PermissionDoctorScheduleApprove, IsActive: true},
+
+		// examination and longitudinal medical records
+		{Name: "Examination View", Slug: constant.PermissionExaminationView, IsActive: true},
+		{Name: "Examination Vitals Write", Slug: constant.PermissionExaminationVitalsWrite, IsActive: true},
+		{Name: "Examination Consultation Write", Slug: constant.PermissionExaminationConsultationWrite, IsActive: true},
+		{Name: "Examination Record Correct", Slug: constant.PermissionExaminationCorrect, IsActive: true},
+		{Name: "Examination Attachment Manage", Slug: constant.PermissionExaminationAttachmentManage, IsActive: true},
+		{Name: "Medical Record Self View", Slug: constant.PermissionMedicalRecordSelfView, IsActive: true},
 	}
 
 	// upsert per slug (idempotent)

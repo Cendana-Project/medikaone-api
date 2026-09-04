@@ -39,7 +39,7 @@ func NewGinEngine() *gin.Engine {
 		util.HandleResponse(c, &resp, nil)
 		c.Abort()
 	}))
-	r.Use(limitRequestBody(1 << 20))
+	r.Use(limitRequestBody(10 << 20))
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     config.Env.Server.CORSAllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},

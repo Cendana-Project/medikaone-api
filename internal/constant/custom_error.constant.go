@@ -717,6 +717,66 @@ var (
 		"Idempotency key already used", "This Idempotency-Key was already used with a different request payload.",
 		"Idempotency key sudah digunakan", "Idempotency-Key ini sudah digunakan dengan payload permintaan yang berbeda.",
 	)
+	ErrMedicalEncounterNotFound = apiError(
+		"MEDICAL_ENCOUNTER_NOT_FOUND", http.StatusNotFound,
+		"Medical encounter not found", "The medical encounter does not exist or is not visible to this user.",
+		"Pemeriksaan tidak ditemukan", "Data pemeriksaan tidak tersedia atau tidak dapat dilihat oleh pengguna ini.",
+	)
+	ErrExaminationInvalidState = apiError(
+		"EXAMINATION_STATE_CONFLICT", http.StatusConflict,
+		"Examination state conflict", "The examination action is not available in the appointment's current state.",
+		"Konflik status pemeriksaan", "Tindakan pemeriksaan tidak tersedia pada status appointment saat ini.",
+	)
+	ErrVitalsDraftNotFound = apiError(
+		"VITALS_DRAFT_NOT_FOUND", http.StatusConflict,
+		"Vital signs draft not found", "Save a vital signs draft before finalizing it.",
+		"Draft tanda vital tidak ditemukan", "Simpan draft tanda vital sebelum melakukan finalisasi.",
+	)
+	ErrVitalsRevisionNotFound = apiError(
+		"VITALS_REVISION_NOT_FOUND", http.StatusConflict,
+		"Finalized vital signs not found", "Finalize vital signs before creating a correction.",
+		"Tanda vital final tidak ditemukan", "Finalisasi tanda vital sebelum membuat koreksi.",
+	)
+	ErrVitalsContentRequired = apiError(
+		"VITALS_CONTENT_REQUIRED", http.StatusBadRequest,
+		"Vital signs content required", "Provide at least one measurement or a reason for skipping vital signs.",
+		"Data tanda vital diperlukan", "Isi minimal satu pengukuran atau alasan tanda vital dilewati.",
+	)
+	ErrBloodPressureInvalid = apiError(
+		"BLOOD_PRESSURE_INVALID", http.StatusBadRequest,
+		"Blood pressure is invalid", "Systolic blood pressure must be greater than diastolic blood pressure.",
+		"Tekanan darah tidak valid", "Tekanan darah sistolik harus lebih besar daripada tekanan darah diastolik.",
+	)
+	ErrClinicalSOAPRequired = apiError(
+		"CLINICAL_SOAP_REQUIRED", http.StatusBadRequest,
+		"Complete SOAP note required", "Subjective, objective, assessment, and plan must all be completed before finishing the examination.",
+		"Catatan SOAP lengkap diperlukan", "Subjective, objective, assessment, dan plan wajib dilengkapi sebelum menyelesaikan pemeriksaan.",
+	)
+	ErrConsultationDraftNotFound = apiError(
+		"CONSULTATION_DRAFT_NOT_FOUND", http.StatusConflict,
+		"Consultation draft not found", "Save a complete consultation draft before finishing the examination.",
+		"Draft konsultasi tidak ditemukan", "Simpan draft konsultasi lengkap sebelum menyelesaikan pemeriksaan.",
+	)
+	ErrConsultationRevisionNotFound = apiError(
+		"CONSULTATION_REVISION_NOT_FOUND", http.StatusConflict,
+		"Finalized consultation not found", "Complete the consultation before creating a correction.",
+		"Konsultasi final tidak ditemukan", "Selesaikan konsultasi sebelum membuat koreksi.",
+	)
+	ErrDiagnosisRequired = apiError(
+		"DIAGNOSIS_REQUIRED", http.StatusBadRequest,
+		"Diagnosis required", "Provide at least one diagnosis and exactly one primary diagnosis.",
+		"Diagnosis diperlukan", "Isi minimal satu diagnosis dan tepat satu diagnosis utama.",
+	)
+	ErrMedicalAttachmentInvalid = apiError(
+		"MEDICAL_ATTACHMENT_INVALID", http.StatusBadRequest,
+		"Medical attachment is invalid", "Upload a valid PDF, JPEG, or PNG file no larger than 10 MB.",
+		"Lampiran medis tidak valid", "Unggah file PDF, JPEG, atau PNG yang valid dengan ukuran maksimal 10 MB.",
+	)
+	ErrMedicalAttachmentNotFound = apiError(
+		"MEDICAL_ATTACHMENT_NOT_FOUND", http.StatusNotFound,
+		"Medical attachment not found", "The medical attachment does not exist or is not visible to this user.",
+		"Lampiran medis tidak ditemukan", "Lampiran medis tidak tersedia atau tidak dapat dilihat oleh pengguna ini.",
+	)
 )
 
 // APIErrorCatalog exposes every static public error for contract tests and API
@@ -767,5 +827,9 @@ func APIErrorCatalog() []response.CustomError {
 		ErrPatientRecordAlreadyClaimed, ErrPatientRecordIdentityMismatch,
 		ErrAppointmentConsentRequired,
 		ErrIdempotencyKeyRequired, ErrIdempotencyConflict,
+		ErrMedicalEncounterNotFound, ErrExaminationInvalidState,
+		ErrVitalsDraftNotFound, ErrVitalsRevisionNotFound, ErrVitalsContentRequired, ErrBloodPressureInvalid,
+		ErrClinicalSOAPRequired, ErrConsultationDraftNotFound, ErrConsultationRevisionNotFound, ErrDiagnosisRequired,
+		ErrMedicalAttachmentInvalid, ErrMedicalAttachmentNotFound,
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 func TestLoadConfigUsesRenderPortAndLegacyDurationFallbacks(t *testing.T) {
 	t.Chdir(t.TempDir())
+	configureStorageEnv(t)
 	t.Setenv("ENV", "development")
 	t.Setenv("SERVER_PORT", "")
 	t.Setenv("PORT", "9090")
@@ -39,6 +40,7 @@ func TestLoadConfigUsesRenderPortAndLegacyDurationFallbacks(t *testing.T) {
 
 func TestLoadConfigUsesLegacyJWTUnitFallbacks(t *testing.T) {
 	t.Chdir(t.TempDir())
+	configureStorageEnv(t)
 	t.Setenv("ENV", "development")
 	t.Setenv("SERVER_CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 	t.Setenv("DATABASE_DSN", "postgresql://postgres:postgres@localhost:5432/medikaone?sslmode=disable")
@@ -313,6 +315,32 @@ func TestValidateRejectsMissingSecretsAndInvalidLimits(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnsafeMedicalStorage(t *testing.T) {
+	cfg := validConfig()
+	cfg.Storage.MedicalBucket = cfg.Storage.Bucket
+	cfg.Storage.MaxFileSizeBytes = 10*1024*1024 + 1
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected an error")
+	}
+	for _, message := range []string{"medical_bucket must be separate", "max_file_size_bytes"} {
+		if !strings.Contains(err.Error(), message) {
+			t.Errorf("Validate() error %q does not contain %q", err, message)
+		}
+	}
+}
+
+func configureStorageEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("STORAGE_ENABLED", "true")
+	t.Setenv("STORAGE_PROVIDER", "supabase")
+	t.Setenv("SUPABASE_STORAGE_BUCKET", "doctor-contracts")
+	t.Setenv("SUPABASE_MEDICAL_STORAGE_BUCKET", "medical-records")
+	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
+	t.Setenv("SUPABASE_SECRET_KEY", "sb_secret_test")
+}
+
 func validConfig() *EnvConfig {
 	return &EnvConfig{
 		Env:                     "development",
@@ -357,5 +385,10 @@ func validConfig() *EnvConfig {
 			ForgotPasswordRateWindow: time.Hour,
 		},
 		SMTP: SMTP{Enabled: false},
+		Storage: Storage{
+			Enabled: true, Provider: "supabase", Bucket: "doctor-contracts", MedicalBucket: "medical-records",
+			MaxFileSizeBytes: 10 * 1024 * 1024, SignedURLTTL: 5 * time.Minute,
+			Supabase: SupabaseStorage{URL: "https://project.supabase.co", SecretKey: "sb_secret_test"},
+		},
 	}
 }
