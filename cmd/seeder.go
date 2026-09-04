@@ -101,6 +101,9 @@ func newStagingResetAllCmd() *cobra.Command {
 			if err := requireStagingConfirmation(confirmation, confirmResetAll); err != nil {
 				return err
 			}
+			if err := seeder.ValidateDefinitions(); err != nil {
+				return fmt.Errorf("invalid seed definitions: %w", err)
+			}
 			if err := requireStagingDatabaseTarget(); err != nil {
 				return err
 			}
@@ -152,6 +155,9 @@ func newStagingResetSeedCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireStagingConfirmation(confirmation, confirmResetDemo); err != nil {
 				return err
+			}
+			if err := seeder.ValidateDefinitions(); err != nil {
+				return fmt.Errorf("invalid seed definitions: %w", err)
 			}
 			if err := requireStagingDatabaseTarget(); err != nil {
 				return err

@@ -9,12 +9,8 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 )
 
-// SeedPermissions:
-// 1) memastikan semua permission ada (idempotent)
-// 2) assign permission ke setiap role sesuai DefaultRolePermissions
-func SeedPermissions(db *gorm.DB) error {
-	// --- 1) DAFTAR PERMISSION (rapi per domain) ---
-	toCreate := []entity.Permission{
+func permissionSeeds() []entity.Permission {
+	return []entity.Permission{
 		// user & role & permission
 		{Name: "User View", Slug: constant.PermissionUserView, IsActive: true},
 		{Name: "User Create", Slug: constant.PermissionUserCreate, IsActive: true},
@@ -61,7 +57,22 @@ func SeedPermissions(db *gorm.DB) error {
 		{Name: "Examination Record Correct", Slug: constant.PermissionExaminationCorrect, IsActive: true},
 		{Name: "Examination Attachment Manage", Slug: constant.PermissionExaminationAttachmentManage, IsActive: true},
 		{Name: "Medical Record Self View", Slug: constant.PermissionMedicalRecordSelfView, IsActive: true},
+
+		// electronic prescription and hospital medication catalogue
+		{Name: "Prescription View", Slug: constant.PermissionPrescriptionView, IsActive: true},
+		{Name: "Prescription Write", Slug: constant.PermissionPrescriptionWrite, IsActive: true},
+		{Name: "Prescription Correct", Slug: constant.PermissionPrescriptionCorrect, IsActive: true},
+		{Name: "Prescription Print", Slug: constant.PermissionPrescriptionPrint, IsActive: true},
+		{Name: "Medication Catalogue Manage", Slug: constant.PermissionMedicationCatalogManage, IsActive: true},
+		{Name: "Prescription Self View", Slug: constant.PermissionPrescriptionSelfView, IsActive: true},
 	}
+}
+
+// SeedPermissions:
+// 1) memastikan semua permission ada (idempotent)
+// 2) assign permission ke setiap role sesuai DefaultRolePermissions
+func SeedPermissions(db *gorm.DB) error {
+	toCreate := permissionSeeds()
 
 	// upsert per slug (idempotent)
 	for _, p := range toCreate {

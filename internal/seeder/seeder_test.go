@@ -11,6 +11,12 @@ import (
 
 var createTableName = regexp.MustCompile(`(?im)^\s*CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+"?([a-zA-Z0-9_]+)"?`)
 
+func TestSeedDefinitionsAreComplete(t *testing.T) {
+	if err := ValidateDefinitions(); err != nil {
+		t.Fatalf("invalid seed definitions: %v", err)
+	}
+}
+
 func TestDemoUserEmailsAreUnique(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, email := range demoUserEmails() {

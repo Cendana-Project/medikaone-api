@@ -113,6 +113,9 @@ func ClearAllData(db *gorm.DB) error {
 }
 
 func seedAll(tx *gorm.DB) error {
+	if err := ValidateDefinitions(); err != nil {
+		return fmt.Errorf("validate seed definitions: %w", err)
+	}
 	if err := SeedRoles(tx); err != nil {
 		return fmt.Errorf("seed roles: %w", err)
 	}
