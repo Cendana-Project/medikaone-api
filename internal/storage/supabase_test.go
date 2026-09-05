@@ -56,7 +56,7 @@ func TestSupabaseClientObjectLifecycle(t *testing.T) {
 				http.Error(w, "unexpected signed URL payload", http.StatusBadRequest)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"signedURL": "/storage/v1/object/sign/contracts/token"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"signedURL": "/object/sign/contracts/token"})
 		case r.Method == http.MethodDelete && r.URL.Path == "/storage/v1/object/contracts":
 			var payload struct {
 				Prefixes []string `json:"prefixes"`
@@ -115,6 +115,44 @@ func TestCreateSignedURLWithoutNameIsInline(t *testing.T) {
 	}
 	if _, exists := payload["download"]; exists {
 		t.Fatalf("inline signed URL unexpectedly contains download option: %#v", payload)
+	}
+}
+
+func TestResolveSignedURLPreservesStorageAPIPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     string
+	}{
+		{
+			name:     "storage relative path",
+			response: "/object/sign/profile-images/users/user-1/photo.png?token=test",
+			want:     "/storage/v1/object/sign/profile-images/users/user-1/photo.png?token=test",
+		},
+		{
+			name:     "legacy project relative path",
+			response: "/storage/v1/object/sign/profile-images/users/user-1/photo.png?token=test",
+			want:     "/storage/v1/object/sign/profile-images/users/user-1/photo.png?token=test",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]string{"signedURL": tt.response})
+			}))
+			defer server.Close()
+
+			client := &SupabaseClient{
+				baseURL: server.URL, secretKey: "sb_secret_test", bucket: "profile-images", http: server.Client(),
+			}
+			got, err := client.CreateSignedURL(context.Background(), "users/user-1/photo.png", time.Minute, "")
+			if err != nil {
+				t.Fatalf("CreateSignedURL() error = %v", err)
+			}
+			if got != server.URL+tt.want {
+				t.Fatalf("CreateSignedURL() = %q, want %q", got, server.URL+tt.want)
+			}
+		})
 	}
 }
 
