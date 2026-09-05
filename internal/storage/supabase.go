@@ -144,7 +144,13 @@ func (c *SupabaseClient) CreateSignedURL(ctx context.Context, objectPath string,
 	if signed == "" {
 		return "", errors.New("Supabase returned an empty signed URL")
 	}
-	if strings.HasPrefix(signed, "/") {
+	// Supabase Storage currently returns paths relative to the Storage API
+	// (for example /object/sign/bucket/path?token=...), while older responses
+	// may already include /storage/v1. Resolve both forms against the project
+	// URL without dropping or duplicating the Storage API prefix.
+	if strings.HasPrefix(signed, "/object/") {
+		signed = c.baseURL + "/storage/v1" + signed
+	} else if strings.HasPrefix(signed, "/") {
 		signed = c.baseURL + signed
 	}
 	return signed, nil
