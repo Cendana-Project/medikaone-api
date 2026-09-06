@@ -1,6 +1,7 @@
 package hospital
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -31,9 +32,33 @@ func TestNormalizeHospitalStaffRole(t *testing.T) {
 	}
 }
 
-func TestParseDOBRejectsFutureDate(t *testing.T) {
-	future := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02")
-	if _, err := parseDOB(&future); err == nil {
-		t.Fatal("future date of birth was accepted")
+func TestValidateHospitalWorkerDOB(t *testing.T) {
+	now := time.Date(2026, 9, 7, 18, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		value *string
+		want  error
+	}{
+		{name: "missing", value: nil, want: constant.NewFieldRequiredError("dob")},
+		{name: "invalid date", value: strPtr("not-a-date"), want: constant.ErrInvalidDateFormat},
+		{name: "future", value: strPtr("2027-09-07"), want: constant.ErrInvalidDateFormat},
+		{name: "younger than fifteen", value: strPtr("2012-09-07"), want: constant.ErrHospitalWorkerMinimumAge},
+		{name: "exactly fifteen", value: strPtr("2011-09-07"), want: constant.ErrHospitalWorkerMinimumAge},
+		{name: "older than fifteen", value: strPtr("2011-09-06")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := validateHospitalWorkerDOB(test.value, now)
+			if test.want == nil && err != nil {
+				t.Fatalf("valid date of birth rejected: %v", err)
+			}
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
 	}
 }
+
+func strPtr(value string) *string { return &value }

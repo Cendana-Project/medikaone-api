@@ -23,7 +23,7 @@ type CreateHospitalAdminRequest struct {
 	Password   string  `json:"password"    validate:"required,max=128,validate_password"`
 	FirstName  *string `json:"first_name"  validate:"omitempty,max=100"`
 	LastName   *string `json:"last_name"   validate:"omitempty,max=100"`
-	DOB        *string `json:"dob"         validate:"omitempty,datetime=2006-01-02"`
+	DOB        *string `json:"dob"         validate:"required,datetime=2006-01-02"`
 	Address    *string `json:"address"     validate:"omitempty,max=1000"`
 	Gender     *string `json:"gender"      validate:"omitempty,oneof=L P"`
 	NIK        *string `json:"nik"         validate:"omitempty,len=16,numeric"`
@@ -40,7 +40,7 @@ type CreateHospitalStaffRequest struct {
 	Password  string  `json:"password"   validate:"required,max=128,validate_password"`
 	FirstName *string `json:"first_name" validate:"omitempty,max=100"`
 	LastName  *string `json:"last_name"  validate:"omitempty,max=100"`
-	DOB       *string `json:"dob"        validate:"omitempty,datetime=2006-01-02"`
+	DOB       *string `json:"dob"        validate:"required,datetime=2006-01-02"`
 	Address   *string `json:"address"    validate:"omitempty,max=1000"`
 	Gender    *string `json:"gender"     validate:"omitempty,oneof=L P"`
 	NIK       *string `json:"nik"        validate:"omitempty,len=16,numeric"`
