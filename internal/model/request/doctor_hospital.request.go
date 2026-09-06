@@ -12,9 +12,7 @@ type CreateHospitalRoomRequest struct {
 }
 
 type DoctorSearchQuery struct {
-	Email       string `form:"email"`
-	SIPNumber   string `form:"sip_number"`
-	MedikaOneID string `form:"medikaone_id"`
+	Identity string `form:"identity"`
 }
 
 type DoctorInvitationScheduleRequest struct {

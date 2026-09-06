@@ -19,6 +19,10 @@ import (
 type fakeRepository struct {
 	Repository
 	eligible            *response.DoctorSearchResult
+	searchResults       []response.DoctorSearchResult
+	searchIdentity      string
+	searchLimit         int
+	searchErr           error
 	departmentHospital  string
 	roomHospital        string
 	departmentExists    bool
@@ -27,7 +31,13 @@ type fakeRepository struct {
 	createInput         repository.CreateInvitationInput
 }
 
-func (f *fakeRepository) SearchEligibleDoctor(context.Context, repository.DoctorSearchCriteria) (*response.DoctorSearchResult, error) {
+func (f *fakeRepository) SearchEligibleDoctors(_ context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
+	f.searchIdentity = identity
+	f.searchLimit = limit
+	return f.searchResults, f.searchErr
+}
+
+func (f *fakeRepository) FindEligibleDoctorByID(context.Context, string) (*response.DoctorSearchResult, error) {
 	return f.eligible, nil
 }
 
@@ -73,6 +83,47 @@ func (f *fakeStorage) Delete(_ context.Context, objectPath string) error {
 
 func (f *fakeStorage) CreateSignedURL(context.Context, string, time.Duration, string) (string, error) {
 	return "", nil
+}
+
+func TestSearchDoctorUsesUnifiedIdentity(t *testing.T) {
+	repo := &fakeRepository{searchResults: []response.DoctorSearchResult{
+		{ID: uuid.NewString(), Email: "doctor@example.com", Username: "doctor_example"},
+	}}
+	service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+
+	results, err := service.SearchDoctor(context.Background(), request.DoctorSearchQuery{Identity: "  Doctor Example  "})
+	if err != nil {
+		t.Fatalf("search doctor returned error: %v", err)
+	}
+	if repo.searchIdentity != "Doctor Example" {
+		t.Fatalf("identity was not normalized: %q", repo.searchIdentity)
+	}
+	if repo.searchLimit != MaxDoctorSearchResults {
+		t.Fatalf("search limit = %d, want %d", repo.searchLimit, MaxDoctorSearchResults)
+	}
+	if len(results) != 1 || results[0].Email != "doctor@example.com" {
+		t.Fatalf("unexpected search results: %#v", results)
+	}
+}
+
+func TestSearchDoctorValidatesIdentity(t *testing.T) {
+	service := NewService(&fakeRepository{}, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+	for _, identity := range []string{"", "a", strings.Repeat("a", 191)} {
+		if _, err := service.SearchDoctor(context.Background(), request.DoctorSearchQuery{Identity: identity}); err == nil {
+			t.Fatalf("identity %q should be rejected", identity)
+		}
+	}
+}
+
+func TestSearchDoctorReturnsEmptyArray(t *testing.T) {
+	service := NewService(&fakeRepository{}, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+	results, err := service.SearchDoctor(context.Background(), request.DoctorSearchQuery{Identity: "unknown"})
+	if err != nil {
+		t.Fatalf("empty search returned error: %v", err)
+	}
+	if results == nil || len(results) != 0 {
+		t.Fatalf("empty search must return a non-nil empty array, got %#v", results)
+	}
 }
 
 func TestValidatePDFEnforcesTenMegabyteCeiling(t *testing.T) {

@@ -8,6 +8,8 @@ import (
 type DoctorSearchResult struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`
+	Username  string `json:"username"`
+	Phone     string `json:"phone"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 	SIPNumber string `json:"sip_number"`

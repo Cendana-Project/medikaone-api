@@ -34,12 +34,6 @@ type Repository struct {
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
-type DoctorSearchCriteria struct {
-	Email       string
-	SIPNumber   string
-	MedikaOneID string
-}
-
 type Document struct {
 	Filename   string
 	MIMEType   string
@@ -82,44 +76,110 @@ type ContractDocument struct {
 	SHA256     string
 }
 
-func (r *Repository) SearchEligibleDoctor(ctx context.Context, criteria DoctorSearchCriteria) (*response.DoctorSearchResult, error) {
-	query := `
-		SELECT u.id, u.email, u.first_name, u.last_name,
-		       COALESCE(dp.sip_number, '') AS sip_number,
-		       COALESCE(dp.specialty, '') AS specialty
-		FROM users u
-		JOIN doctor_profiles dp ON dp.user_id = u.id
-		JOIN user_roles ur ON ur.user_id = u.id
-		JOIN roles role ON role.id = ur.role_id AND UPPER(role.slug) = ?
-		WHERE u.deleted_at IS NULL
-		  AND u.status = 'active'
-		  AND u.verified_at IS NOT NULL
-		  AND NULLIF(TRIM(dp.sip_number), '') IS NOT NULL`
+const eligibleDoctorSelect = `
+	SELECT u.id, u.email,
+	       COALESCE(u.username, '') AS username,
+	       COALESCE(u.phone, '') AS phone,
+	       COALESCE(u.first_name, '') AS first_name,
+	       COALESCE(u.last_name, '') AS last_name,
+	       COALESCE(dp.sip_number, '') AS sip_number,
+	       COALESCE(dp.specialty, '') AS specialty
+	FROM users u
+	JOIN doctor_profiles dp ON dp.user_id = u.id
+	JOIN user_roles ur ON ur.user_id = u.id
+	JOIN roles role ON role.id = ur.role_id
+	WHERE UPPER(role.slug) = ?
+	  AND role.active = TRUE
+	  AND role.deleted_at IS NULL
+	  AND u.deleted_at IS NULL
+	  AND u.status = 'active'
+	  AND u.verified_at IS NOT NULL
+	  AND NULLIF(TRIM(dp.sip_number), '') IS NOT NULL`
 
-	args := []any{constant.RoleDoctor}
-	switch {
-	case criteria.Email != "":
-		query += " AND LOWER(u.email) = LOWER(?)"
-		args = append(args, criteria.Email)
-	case criteria.SIPNumber != "":
-		query += " AND LOWER(dp.sip_number) = LOWER(?)"
-		args = append(args, criteria.SIPNumber)
-	case criteria.MedikaOneID != "":
-		query += " AND u.id = ?"
-		args = append(args, criteria.MedikaOneID)
-	default:
-		return nil, gorm.ErrRecordNotFound
+func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
+	identity = strings.TrimSpace(identity)
+	if limit <= 0 || limit > 50 {
+		limit = 20
 	}
-	query += " LIMIT 1"
+	loweredIdentity := strings.ToLower(identity)
+	containsPattern := "%" + escapeLikePattern(loweredIdentity) + "%"
+	normalizedPhone := normalizePhoneIdentity(identity)
 
-	var out response.DoctorSearchResult
+	query := eligibleDoctorSelect + `
+	  AND (
+	       u.id::text = ?
+	       OR LOWER(u.email) LIKE ?
+	       OR LOWER(COALESCE(u.username, '')) LIKE ?
+	       OR LOWER(COALESCE(dp.sip_number, '')) LIKE ?
+	       OR LOWER(COALESCE(u.first_name, '')) LIKE ?
+	       OR LOWER(COALESCE(u.last_name, '')) LIKE ?
+	       OR LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE ?
+	       OR LOWER(COALESCE(dp.specialty, '')) LIKE ?
+	       OR (? <> '' AND REGEXP_REPLACE(COALESCE(u.phone, ''), '[^0-9]', '', 'g') = ?)
+	  )
+	ORDER BY CASE
+	           WHEN u.id::text = ?
+	             OR LOWER(u.email) = ?
+	             OR LOWER(COALESCE(u.username, '')) = ?
+	             OR LOWER(COALESCE(dp.sip_number, '')) = ?
+	             OR (? <> '' AND REGEXP_REPLACE(COALESCE(u.phone, ''), '[^0-9]', '', 'g') = ?)
+	             OR LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) = ?
+	           THEN 0 ELSE 1
+	         END,
+	         LOWER(COALESCE(u.first_name, '')),
+	         LOWER(COALESCE(u.last_name, '')),
+	         u.id
+	LIMIT ?`
+
+	args := []any{
+		constant.RoleDoctor,
+		identity,
+		containsPattern, containsPattern, containsPattern, containsPattern,
+		containsPattern, containsPattern, containsPattern,
+		normalizedPhone, normalizedPhone,
+		identity, loweredIdentity, loweredIdentity, loweredIdentity,
+		normalizedPhone, normalizedPhone, loweredIdentity,
+		limit,
+	}
+	out := make([]response.DoctorSearchResult, 0)
 	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) FindEligibleDoctorByID(ctx context.Context, doctorID string) (*response.DoctorSearchResult, error) {
+	var out response.DoctorSearchResult
+	query := eligibleDoctorSelect + " AND u.id = ? LIMIT 1"
+	if err := r.db.WithContext(ctx).Raw(query, constant.RoleDoctor, doctorID).Scan(&out).Error; err != nil {
 		return nil, err
 	}
 	if out.ID == "" {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return &out, nil
+}
+
+func escapeLikePattern(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
+}
+
+func normalizePhoneIdentity(value string) string {
+	var digits strings.Builder
+	for _, char := range value {
+		switch {
+		case char >= '0' && char <= '9':
+			digits.WriteRune(char)
+		case char == '+', char == '-', char == '.', char == ' ', char == '(', char == ')':
+			continue
+		default:
+			return ""
+		}
+	}
+	if digits.Len() < 7 {
+		return ""
+	}
+	return digits.String()
 }
 
 func (r *Repository) CreateDepartment(ctx context.Context, hospitalID, code, name string, now time.Time) (*entity.HospitalDepartment, error) {
