@@ -39,18 +39,25 @@ func sp(s string) *string {
 	return &v
 }
 
-func parseDOB(s *string) (*time.Time, error) {
-	if s == nil || *s == "" {
-		return nil, nil
+const minimumHospitalWorkerAgeYears = 15
+
+func validateHospitalWorkerDOB(value *string, now time.Time) (*time.Time, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, constant.NewFieldRequiredError("dob")
 	}
-	tm, err := time.Parse("2006-01-02", *s)
+	dob, err := time.Parse("2006-01-02", strings.TrimSpace(*value))
 	if err != nil {
-		return nil, err
+		return nil, constant.ErrInvalidDateFormat
 	}
-	if tm.After(time.Now().UTC()) {
-		return nil, errors.New("date of birth cannot be in the future")
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	if dob.After(today) {
+		return nil, constant.ErrInvalidDateFormat
 	}
-	return &tm, nil
+	fifteenthBirthday := dob.AddDate(minimumHospitalWorkerAgeYears, 0, 0)
+	if !fifteenthBirthday.Before(today) {
+		return nil, constant.ErrHospitalWorkerMinimumAge
+	}
+	return &dob, nil
 }
 
 // hashScrypt returns the password format consumed by the auth service: key:salt.
@@ -132,9 +139,9 @@ func (s *Service) CreateHospitalAdmin(ctx context.Context, req request.CreateHos
 	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Password) == "" || strings.TrimSpace(req.Username) == "" {
 		return "", constant.NewFieldRequiredError("email, username, and password")
 	}
-	dob, err := parseDOB(req.DOB)
+	dob, err := validateHospitalWorkerDOB(req.DOB, time.Now().UTC())
 	if err != nil {
-		return "", constant.ErrInvalidDateFormat
+		return "", err
 	}
 
 	input := userInput(
@@ -189,9 +196,9 @@ func (s *Service) CreateHospitalStaff(ctx context.Context, req request.CreateHos
 		strings.TrimSpace(req.Username) == "" {
 		return "", constant.NewFieldRequiredError("role, email, username, and password")
 	}
-	dob, err := parseDOB(req.DOB)
+	dob, err := validateHospitalWorkerDOB(req.DOB, time.Now().UTC())
 	if err != nil {
-		return "", constant.ErrInvalidDateFormat
+		return "", err
 	}
 	roleSlug, ok := normalizeHospitalStaffRole(req.Role)
 	if !ok {

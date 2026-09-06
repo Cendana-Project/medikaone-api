@@ -503,6 +503,11 @@ var (
 		"Hospital membership required", "This user is not an active member of the selected hospital.",
 		"Keanggotaan rumah sakit diperlukan", "Pengguna ini bukan anggota aktif rumah sakit yang dipilih.",
 	)
+	ErrHospitalWorkerMinimumAge = apiError(
+		"HOSPITAL_WORKER_MINIMUM_AGE_NOT_MET", http.StatusUnprocessableEntity,
+		"Hospital worker minimum age not met", "Hospital workers must be older than 15 years on the account creation date.",
+		"Batas usia minimum pekerja rumah sakit belum terpenuhi", "Pekerja rumah sakit harus berusia lebih dari 15 tahun pada tanggal pembuatan akun.",
+	)
 
 	// Doctor-hospital registration.
 	ErrDoctorNotEligible = apiError(
@@ -921,7 +926,8 @@ func APIErrorCatalog() []response.CustomError {
 		ErrRegistrationError, ErrHospitalNotFound, ErrHospitalContextRequired,
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,
-		ErrInvalidHospitalFacilities, ErrUserNotLinkedToHospital, ErrDoctorNotEligible,
+		ErrInvalidHospitalFacilities, ErrUserNotLinkedToHospital, ErrHospitalWorkerMinimumAge,
+		ErrDoctorNotEligible,
 		ErrDoctorInvitationNotFound, ErrDoctorInvitationExists, ErrDoctorInvitationExpired,
 		ErrInvalidDoctorInvitationState, ErrHospitalPlacementNotFound,
 		ErrDepartmentAlreadyExists, ErrRoomAlreadyExists, ErrDoctorScheduleConflict,
