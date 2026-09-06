@@ -87,6 +87,7 @@ type PatientProfileRequest struct {
 type DoctorProfileRequest struct {
 	FirstName string  `json:"first_name" validate:"required,max=100"`
 	LastName  string  `json:"last_name" validate:"required,max=100"`
+	DOB       *string `json:"dob,omitempty"`
 	Address   *string `json:"address,omitempty" validate:"omitempty,max=1000"`
 	Gender    *string `json:"gender,omitempty" validate:"omitempty,oneof=L P"`
 	SIPNumber *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`

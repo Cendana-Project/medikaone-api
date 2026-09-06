@@ -230,6 +230,53 @@ func (s *Service) ListDoctorAppointments(ctx context.Context, doctorID, status, 
 	return s.listAppointments(ctx, repository.AppointmentFilter{DoctorID: doctorID, Status: status, Date: date})
 }
 
+func (s *Service) ListDoctorTodaySchedules(ctx context.Context, doctorID string) ([]response.DoctorTodaySchedule, error) {
+	schedules, err := s.repo.ListActiveSchedules(ctx, repository.AvailabilityFilter{DoctorID: doctorID})
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	now := s.now()
+	result := make([]response.DoctorTodaySchedule, 0)
+	for _, schedule := range schedules {
+		location, locationErr := time.LoadLocation(schedule.Timezone)
+		if locationErr != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		localNow := now.In(location)
+		if int(localNow.Weekday()) != schedule.DayOfWeek {
+			continue
+		}
+		sessionStart, sessionEnd, windowErr := scheduleWindow(schedule, localNow)
+		if windowErr != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		status := "UPCOMING"
+		if !now.Before(sessionEnd) {
+			status = "ENDED"
+		} else if !now.Before(sessionStart) {
+			status = "ONGOING"
+		}
+		result = append(result, response.DoctorTodaySchedule{
+			ScheduleID: schedule.ID, AffiliationID: schedule.AffiliationID,
+			HospitalID: schedule.HospitalID, HospitalCode: schedule.HospitalCode, HospitalName: schedule.HospitalName,
+			DoctorID: schedule.DoctorID, DoctorName: schedule.DoctorName,
+			DepartmentID: schedule.DepartmentID, DepartmentName: schedule.DepartmentName,
+			RoomID: schedule.RoomID, RoomName: schedule.RoomName,
+			Date: localNow.Format("2006-01-02"), DayOfWeek: schedule.DayOfWeek,
+			Timezone: schedule.Timezone, StartTime: schedule.StartTime, EndTime: schedule.EndTime,
+			SessionStartAt: sessionStart, SessionEndAt: sessionEnd, SessionStatus: status,
+			BookingMode: schedule.BookingMode, SlotDurationMinutes: schedule.SlotDurationMinutes, Capacity: schedule.Capacity,
+		})
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].SessionStartAt.Equal(result[j].SessionStartAt) {
+			return result[i].ScheduleID < result[j].ScheduleID
+		}
+		return result[i].SessionStartAt.Before(result[j].SessionStartAt)
+	})
+	return result, nil
+}
+
 func (s *Service) ListHospitalAppointments(ctx context.Context, hospitalID, status, date string) ([]response.Appointment, error) {
 	status, err := normalizeAppointmentStatus(status)
 	if err != nil {

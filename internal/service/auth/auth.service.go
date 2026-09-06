@@ -1797,6 +1797,16 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 		"address":    req.Address,
 		"gender":     req.Gender,
 	}
+	if req.DOB != nil {
+		value := strings.TrimSpace(*req.DOB)
+		if value != "" {
+			dob, err := time.ParseInLocation("2006-01-02", value, s.loc)
+			if err != nil || dob.After(time.Now().In(s.loc)) {
+				return constant.ErrInvalidDateFormat
+			}
+			updates["dob"] = dob
+		}
+	}
 	if err := users.UpdateByID(ctx, userID, updates); err != nil {
 		return constant.ErrInternalServerError
 	}

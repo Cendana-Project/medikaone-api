@@ -3,6 +3,7 @@ package email
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRenderVerifyPINEscapesUserControlledValues(t *testing.T) {
@@ -12,5 +13,15 @@ func TestRenderVerifyPINEscapesUserControlledValues(t *testing.T) {
 	}
 	if !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "&lt;123456&gt;") {
 		t.Fatalf("email template does not contain escaped values: %s", body)
+	}
+}
+
+func TestRenderDoctorHospitalInvitationDescribesNoBodyResponse(t *testing.T) {
+	body := RenderDoctorHospitalInvitation("Dian", "RS MedikaOne", "Penyakit Dalam", time.Now().Add(24*time.Hour))
+	if strings.Contains(body, "mengunggah kontrak") {
+		t.Fatalf("invitation email still asks the doctor to upload a contract: %s", body)
+	}
+	if !strings.Contains(body, "tidak perlu mengunggah dokumen") {
+		t.Fatalf("invitation email does not explain the no-upload response: %s", body)
 	}
 }

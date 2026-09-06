@@ -122,9 +122,16 @@ func TestSelfServiceRequestValidationAllowsDoctor(t *testing.T) {
 	if err := ulog.ValidateStruct(&request.ChooseRoleRequest{Role: constant.RoleDoctor}); err != nil {
 		t.Fatalf("doctor choose-role request rejected: %v", err)
 	}
-	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","sip_number":"SIP-001"}`)
+	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","dob":"1988-05-20","sip_number":"SIP-001"}`)
 	if err := ulog.ValidateStruct(&request.SetProfileRequest{Role: constant.RoleDoctor, Profile: &profile}); err != nil {
 		t.Fatalf("doctor set-profile request rejected: %v", err)
+	}
+	var doctor request.DoctorProfileRequest
+	if err := ulog.UnmarshalStrictJSON(profile, &doctor); err != nil {
+		t.Fatalf("doctor profile with dob rejected: %v", err)
+	}
+	if doctor.DOB == nil || *doctor.DOB != "1988-05-20" {
+		t.Fatalf("doctor dob was not decoded: %#v", doctor.DOB)
 	}
 }
 

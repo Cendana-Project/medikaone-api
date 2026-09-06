@@ -33,10 +33,6 @@ type CreateDoctorHospitalInvitationRequest struct {
 	Schedules    []DoctorInvitationScheduleRequest `json:"schedules"`
 }
 
-type RejectDoctorHospitalInvitationRequest struct {
-	Reason *string `json:"reason,omitempty" validate:"omitempty,max=500"`
-}
-
 type UpdateDoctorHospitalAffiliationStatusRequest struct {
 	Status string `json:"status" validate:"required,oneof=ACTIVE SUSPENDED"`
 }

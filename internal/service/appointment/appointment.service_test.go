@@ -17,6 +17,7 @@ import (
 
 type fakeRepository struct {
 	schedules        []repository.Schedule
+	scheduleFilter   repository.AvailabilityFilter
 	counts           []repository.ReservedCount
 	appointment      *response.Appointment
 	bookInput        repository.BookInput
@@ -28,7 +29,8 @@ type fakeRepository struct {
 	overrideAllowed  bool
 }
 
-func (f *fakeRepository) ListActiveSchedules(context.Context, repository.AvailabilityFilter) ([]repository.Schedule, error) {
+func (f *fakeRepository) ListActiveSchedules(_ context.Context, filter repository.AvailabilityFilter) ([]repository.Schedule, error) {
+	f.scheduleFilter = filter
 	return f.schedules, nil
 }
 func (f *fakeRepository) GetActiveSchedule(_ context.Context, id string) (*repository.Schedule, error) {
@@ -157,6 +159,42 @@ func TestNormalizeSchedulesSupportsBothBookingModes(t *testing.T) {
 	})
 	if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
 		t.Fatalf("overlapping schedule error = %v", err)
+	}
+}
+
+func TestListDoctorTodaySchedulesUsesEachScheduleTimezone(t *testing.T) {
+	doctorID := uuid.NewString()
+	roomID, roomName := uuid.NewString(), "Poli 1"
+	repo := &fakeRepository{schedules: []repository.Schedule{
+		{
+			ID: uuid.NewString(), AffiliationID: uuid.NewString(), HospitalID: uuid.NewString(), HospitalCode: "HSP-JKT", HospitalName: "RS Jakarta",
+			DoctorID: doctorID, DoctorName: "dr. Budi", DepartmentID: uuid.NewString(), DepartmentName: "Penyakit Dalam",
+			RoomID: &roomID, RoomName: &roomName, DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00", Timezone: "Asia/Jakarta",
+			BookingMode: entity.BookingModeFixedSlot, SlotDurationMinutes: 30, Capacity: 1,
+		},
+		{
+			ID: uuid.NewString(), AffiliationID: uuid.NewString(), HospitalID: uuid.NewString(), DoctorID: doctorID,
+			DayOfWeek: 2, StartTime: "08:00", EndTime: "12:00", Timezone: "Asia/Jakarta",
+		},
+	}}
+	service := NewService(repo, nil, "test-secret")
+	service.now = func() time.Time { return time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC) }
+
+	result, err := service.ListDoctorTodaySchedules(context.Background(), doctorID)
+	if err != nil {
+		t.Fatalf("today schedules returned error: %v", err)
+	}
+	if repo.scheduleFilter.DoctorID != doctorID {
+		t.Fatalf("schedule query doctor_id = %q, want %q", repo.scheduleFilter.DoctorID, doctorID)
+	}
+	if len(result) != 1 {
+		t.Fatalf("today schedules length = %d, want 1", len(result))
+	}
+	if result[0].Date != "2026-09-07" || result[0].SessionStatus != "ONGOING" {
+		t.Fatalf("unexpected today schedule: %#v", result[0])
+	}
+	if result[0].SessionStartAt.Format(time.RFC3339) != "2026-09-07T01:00:00Z" {
+		t.Fatalf("session start = %s", result[0].SessionStartAt.Format(time.RFC3339))
 	}
 }
 

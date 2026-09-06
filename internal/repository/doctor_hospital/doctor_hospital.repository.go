@@ -249,6 +249,36 @@ func (r *Repository) RoomMatchesDepartment(ctx context.Context, hospitalID, depa
 	return exists, err
 }
 
+func (r *Repository) HasActiveScheduleConflict(ctx context.Context, doctorID string, schedules []Schedule) (bool, error) {
+	return hasActiveScheduleConflict(r.db.WithContext(ctx), doctorID, schedules)
+}
+
+func hasActiveScheduleConflict(db *gorm.DB, doctorID string, schedules []Schedule) (bool, error) {
+	for _, proposed := range schedules {
+		var conflict bool
+		if err := db.Raw(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM doctor_hospital_affiliations affiliation
+				JOIN doctor_hospital_schedules existing
+				  ON existing.affiliation_id = affiliation.id
+				 AND existing.is_active = TRUE
+				WHERE affiliation.doctor_id = ?
+				  AND affiliation.status = 'ACTIVE'
+				  AND existing.day_of_week = ?
+				  AND existing.start_time < ?::time
+				  AND existing.end_time > ?::time
+			)`, doctorID, proposed.DayOfWeek, proposed.EndTime, proposed.StartTime).
+			Scan(&conflict).Error; err != nil {
+			return false, err
+		}
+		if conflict {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitationInput) (*response.DoctorHospitalInvitation, error) {
 	invitationID := input.InvitationID
 	if invitationID == "" {
@@ -258,6 +288,18 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := expirePendingInvitations(tx, input.HospitalID, input.DoctorID, input.Now); err != nil {
 			return err
+		}
+		if len(input.Schedules) > 0 {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", input.DoctorID).Error; err != nil {
+				return err
+			}
+			conflict, err := hasActiveScheduleConflict(tx, input.DoctorID, input.Schedules)
+			if err != nil {
+				return err
+			}
+			if conflict {
+				return ErrScheduleConflict
+			}
 		}
 
 		var exists bool
@@ -474,7 +516,7 @@ func (r *Repository) attachInvitationSchedules(ctx context.Context, invitations 
 	return nil
 }
 
-func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorID string, signed Document, now time.Time) error {
+func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorID string, now time.Time) error {
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
@@ -516,16 +558,6 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		}
 		if conflict {
 			return ErrScheduleConflict
-		}
-
-		if err := tx.Exec(`
-			UPDATE doctor_hospital_contracts
-			SET signed_filename = ?, signed_mime_type = ?, signed_bucket = ?,
-			    signed_object_path = ?, signed_file_size = ?, signed_sha256 = ?,
-			    signed_at = ?, updated_at = ?
-			WHERE invitation_id = ?`, signed.Filename, signed.MIMEType, signed.Bucket,
-			signed.ObjectPath, signed.FileSize, signed.SHA256, now, now, invitationID).Error; err != nil {
-			return err
 		}
 
 		affiliationID := uuid.NewString()
@@ -599,7 +631,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 	})
 }
 
-func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, reason *string, now time.Time) error {
+func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, now time.Time) error {
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
@@ -619,7 +651,7 @@ func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorI
 			return ErrInvalidInvitationState
 		}
 		if err := tx.Model(&invitation).Updates(map[string]any{
-			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": reason,
+			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": nil,
 			"responded_at": now, "updated_at": now,
 		}).Error; err != nil {
 			return err

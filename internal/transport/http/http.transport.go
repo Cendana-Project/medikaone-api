@@ -226,6 +226,10 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
 			t.appointmentController.ListDoctorAppointments,
 		)
+		protected.GET("/doctor/schedules/today",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
+			t.appointmentController.ListDoctorTodaySchedules,
+		)
 		protected.GET("/doctor/appointments/:appointment_id",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
 			t.appointmentController.GetDoctorAppointment,
