@@ -32,10 +32,12 @@ const (
 	DefaultScheduleCapacity    = 1
 	MaxContractBytes           = int64(10 * 1024 * 1024)
 	MaxSchedules               = 50
+	MaxDoctorSearchResults     = 20
 )
 
 type Repository interface {
-	SearchEligibleDoctor(context.Context, repository.DoctorSearchCriteria) (*response.DoctorSearchResult, error)
+	SearchEligibleDoctors(context.Context, string, int) ([]response.DoctorSearchResult, error)
+	FindEligibleDoctorByID(context.Context, string) (*response.DoctorSearchResult, error)
 	CreateDepartment(context.Context, string, string, string, time.Time) (*entity.HospitalDepartment, error)
 	ListDepartments(context.Context, string) ([]entity.HospitalDepartment, error)
 	CreateRoom(context.Context, string, string, string, string, time.Time) (*entity.HospitalRoom, error)
@@ -82,42 +84,24 @@ func NewService(repo Repository, storage storageclient.Client, sender email.Send
 	}
 }
 
-func (s *Service) SearchDoctor(ctx context.Context, query request.DoctorSearchQuery) (*response.DoctorSearchResult, error) {
-	query.Email = strings.TrimSpace(query.Email)
-	query.SIPNumber = strings.TrimSpace(query.SIPNumber)
-	query.MedikaOneID = strings.TrimSpace(query.MedikaOneID)
-	provided := 0
-	for _, value := range []string{query.Email, query.SIPNumber, query.MedikaOneID} {
-		if value != "" {
-			provided++
-		}
+func (s *Service) SearchDoctor(ctx context.Context, query request.DoctorSearchQuery) ([]response.DoctorSearchResult, error) {
+	identity := strings.TrimSpace(query.Identity)
+	if identity == "" {
+		return nil, constant.NewFieldRequiredError("identity")
 	}
-	if provided != 1 {
-		return nil, constant.NewInvalidFieldValueError(
-			"doctor_search",
-			"exactly one of email, sip_number, or medikaone_id",
-			"tepat salah satu dari email, sip_number, atau medikaone_id",
+	if len(identity) < 2 || len(identity) > 190 {
+		return nil, constant.NewInvalidFieldLengthError(
+			"identity",
+			"between 2 and 190 characters long",
+			"memiliki 2 sampai 190 karakter",
 		)
 	}
-	if query.Email != "" && (!strings.Contains(query.Email, "@") || len(query.Email) > 190) {
-		return nil, constant.ErrInvalidEmail
-	}
-	if len(query.SIPNumber) > 64 {
-		return nil, constant.NewInvalidFieldLengthError("sip_number", "at most 64 characters long", "memiliki maksimal 64 karakter")
-	}
-	if query.MedikaOneID != "" {
-		if _, err := uuid.Parse(query.MedikaOneID); err != nil {
-			return nil, constant.ErrInvalidUUIDFormat
-		}
-	}
-	result, err := s.repo.SearchEligibleDoctor(ctx, repository.DoctorSearchCriteria{
-		Email: query.Email, SIPNumber: query.SIPNumber, MedikaOneID: query.MedikaOneID,
-	})
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, constant.ErrDoctorNotEligible
-	}
+	result, err := s.repo.SearchEligibleDoctors(ctx, identity, MaxDoctorSearchResults)
 	if err != nil {
 		return nil, constant.ErrInternalServerError
+	}
+	if result == nil {
+		result = make([]response.DoctorSearchResult, 0)
 	}
 	return result, nil
 }
@@ -241,7 +225,7 @@ func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy st
 		}
 	}
 
-	eligible, err := s.repo.SearchEligibleDoctor(ctx, repository.DoctorSearchCriteria{MedikaOneID: req.DoctorID})
+	eligible, err := s.repo.FindEligibleDoctorByID(ctx, req.DoctorID)
 	if errors.Is(err, gorm.ErrRecordNotFound) || eligible == nil {
 		return nil, constant.ErrDoctorNotEligible
 	}

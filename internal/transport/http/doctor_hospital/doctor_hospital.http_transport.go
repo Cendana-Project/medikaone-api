@@ -27,7 +27,7 @@ func NewController(service *service.Service) *Controller { return &Controller{se
 
 func (ctl *Controller) SearchDoctor(c *gin.Context) {
 	result, err := ctl.service.SearchDoctor(c.Request.Context(), request.DoctorSearchQuery{
-		Email: c.Query("email"), SIPNumber: c.Query("sip_number"), MedikaOneID: c.Query("medikaone_id"),
+		Identity: c.Query("identity"),
 	})
 	respond(c, constant.MsgDoctorSearchCompleted, http.StatusOK, result, err)
 }
