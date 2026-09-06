@@ -213,14 +213,14 @@ func (ctl *Controller) globalProfile(ctx context.Context, userID string) (*respo
 	if err != nil {
 		return nil, err
 	}
-	if h != nil || w != nil || a != nil || m != nil {
-		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
+	if roleSlug == constant.RolePatient || h != nil || w != nil || a != nil || m != nil {
+		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHistory: m}
 	}
 	sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if sip != nil || spec != nil {
+	if roleSlug == constant.RoleDoctor || sip != nil || spec != nil {
 		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
 	}
 	hospitals, err := ctl.userRepo.ListHospitalsByUserID(ctx, userID)
@@ -330,18 +330,14 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 			util.HandleError(c, constant.ErrInternalServerError)
 			return
 		}
-		if sip != nil || spec != nil {
-			dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
-		}
+		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
 	case constant.RolePatient:
 		h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
 		if err != nil {
 			util.HandleError(c, constant.ErrInternalServerError)
 			return
 		}
-		if h != nil || w != nil || a != nil || m != nil {
-			dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHist: m}
-		}
+		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHistory: m}
 	}
 
 	resp := constant.NewSuccessResponse(constant.MsgTenantProfileRetrieved)
@@ -371,6 +367,7 @@ func toMeDTO(u *entity.User, roleSlug string) response.MeResponse {
 		Gender:     u.Gender,
 		DOB:        dobStr,
 		Address:    u.Address,
+		NIK:        u.NIK,
 		Status:     u.Status,
 		VerifiedAt: verifiedStr,
 		Role:       roleSlug, // sudah dinormalisasi UPPER di pemanggil
