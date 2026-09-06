@@ -6,13 +6,14 @@ import "time"
 type MeResponse struct {
 	ID         string  `json:"id"`
 	Email      string  `json:"email"`
-	Username   *string `json:"username,omitempty"`
+	Username   *string `json:"username"`
 	FirstName  string  `json:"first_name"`
 	LastName   string  `json:"last_name"`
 	Phone      *string `json:"phone,omitempty"`
 	Gender     *string `json:"gender,omitempty"` // "L" | "P"
 	DOB        *string `json:"dob,omitempty"`    // "YYYY-MM-DD"
 	Address    *string `json:"address,omitempty"`
+	NIK        *string `json:"nik"`
 	Status     string  `json:"status"`
 	VerifiedAt *string `json:"verified_at,omitempty"`
 	Role       string  `json:"role"` // single role slug
@@ -38,16 +39,16 @@ type ProfilePhotoURL struct {
 
 // PatientProfile untuk user berperan PATIENT.
 type PatientProfile struct {
-	HeightCM    *int    `json:"height_cm,omitempty"`
-	WeightKG    *int    `json:"weight_kg,omitempty"`
-	Allergies   *string `json:"allergies,omitempty"`
-	MedicalHist *string `json:"medical_hist,omitempty"`
+	HeightCM       *int    `json:"height_cm"`
+	WeightKG       *int    `json:"weight_kg"`
+	Allergies      *string `json:"allergies"`
+	MedicalHistory *string `json:"medical_history"`
 }
 
 // DoctorProfile untuk user berperan DOCTOR.
 type DoctorProfile struct {
 	SIPNumber *string `json:"sip_number"`
-	Specialty *string `json:"specialty,omitempty"`
+	Specialty *string `json:"specialty"`
 }
 
 // HospitalBrief untuk ringkas info keanggotaan hospital user (multi-tenant).

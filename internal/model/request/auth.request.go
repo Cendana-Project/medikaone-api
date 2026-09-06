@@ -89,7 +89,7 @@ type DoctorProfileRequest struct {
 	LastName  string  `json:"last_name" validate:"required,max=100"`
 	Address   *string `json:"address,omitempty" validate:"omitempty,max=1000"`
 	Gender    *string `json:"gender,omitempty" validate:"omitempty,oneof=L P"`
-	SIPNumber *string `json:"sip_number,omitempty" validate:"omitempty,max=100"`
+	SIPNumber *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
 	Specialty *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
 }
 
