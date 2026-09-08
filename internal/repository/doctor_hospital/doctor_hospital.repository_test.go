@@ -1,6 +1,19 @@
 package doctor_hospital
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestHospitalWorkerDOBMeetsMinimumRequiresOlderThanFifteen(t *testing.T) {
+	today := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	if hospitalWorkerDOBMeetsMinimum(today.AddDate(-15, 0, 0), today) {
+		t.Fatal("a worker exactly fifteen years old must be rejected")
+	}
+	if !hospitalWorkerDOBMeetsMinimum(today.AddDate(-15, 0, -1), today) {
+		t.Fatal("a worker older than fifteen years must be accepted")
+	}
+}
 
 func TestEscapeLikePattern(t *testing.T) {
 	got := escapeLikePattern(`dr_100%\sip`)

@@ -14,6 +14,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	ulog "github.com/Cendana-Project/medikaone-api/internal/util"
 	"gorm.io/gorm"
 )
@@ -118,13 +119,62 @@ func TestSetProfileDoctorRequiresSIP(t *testing.T) {
 	}
 }
 
+func TestSetProfileDoctorRequiresDOB(t *testing.T) {
+	service := &Service{}
+	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","sip_number":"SIP-001"}`)
+	want := constant.NewFieldRequiredError("dob")
+	if _, err := service.SetProfile(context.Background(), "user-1", constant.RoleDoctor, &profile); !errors.Is(err, want) {
+		t.Fatalf("SetProfile() error = %v, want %v", err, want)
+	}
+}
+
+func TestCompleteDoctorProfileRequiresSIPBeforePersistence(t *testing.T) {
+	service := &Service{loc: time.UTC}
+	for _, sip := range []*string{nil, func() *string { value := "  "; return &value }()} {
+		req := &request.DoctorProfileRequest{FirstName: "Doctor", LastName: "One", SIPNumber: sip}
+		want := constant.NewFieldRequiredError("sip_number")
+		if err := service.completeDoctorProfile(context.Background(), nil, "doctor-1", req); !errors.Is(err, want) {
+			t.Fatalf("completeDoctorProfile() error = %v, want %v", err, want)
+		}
+	}
+}
+
+func TestHospitalWorkerMinimumAgeIsStrictlyOlderThanFifteen(t *testing.T) {
+	today := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+	if olderThanHospitalWorkerMinimum(today.AddDate(-15, 0, 0), today) {
+		t.Fatal("worker exactly fifteen years old must be rejected")
+	}
+	if !olderThanHospitalWorkerMinimum(today.AddDate(-15, 0, -1), today) {
+		t.Fatal("worker older than fifteen years must be accepted")
+	}
+}
+
+func TestCompleteDoctorProfileRejectsUnderageDOBBeforePersistence(t *testing.T) {
+	service := &Service{loc: time.UTC}
+	sip := "SIP-UNDERAGE"
+	dob := time.Now().UTC().AddDate(-14, 0, 0).Format("2006-01-02")
+	req := &request.DoctorProfileRequest{
+		FirstName: "Doctor", LastName: "Young", SIPNumber: &sip, DOB: &dob,
+	}
+	if err := service.completeDoctorProfile(context.Background(), nil, "doctor-1", req); !errors.Is(err, constant.ErrHospitalWorkerMinimumAge) {
+		t.Fatalf("completeDoctorProfile() error = %v, want %v", err, constant.ErrHospitalWorkerMinimumAge)
+	}
+}
+
 func TestSelfServiceRequestValidationAllowsDoctor(t *testing.T) {
 	if err := ulog.ValidateStruct(&request.ChooseRoleRequest{Role: constant.RoleDoctor}); err != nil {
 		t.Fatalf("doctor choose-role request rejected: %v", err)
 	}
-	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","sip_number":"SIP-001"}`)
+	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","dob":"1988-05-20","sip_number":"SIP-001"}`)
 	if err := ulog.ValidateStruct(&request.SetProfileRequest{Role: constant.RoleDoctor, Profile: &profile}); err != nil {
 		t.Fatalf("doctor set-profile request rejected: %v", err)
+	}
+	var doctor request.DoctorProfileRequest
+	if err := ulog.UnmarshalStrictJSON(profile, &doctor); err != nil {
+		t.Fatalf("doctor profile with dob rejected: %v", err)
+	}
+	if doctor.DOB == nil || *doctor.DOB != "1988-05-20" {
+		t.Fatalf("doctor dob was not decoded: %#v", doctor.DOB)
 	}
 }
 
@@ -133,6 +183,27 @@ func TestSetProfileRejectsUnknownNestedFields(t *testing.T) {
 	profile := json.RawMessage(`{"first_name":"Patient","last_name":"One","unexpected":true}`)
 	if _, err := service.SetProfile(context.Background(), "user-1", constant.RolePatient, &profile); err != constant.NewUnknownFieldError("unexpected") {
 		t.Fatalf("expected strict nested validation error, got %v", err)
+	}
+}
+
+func TestSetProfileStateAllowsRepairingPartialInitialization(t *testing.T) {
+	tests := []struct {
+		name          string
+		profileExists bool
+		hasRole       bool
+		wantErr       error
+	}{
+		{name: "new profile and role"},
+		{name: "existing profile without role", profileExists: true},
+		{name: "existing role without profile", hasRole: true},
+		{name: "fully initialized", profileExists: true, hasRole: true, wantErr: constant.ErrProfileAlreadySet},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validateSetProfileState(test.profileExists, test.hasRole); !errors.Is(got, test.wantErr) {
+				t.Fatalf("validateSetProfileState() error = %v, want %v", got, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -348,9 +419,13 @@ func TestPatientProfilePersistenceErrorMapsUniqueNIKRace(t *testing.T) {
 }
 
 func TestDoctorProfilePersistenceErrorMapsUniqueSIPRace(t *testing.T) {
-	err := fmt.Errorf("upsert doctor profile: %w", gorm.ErrDuplicatedKey)
-	if got := doctorProfilePersistenceError(err); got != constant.ErrDoctorSIPAlreadyExists {
-		t.Fatalf("expected duplicate SIP error, got %v", got)
+	for _, err := range []error{
+		fmt.Errorf("upsert doctor profile: %w", gorm.ErrDuplicatedKey),
+		fmt.Errorf("repository conflict: %w", userrepo.ErrDoctorSIPConflict),
+	} {
+		if got := doctorProfilePersistenceError(err); got != constant.ErrDoctorSIPAlreadyExists {
+			t.Fatalf("expected duplicate SIP error for %v, got %v", err, got)
+		}
 	}
 }
 

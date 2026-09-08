@@ -156,29 +156,12 @@ func (ctl *Controller) GetDoctorContractURL(c *gin.Context) {
 }
 
 func (ctl *Controller) AcceptInvitation(c *gin.Context) {
-	prepareMultipart(c)
-	if err := c.Request.ParseMultipartForm(maxMultipartRequestBytes); err != nil {
-		util.HandleError(c, constant.ErrInvalidContractPDF)
-		return
-	}
-	file, err := readMultipartPDF(c, "signed_contract")
-	if err != nil {
-		util.HandleError(c, err)
-		return
-	}
-	result, err := ctl.service.AcceptInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"), file)
+	result, err := ctl.service.AcceptInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"))
 	respond(c, constant.MsgDoctorInvitationAccepted, http.StatusOK, result, err)
 }
 
 func (ctl *Controller) RejectInvitation(c *gin.Context) {
-	var req request.RejectDoctorHospitalInvitationRequest
-	if c.Request.ContentLength > 0 {
-		if err := util.BindAndValidate(c, &req); err != nil {
-			util.HandleError(c, err)
-			return
-		}
-	}
-	err := ctl.service.RejectInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"), req.Reason)
+	err := ctl.service.RejectInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"))
 	respond(c, constant.MsgDoctorInvitationRejected, http.StatusOK, gin.H{"rejected": err == nil}, err)
 }
 

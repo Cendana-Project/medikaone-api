@@ -1,12 +1,18 @@
 package middleware
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	rolerepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
+
+type globalRoleChecker interface {
+	UserHasRole(ctx context.Context, userID, roleSlug string) (bool, error)
+}
 
 // RequirePermissions memastikan user (dari JWT) memiliki minimal
 // salah satu dari permission 'required'.
@@ -86,6 +92,51 @@ func RequireSuperAdmin(roleRepo *rolerepo.Repository) gin.HandlerFunc {
 		}
 		if !isSuperAdmin {
 			resp := constant.ErrOnlySuperAdmin.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequirePatient restricts self-service patient profile operations to an
+// account with an active global PATIENT role. A broad patient.edit permission
+// is intentionally insufficient because hospital staff may also have it.
+func RequirePatient(roleRepo *rolerepo.Repository) gin.HandlerFunc {
+	if roleRepo == nil {
+		return requirePatient(nil)
+	}
+	return requirePatient(roleRepo)
+}
+
+func requirePatient(roleChecker globalRoleChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if roleChecker == nil {
+			resp := constant.ErrInternalServerError.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+
+		userID := c.GetString(string(constant.UserID))
+		if userID == "" {
+			resp := constant.ErrUnauthorized.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+
+		isPatient, err := roleChecker.UserHasRole(c.Request.Context(), userID, constant.RolePatient)
+		if err != nil {
+			resp := constant.ErrInternalServerError.ToResponse()
+			util.HandleResponse(c, &resp, nil)
+			c.Abort()
+			return
+		}
+		if !isPatient {
+			resp := constant.ErrPatientRoleRequired.ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return

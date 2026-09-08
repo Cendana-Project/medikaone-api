@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
@@ -27,8 +28,17 @@ type fakeRepository struct {
 	roomHospital        string
 	departmentExists    bool
 	roomMatches         bool
+	scheduleConflict    bool
+	scheduleConflictErr error
+	conflictChecked     bool
 	createInvitationErr error
 	createInput         repository.CreateInvitationInput
+	invitation          *response.DoctorHospitalInvitation
+	acceptedInvitation  string
+	acceptErr           error
+	rejectedInvitation  string
+	updatedStatus       string
+	updateStatusErr     error
 }
 
 func (f *fakeRepository) SearchEligibleDoctors(_ context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
@@ -51,6 +61,11 @@ func (f *fakeRepository) RoomMatchesDepartment(_ context.Context, hospitalID, _,
 	return f.roomMatches, nil
 }
 
+func (f *fakeRepository) HasActiveScheduleConflict(_ context.Context, _ string, _ []repository.Schedule) (bool, error) {
+	f.conflictChecked = true
+	return f.scheduleConflict, f.scheduleConflictErr
+}
+
 func (f *fakeRepository) CreateInvitation(_ context.Context, input repository.CreateInvitationInput) (*response.DoctorHospitalInvitation, error) {
 	f.createInput = input
 	if f.createInvitationErr != nil {
@@ -60,6 +75,34 @@ func (f *fakeRepository) CreateInvitation(_ context.Context, input repository.Cr
 		ID: input.InvitationID, HospitalID: input.HospitalID, DoctorID: input.DoctorID,
 		DoctorEmail: "doctor@example.com", HospitalName: "RS Test", DepartmentName: "Poli Umum",
 	}, nil
+}
+
+func (f *fakeRepository) GetInvitationForDoctor(_ context.Context, _, _ string, _ time.Time) (*response.DoctorHospitalInvitation, error) {
+	if f.invitation == nil {
+		return nil, repository.ErrInvitationNotFound
+	}
+	copy := *f.invitation
+	return &copy, nil
+}
+
+func (f *fakeRepository) AcceptInvitation(_ context.Context, invitationID, _ string, now time.Time) error {
+	if f.acceptErr != nil {
+		return f.acceptErr
+	}
+	f.acceptedInvitation = invitationID
+	f.invitation.Status = "ACCEPTED"
+	f.invitation.RespondedAt = &now
+	return nil
+}
+
+func (f *fakeRepository) UpdateAffiliationStatus(_ context.Context, _, _, status, _ string, _ time.Time) error {
+	f.updatedStatus = status
+	return f.updateStatusErr
+}
+
+func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, _ time.Time) error {
+	f.rejectedInvitation = invitationID
+	return nil
 }
 
 type fakeStorage struct {
@@ -175,6 +218,27 @@ func TestValidateSchedulesEnforcesEntryLimit(t *testing.T) {
 	}
 }
 
+func TestCreateInvitationAllowsOmittedInitialSchedule(t *testing.T) {
+	doctorID := uuid.NewString()
+	repo := &fakeRepository{
+		eligible: &response.DoctorSearchResult{ID: doctorID}, departmentExists: true,
+	}
+	service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+
+	created, err := service.CreateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
+		DoctorID: doctorID, DepartmentID: uuid.NewString(),
+	}, UploadedFile{Filename: "contract.pdf", MIMEType: "application/pdf", Content: []byte("%PDF-test")})
+	if err != nil {
+		t.Fatalf("invitation without schedule returned error: %v", err)
+	}
+	if created == nil || len(repo.createInput.Schedules) != 0 {
+		t.Fatalf("unexpected invitation schedules: %#v", repo.createInput.Schedules)
+	}
+	if repo.conflictChecked {
+		t.Fatal("empty schedule should not execute a schedule conflict query")
+	}
+}
+
 func TestNormalizeContractVersionRejectsUnknownVersion(t *testing.T) {
 	if version, err := normalizeContractVersion("SIGNED"); err != nil || version != "signed" {
 		t.Fatalf("expected signed version, got version=%q err=%v", version, err)
@@ -217,5 +281,107 @@ func TestCreateInvitationScopesPlacementAndCleansFailedUpload(t *testing.T) {
 	}
 	if !repo.createInput.ExpiresAt.Equal(fixedNow.Add(InvitationTTL)) {
 		t.Fatalf("expected seven-day expiry, got %s", repo.createInput.ExpiresAt)
+	}
+}
+
+func TestCreateInvitationRejectsExistingCrossHospitalScheduleBeforeUpload(t *testing.T) {
+	repo := &fakeRepository{
+		eligible:         &response.DoctorSearchResult{ID: uuid.NewString()},
+		departmentExists: true,
+		scheduleConflict: true,
+	}
+	objectStorage := &fakeStorage{}
+	service := NewService(repo, objectStorage, nil, MaxContractBytes, time.Minute)
+
+	_, err := service.CreateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
+		DoctorID: repo.eligible.ID, DepartmentID: uuid.NewString(),
+		Schedules: []request.DoctorInvitationScheduleRequest{{DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00"}},
+	}, UploadedFile{Filename: "contract.pdf", MIMEType: "application/pdf", Content: []byte("%PDF-test")})
+	if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
+		t.Fatalf("expected schedule conflict, got %v", err)
+	}
+	if objectStorage.uploadedPath != "" {
+		t.Fatalf("contract was uploaded before conflict rejection: %s", objectStorage.uploadedPath)
+	}
+}
+
+func TestInvitationResponseRequiresNoPayloadOrSignedContract(t *testing.T) {
+	doctorID := uuid.NewString()
+	invitationID := uuid.NewString()
+	repo := &fakeRepository{invitation: &response.DoctorHospitalInvitation{
+		ID: invitationID, DoctorID: doctorID, Status: "PENDING",
+	}}
+	objectStorage := &fakeStorage{}
+	service := NewService(repo, objectStorage, nil, MaxContractBytes, time.Minute)
+
+	accepted, err := service.AcceptInvitation(context.Background(), doctorID, invitationID)
+	if err != nil {
+		t.Fatalf("accept without payload failed: %v", err)
+	}
+	if repo.acceptedInvitation != invitationID || accepted.Status != "ACCEPTED" {
+		t.Fatalf("invitation was not accepted: %#v", accepted)
+	}
+	if objectStorage.uploadedPath != "" {
+		t.Fatalf("accept unexpectedly uploaded a signed contract: %s", objectStorage.uploadedPath)
+	}
+
+	repo.invitation.Status = "PENDING"
+	if err := service.RejectInvitation(context.Background(), doctorID, invitationID); err != nil {
+		t.Fatalf("reject without payload failed: %v", err)
+	}
+	if repo.rejectedInvitation != invitationID {
+		t.Fatalf("invitation %s was not rejected", invitationID)
+	}
+}
+
+func TestAcceptInvitationMapsHospitalWorkerDOBFailures(t *testing.T) {
+	doctorID := uuid.NewString()
+	invitationID := uuid.NewString()
+	tests := []struct {
+		name    string
+		repoErr error
+		want    error
+	}{
+		{
+			name: "missing dob", repoErr: repository.ErrHospitalWorkerDOBRequired,
+			want: constant.NewFieldRequiredError("dob"),
+		},
+		{
+			name: "underage", repoErr: repository.ErrHospitalWorkerUnderage,
+			want: constant.ErrHospitalWorkerMinimumAge,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{
+				invitation: &response.DoctorHospitalInvitation{
+					ID: invitationID, DoctorID: doctorID, Status: entity.DoctorHospitalInvitationPending,
+				},
+				acceptErr: test.repoErr,
+			}
+			service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+			if _, err := service.AcceptInvitation(context.Background(), doctorID, invitationID); !errors.Is(err, test.want) {
+				t.Fatalf("AcceptInvitation() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestReactivationMapsHospitalWorkerAgeFailureButSuspensionRemainsAllowed(t *testing.T) {
+	doctorID := uuid.NewString()
+	hospitalID := uuid.NewString()
+	repo := &fakeRepository{updateStatusErr: repository.ErrHospitalWorkerUnderage}
+	service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+
+	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationActive, uuid.NewString()); !errors.Is(err, constant.ErrHospitalWorkerMinimumAge) {
+		t.Fatalf("reactivation error = %v, want %v", err, constant.ErrHospitalWorkerMinimumAge)
+	}
+
+	repo.updateStatusErr = nil
+	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationSuspended, uuid.NewString()); err != nil {
+		t.Fatalf("suspension should not require an eligible DOB: %v", err)
+	}
+	if repo.updatedStatus != entity.DoctorHospitalAffiliationSuspended {
+		t.Fatalf("updated status = %q, want %q", repo.updatedStatus, entity.DoctorHospitalAffiliationSuspended)
 	}
 }

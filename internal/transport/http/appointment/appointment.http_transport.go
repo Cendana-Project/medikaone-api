@@ -84,6 +84,11 @@ func (ctl *Controller) ListDoctorAppointments(c *gin.Context) {
 	respond(c, constant.MsgDoctorAppointmentsListed, http.StatusOK, result, err)
 }
 
+func (ctl *Controller) ListDoctorTodaySchedules(c *gin.Context) {
+	result, err := ctl.service.ListDoctorTodaySchedules(c.Request.Context(), util.GetUserID(c))
+	respond(c, constant.MsgDoctorTodaySchedulesListed, http.StatusOK, result, err)
+}
+
 func (ctl *Controller) GetDoctorAppointment(c *gin.Context) {
 	result, err := ctl.service.GetDoctorAppointment(c.Request.Context(), util.GetUserID(c), c.Param("appointment_id"))
 	respond(c, constant.MsgDoctorAppointmentRetrieved, http.StatusOK, result, err)

@@ -176,7 +176,7 @@ Registrasi tidak lagi membuat row user sebelum pemilik email membuktikan PIN. In
 1. `POST /v1/auth/register` menerima `email`, `username`, `phone`, dan `password`, lalu mengembalikan `challenge_id`.
 2. `POST /v1/auth/verify-pin` menerima `email`, `challenge_id`, dan `pin`. User baru dibuat dan token diterbitkan hanya jika PIN valid.
 3. `POST /v1/auth/resend-pin` menerima `email` dan `challenge_id` yang sama.
-4. User terverifikasi dapat memilih role global `PATIENT` atau `DOCTOR` melalui `POST /v1/auth/choose-role`, atau memilih sekaligus melengkapi profil melalui `POST /v1/auth/set-profile`. Dokter wajib memberikan nomor SIP unik pada `set-profile`; role staff tenant tetap hanya dapat diberikan oleh admin rumah sakit.
+4. User terverifikasi dapat memilih role global `PATIENT` atau `DOCTOR` melalui `POST /v1/auth/choose-role`, atau memilih sekaligus melengkapi profil melalui `POST /v1/auth/set-profile`. Untuk onboarding dokter, `set-profile` mewajibkan DOB dengan usia lebih dari 15 tahun dan nomor SIP yang unik tanpa membedakan kapitalisasi/whitespace; role staff tenant tetap hanya dapat diberikan oleh admin rumah sakit.
 
 Contoh request verifikasi:
 
@@ -205,11 +205,26 @@ Endpoint auth lain:
 ## Profil pengguna
 
 `GET /v1/profile` mengambil profil global akun yang sedang login; `GET /v1/me`
-tetap menjadi alias kompatibilitas. `PATCH /v1/profile` mengubah username,
-nama, telepon, tanggal lahir, alamat, gender, atau NIK milik sendiri. Email
-sengaja tidak dapat diubah tanpa alur verifikasi terpisah. Field klinis khusus
-pasien/dokter tetap dikelola melalui `PUT /v1/profile/patient` dan
-`PUT /v1/profile/doctor`.
+tetap menjadi alias kompatibilitas. `PATCH /v1/profile` adalah endpoint update
+terpadu untuk field umum (`username`, nama, telepon, tanggal lahir, alamat,
+gender, dan NIK) serta object parsial `patient_profile` atau `doctor_profile`.
+Object khusus role hanya dapat diubah oleh akun yang benar-benar memiliki role
+aktif tersebut dan object-nya tidak boleh `null`; permission staf yang kebetulan
+mencakup data pasien tidak cukup.
+Email sengaja tidak dapat diubah tanpa alur verifikasi terpisah.
+
+PATCH membedakan field yang tidak dikirim dari `null`: field yang tidak dikirim
+dipertahankan, sedangkan `null` menghapus field yang memang nullable. `username`,
+`first_name`, dan `last_name` tidak dapat dikosongkan. SIP dokter juga tidak dapat
+dihapus, harus unik, dan wajib dikirim saat profil dokter belum memiliki SIP.
+Perubahan profil pekerja rumah sakit juga mensyaratkan DOB efektif dengan usia
+lebih dari 15 tahun. Update field umum dan profil khusus role disimpan dalam satu
+transaksi database.
+
+`PUT /v1/profile/patient` dan `PUT /v1/profile/doctor` hanya dipertahankan sebagai
+endpoint kompatibilitas sementara. Response keduanya membawa header `Deprecation`
+dan `Link` menuju `PATCH /v1/profile`; client baru wajib menggunakan endpoint
+PATCH terpadu. Belum ada header `Sunset` sampai tanggal penghapusan disepakati.
 
 Foto profil memakai tiga operasi authenticated: `PUT /v1/profile/photo`
 (multipart field `file`), `GET /v1/profile/photo` (signed URL), dan

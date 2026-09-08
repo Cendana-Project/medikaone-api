@@ -75,6 +75,7 @@ const (
 	MsgPatientAppointmentRescheduleReplayed  MessageCode = "PATIENT_APPOINTMENT_RESCHEDULE_REPLAYED"
 	MsgDoctorAppointmentsListed              MessageCode = "DOCTOR_APPOINTMENTS_LISTED"
 	MsgDoctorAppointmentRetrieved            MessageCode = "DOCTOR_APPOINTMENT_RETRIEVED"
+	MsgDoctorTodaySchedulesListed            MessageCode = "DOCTOR_TODAY_SCHEDULES_LISTED"
 	MsgConsultationStarted                   MessageCode = "CONSULTATION_STARTED"
 	MsgAppointmentCompleted                  MessageCode = "APPOINTMENT_COMPLETED"
 	MsgDoctorScheduleChangeCreated           MessageCode = "DOCTOR_SCHEDULE_CHANGE_CREATED"
@@ -196,6 +197,7 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgPatientAppointmentRescheduleReplayed:  successDetail("Existing rescheduled appointment returned for idempotent retry", "Perubahan jadwal appointment yang sudah ada dikembalikan untuk percobaan idempoten"),
 	MsgDoctorAppointmentsListed:              successDetail("Doctor appointments retrieved", "Daftar appointment dokter berhasil diambil"),
 	MsgDoctorAppointmentRetrieved:            successDetail("Doctor appointment retrieved", "Appointment dokter berhasil diambil"),
+	MsgDoctorTodaySchedulesListed:            successDetail("Doctor today's schedules retrieved", "Jadwal dokter hari ini berhasil diambil"),
 	MsgConsultationStarted:                   successDetail("Consultation started", "Konsultasi berhasil dimulai"),
 	MsgAppointmentCompleted:                  successDetail("Appointment completed", "Appointment berhasil diselesaikan"),
 	MsgDoctorScheduleChangeCreated:           successDetail("Doctor schedule change request created", "Permintaan perubahan jadwal dokter berhasil dibuat"),

@@ -56,7 +56,7 @@ func RenderDoctorHospitalInvitation(firstName, hospitalName, departmentName stri
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e6ecf1;border-radius:12px;padding:24px">
     <h2 style="margin:0 0 8px;color:#111">Undangan MedikaOne</h2>
     <p style="color:#555">Halo %s, %s mengundang Anda untuk bergabung pada departemen %s.</p>
-    <p style="color:#555">Buka aplikasi MedikaOne untuk membaca kontrak, lalu terima dengan mengunggah kontrak yang sudah ditandatangani atau tolak undangan.</p>
+    <p style="color:#555">Buka aplikasi MedikaOne untuk membaca kontrak, lalu pilih terima atau tolak undangan. Anda tidak perlu mengunggah dokumen saat merespons.</p>
     <p style="color:#667">Undangan berlaku sampai %s.</p>
   </div>
 </body></html>`, html.EscapeString(firstName), html.EscapeString(hospitalName),

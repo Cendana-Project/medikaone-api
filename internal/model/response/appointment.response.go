@@ -31,6 +31,31 @@ type DoctorScheduleAvailability struct {
 	Slots               []AvailabilitySlot `json:"slots"`
 }
 
+type DoctorTodaySchedule struct {
+	ScheduleID          string    `json:"schedule_id"`
+	AffiliationID       string    `json:"affiliation_id"`
+	HospitalID          string    `json:"hospital_id"`
+	HospitalCode        string    `json:"hospital_code"`
+	HospitalName        string    `json:"hospital_name"`
+	DoctorID            string    `json:"doctor_id"`
+	DoctorName          string    `json:"doctor_name"`
+	DepartmentID        string    `json:"department_id"`
+	DepartmentName      string    `json:"department_name"`
+	RoomID              *string   `json:"room_id,omitempty"`
+	RoomName            *string   `json:"room_name,omitempty"`
+	Date                string    `json:"date"`
+	DayOfWeek           int       `json:"day_of_week"`
+	Timezone            string    `json:"timezone"`
+	StartTime           string    `json:"start_time"`
+	EndTime             string    `json:"end_time"`
+	SessionStartAt      time.Time `json:"session_start_at"`
+	SessionEndAt        time.Time `json:"session_end_at"`
+	SessionStatus       string    `json:"session_status"`
+	BookingMode         string    `json:"booking_mode"`
+	SlotDurationMinutes int       `json:"slot_duration_minutes"`
+	Capacity            int       `json:"capacity"`
+}
+
 type Appointment struct {
 	ID                     string     `json:"id"`
 	AppointmentNumber      string     `json:"appointment_number"`

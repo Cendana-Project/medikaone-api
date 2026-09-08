@@ -44,13 +44,14 @@ type Repository interface {
 	ListRooms(context.Context, string, string) ([]entity.HospitalRoom, error)
 	DepartmentExists(context.Context, string, string) (bool, error)
 	RoomMatchesDepartment(context.Context, string, string, string) (bool, error)
+	HasActiveScheduleConflict(context.Context, string, []repository.Schedule) (bool, error)
 	CreateInvitation(context.Context, repository.CreateInvitationInput) (*response.DoctorHospitalInvitation, error)
 	ListInvitationsForDoctor(context.Context, string, string, time.Time) ([]response.DoctorHospitalInvitation, error)
 	ListInvitationsForHospital(context.Context, string, string, time.Time) ([]response.DoctorHospitalInvitation, error)
 	GetInvitationForDoctor(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetInvitationForHospital(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
-	AcceptInvitation(context.Context, string, string, repository.Document, time.Time) error
-	RejectInvitation(context.Context, string, string, *string, time.Time) error
+	AcceptInvitation(context.Context, string, string, time.Time) error
+	RejectInvitation(context.Context, string, string, time.Time) error
 	CancelInvitation(context.Context, string, string, string, time.Time) error
 	ResendInvitation(context.Context, string, string, string, time.Time, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetContractForDoctor(context.Context, string, string, string) (*repository.ContractDocument, error)
@@ -252,6 +253,15 @@ func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy st
 	if err != nil {
 		return nil, err
 	}
+	if len(schedules) > 0 {
+		conflict, conflictErr := s.repo.HasActiveScheduleConflict(ctx, req.DoctorID, schedules)
+		if conflictErr != nil {
+			return nil, constant.ErrInternalServerError
+		}
+		if conflict {
+			return nil, constant.ErrDoctorScheduleConflict
+		}
+	}
 	document, err := s.validatePDF(file)
 	if err != nil {
 		return nil, err
@@ -338,13 +348,9 @@ func (s *Service) GetHospitalInvitation(ctx context.Context, hospitalID, invitat
 	return row, nil
 }
 
-func (s *Service) AcceptInvitation(ctx context.Context, doctorID, invitationID string, file UploadedFile) (*response.DoctorHospitalInvitation, error) {
+func (s *Service) AcceptInvitation(ctx context.Context, doctorID, invitationID string) (*response.DoctorHospitalInvitation, error) {
 	if _, err := uuid.Parse(invitationID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
-	}
-	document, err := s.validatePDF(file)
-	if err != nil {
-		return nil, err
 	}
 	invitation, err := s.repo.GetInvitationForDoctor(ctx, doctorID, invitationID, s.now())
 	if err != nil {
@@ -356,42 +362,17 @@ func (s *Service) AcceptInvitation(ctx context.Context, doctorID, invitationID s
 	if invitation.Status != entity.DoctorHospitalInvitationPending {
 		return nil, constant.ErrInvalidDoctorInvitationState
 	}
-	objectPath := fmt.Sprintf("hospitals/%s/doctor-invitations/%s/signed/%s.pdf", invitation.HospitalID, invitationID, uuid.NewString())
-	uploaded, err := s.storage.Upload(ctx, objectPath, "application/pdf", file.Content)
-	if err != nil {
-		return nil, constant.ErrStorageUnavailable
-	}
-	document.Bucket = uploaded.Bucket
-	document.ObjectPath = uploaded.ObjectPath
-	document.FileSize = uploaded.FileSize
-
-	if err := s.repo.AcceptInvitation(ctx, invitationID, doctorID, document, s.now()); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if cleanupErr := s.storage.Delete(cleanupCtx, uploaded.ObjectPath); cleanupErr != nil {
-			util.Errorf(ctx, "storage cleanup failed operation=cleanup_signed_contract error_type=%T", cleanupErr)
-		}
+	if err := s.repo.AcceptInvitation(ctx, invitationID, doctorID, s.now()); err != nil {
 		return nil, mapRepositoryError(err)
 	}
 	return s.repo.GetInvitationForDoctor(ctx, doctorID, invitationID, s.now())
 }
 
-func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string, reason *string) error {
+func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string) error {
 	if _, err := uuid.Parse(invitationID); err != nil {
 		return constant.ErrInvalidUUIDFormat
 	}
-	if reason != nil {
-		trimmed := strings.TrimSpace(*reason)
-		if len(trimmed) > 500 {
-			return constant.NewInvalidFieldLengthError("reason", "at most 500 characters long", "memiliki maksimal 500 karakter")
-		}
-		if trimmed == "" {
-			reason = nil
-		} else {
-			reason = &trimmed
-		}
-	}
-	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, reason, s.now()))
+	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, s.now()))
 }
 
 func (s *Service) CancelInvitation(ctx context.Context, hospitalID, invitationID, actorID string) error {
@@ -649,6 +630,12 @@ func mapRepositoryError(err error) error {
 		return constant.ErrAffiliationNotFound
 	case errors.Is(err, repository.ErrNotificationNotFound):
 		return constant.ErrNotificationNotFound
+	case errors.Is(err, repository.ErrDoctorNotEligible):
+		return constant.ErrDoctorNotEligible
+	case errors.Is(err, repository.ErrHospitalWorkerDOBRequired):
+		return constant.NewFieldRequiredError("dob")
+	case errors.Is(err, repository.ErrHospitalWorkerUnderage):
+		return constant.ErrHospitalWorkerMinimumAge
 	default:
 		return constant.ErrInternalServerError
 	}

@@ -118,3 +118,23 @@ func TestProfilePhotoMigrationEnforcesPrivateObjectMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorSIPMigrationEnforcesNormalizedUniquenessSafely(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260907100000_doctor_sip_case_insensitive_unique.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"GROUP BY LOWER(BTRIM(sip_number))",
+		"HAVING COUNT(*) > 1",
+		"cannot enforce case-insensitive doctor SIP uniqueness",
+		"CREATE UNIQUE INDEX ux_doctor_profiles_sip_number_normalized",
+		"ON doctor_profiles ((LOWER(BTRIM(sip_number))))",
+		"intentionally irreversible",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("doctor SIP migration is missing %q", required)
+		}
+	}
+}

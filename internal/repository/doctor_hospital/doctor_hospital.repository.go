@@ -18,14 +18,17 @@ import (
 )
 
 var (
-	ErrInvitationNotFound     = errors.New("doctor hospital invitation not found")
-	ErrInvitationExists       = errors.New("an open invitation or affiliation already exists")
-	ErrInvitationExpired      = errors.New("doctor hospital invitation expired")
-	ErrInvalidInvitationState = errors.New("invalid doctor hospital invitation state")
-	ErrPlacementNotFound      = errors.New("department or room not found")
-	ErrScheduleConflict       = errors.New("doctor schedule conflicts with an active affiliation")
-	ErrAffiliationNotFound    = errors.New("doctor hospital affiliation not found")
-	ErrNotificationNotFound   = errors.New("notification not found")
+	ErrInvitationNotFound        = errors.New("doctor hospital invitation not found")
+	ErrInvitationExists          = errors.New("an open invitation or affiliation already exists")
+	ErrInvitationExpired         = errors.New("doctor hospital invitation expired")
+	ErrInvalidInvitationState    = errors.New("invalid doctor hospital invitation state")
+	ErrPlacementNotFound         = errors.New("department or room not found")
+	ErrScheduleConflict          = errors.New("doctor schedule conflicts with an active affiliation")
+	ErrAffiliationNotFound       = errors.New("doctor hospital affiliation not found")
+	ErrNotificationNotFound      = errors.New("notification not found")
+	ErrDoctorNotEligible         = errors.New("doctor is not eligible")
+	ErrHospitalWorkerDOBRequired = errors.New("hospital worker date of birth is required")
+	ErrHospitalWorkerUnderage    = errors.New("hospital worker minimum age is not met")
 )
 
 type Repository struct {
@@ -94,7 +97,9 @@ const eligibleDoctorSelect = `
 	  AND u.deleted_at IS NULL
 	  AND u.status = 'active'
 	  AND u.verified_at IS NOT NULL
-	  AND NULLIF(TRIM(dp.sip_number), '') IS NOT NULL`
+	  AND NULLIF(TRIM(dp.sip_number), '') IS NOT NULL
+	  AND u.dob IS NOT NULL
+	  AND (u.dob + INTERVAL '15 years') < CURRENT_DATE`
 
 func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
 	identity = strings.TrimSpace(identity)
@@ -249,6 +254,36 @@ func (r *Repository) RoomMatchesDepartment(ctx context.Context, hospitalID, depa
 	return exists, err
 }
 
+func (r *Repository) HasActiveScheduleConflict(ctx context.Context, doctorID string, schedules []Schedule) (bool, error) {
+	return hasActiveScheduleConflict(r.db.WithContext(ctx), doctorID, schedules)
+}
+
+func hasActiveScheduleConflict(db *gorm.DB, doctorID string, schedules []Schedule) (bool, error) {
+	for _, proposed := range schedules {
+		var conflict bool
+		if err := db.Raw(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM doctor_hospital_affiliations affiliation
+				JOIN doctor_hospital_schedules existing
+				  ON existing.affiliation_id = affiliation.id
+				 AND existing.is_active = TRUE
+				WHERE affiliation.doctor_id = ?
+				  AND affiliation.status = 'ACTIVE'
+				  AND existing.day_of_week = ?
+				  AND existing.start_time < ?::time
+				  AND existing.end_time > ?::time
+			)`, doctorID, proposed.DayOfWeek, proposed.EndTime, proposed.StartTime).
+			Scan(&conflict).Error; err != nil {
+			return false, err
+		}
+		if conflict {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitationInput) (*response.DoctorHospitalInvitation, error) {
 	invitationID := input.InvitationID
 	if invitationID == "" {
@@ -258,6 +293,18 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := expirePendingInvitations(tx, input.HospitalID, input.DoctorID, input.Now); err != nil {
 			return err
+		}
+		if len(input.Schedules) > 0 {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", input.DoctorID).Error; err != nil {
+				return err
+			}
+			conflict, err := hasActiveScheduleConflict(tx, input.DoctorID, input.Schedules)
+			if err != nil {
+				return err
+			}
+			if conflict {
+				return ErrScheduleConflict
+			}
 		}
 
 		var exists bool
@@ -474,7 +521,7 @@ func (r *Repository) attachInvitationSchedules(ctx context.Context, invitations 
 	return nil
 }
 
-func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorID string, signed Document, now time.Time) error {
+func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorID string, now time.Time) error {
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
@@ -497,6 +544,9 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", doctorID).Error; err != nil {
 			return err
 		}
+		if err := lockAndValidateHospitalWorkerDOB(tx, doctorID, now); err != nil {
+			return err
+		}
 
 		var conflict bool
 		if err := tx.Raw(`
@@ -516,16 +566,6 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		}
 		if conflict {
 			return ErrScheduleConflict
-		}
-
-		if err := tx.Exec(`
-			UPDATE doctor_hospital_contracts
-			SET signed_filename = ?, signed_mime_type = ?, signed_bucket = ?,
-			    signed_object_path = ?, signed_file_size = ?, signed_sha256 = ?,
-			    signed_at = ?, updated_at = ?
-			WHERE invitation_id = ?`, signed.Filename, signed.MIMEType, signed.Bucket,
-			signed.ObjectPath, signed.FileSize, signed.SHA256, now, now, invitationID).Error; err != nil {
-			return err
 		}
 
 		affiliationID := uuid.NewString()
@@ -599,7 +639,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 	})
 }
 
-func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, reason *string, now time.Time) error {
+func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, now time.Time) error {
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
@@ -619,7 +659,7 @@ func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorI
 			return ErrInvalidInvitationState
 		}
 		if err := tx.Model(&invitation).Updates(map[string]any{
-			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": reason,
+			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": nil,
 			"responded_at": now, "updated_at": now,
 		}).Error; err != nil {
 			return err
@@ -892,6 +932,11 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 		if len(affiliations) == 0 {
 			return ErrAffiliationNotFound
 		}
+		if status == entity.DoctorHospitalAffiliationActive {
+			if err := lockAndValidateHospitalWorkerDOB(tx, doctorID, now); err != nil {
+				return err
+			}
+		}
 		if err := tx.Model(&entity.DoctorHospitalAffiliation{}).
 			Where("hospital_id = ? AND doctor_id = ? AND status <> ?", hospitalID, doctorID, status).
 			Updates(map[string]any{"status": status, "updated_at": now}).Error; err != nil {
@@ -964,6 +1009,32 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 			        'Status dokter diperbarui', 'Status keanggotaan rumah sakit Anda telah diperbarui.', ?::jsonb, ?)`,
 			uuid.NewString(), doctorID, string(data), now).Error
 	})
+}
+
+func lockAndValidateHospitalWorkerDOB(tx *gorm.DB, userID string, now time.Time) error {
+	var user entity.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id", "dob").
+		Where("id = ? AND status = 'active' AND deleted_at IS NULL", userID).
+		First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrDoctorNotEligible
+		}
+		return err
+	}
+	if user.DOB == nil {
+		return ErrHospitalWorkerDOBRequired
+	}
+	if !hospitalWorkerDOBMeetsMinimum(*user.DOB, now) {
+		return ErrHospitalWorkerUnderage
+	}
+	return nil
+}
+
+func hospitalWorkerDOBMeetsMinimum(dob, now time.Time) bool {
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	birthDate := time.Date(dob.UTC().Year(), dob.UTC().Month(), dob.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return birthDate.AddDate(15, 0, 0).Before(today)
 }
 
 func (r *Repository) ListNotifications(ctx context.Context, userID string, unreadOnly bool) ([]response.Notification, error) {
