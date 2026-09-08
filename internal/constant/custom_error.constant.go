@@ -389,6 +389,11 @@ var (
 		"Doctor access required", "An active DOCTOR role is required to perform this action.",
 		"Akses dokter diperlukan", "Role DOCTOR yang aktif diperlukan untuk melakukan tindakan ini.",
 	)
+	ErrPatientRoleRequired = apiError(
+		"PATIENT_ROLE_REQUIRED", http.StatusForbidden,
+		"Patient access required", "An active PATIENT role is required to update patient-specific profile data.",
+		"Akses pasien diperlukan", "Role PATIENT yang aktif diperlukan untuk memperbarui data profil khusus pasien.",
+	)
 	ErrSelfServiceRoleUnavailable = apiError(
 		"SELF_SERVICE_ROLE_UNAVAILABLE", http.StatusForbidden,
 		"Role unavailable for self-service", "Only the PATIENT or DOCTOR role can be selected or initialized through this self-service endpoint.",
@@ -505,15 +510,15 @@ var (
 	)
 	ErrHospitalWorkerMinimumAge = apiError(
 		"HOSPITAL_WORKER_MINIMUM_AGE_NOT_MET", http.StatusUnprocessableEntity,
-		"Hospital worker minimum age not met", "Hospital workers must be older than 15 years on the account creation date.",
-		"Batas usia minimum pekerja rumah sakit belum terpenuhi", "Pekerja rumah sakit harus berusia lebih dari 15 tahun pada tanggal pembuatan akun.",
+		"Hospital worker minimum age not met", "Hospital workers must be older than 15 years.",
+		"Batas usia minimum pekerja rumah sakit belum terpenuhi", "Pekerja rumah sakit harus berusia lebih dari 15 tahun.",
 	)
 
 	// Doctor-hospital registration.
 	ErrDoctorNotEligible = apiError(
 		"DOCTOR_NOT_ELIGIBLE", http.StatusUnprocessableEntity,
-		"Doctor is not eligible", "The doctor account must be active and verified, have the DOCTOR role, and contain a SIP number.",
-		"Dokter belum memenuhi syarat", "Akun dokter harus aktif dan terverifikasi, memiliki role DOCTOR, serta memiliki nomor SIP.",
+		"Doctor is not eligible", "The doctor account must be active and verified, have the DOCTOR role and SIP number, and have a date of birth showing an age older than 15 years.",
+		"Dokter belum memenuhi syarat", "Akun dokter harus aktif dan terverifikasi, memiliki role DOCTOR dan nomor SIP, serta memiliki tanggal lahir yang menunjukkan usia lebih dari 15 tahun.",
 	)
 	ErrDoctorInvitationNotFound = apiError(
 		"DOCTOR_INVITATION_NOT_FOUND", http.StatusNotFound,
@@ -918,7 +923,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrRegistrationPINInvalidOrExpired, ErrPasswordResetPINInvalidOrExpired,
 		ErrInvalidResetToken, ErrEmailNotVerified, ErrEmailAlreadyActive, ErrEmailSendFailed,
 		ErrInvalidRoleID, ErrRoleAlreadyExist, ErrRoleNotFound, ErrRoleNotAssigned,
-		ErrRoleAlreadyAssigned, ErrRoleInUse, ErrOnlySuperAdmin, ErrDoctorRoleRequired,
+		ErrRoleAlreadyAssigned, ErrRoleInUse, ErrOnlySuperAdmin, ErrDoctorRoleRequired, ErrPatientRoleRequired,
 		ErrSelfServiceRoleUnavailable, ErrAccountInactive, ErrHospitalMembershipRoleRequired,
 		ErrAccountRoleNotFound,
 		ErrUnauthorizedUpdate, ErrNewPasswordSame, ErrPasswordNotMatch, ErrProfileAlreadySet,

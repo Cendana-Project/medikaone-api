@@ -42,6 +42,8 @@ type EmailSender interface {
 	SendWithContext(ctx context.Context, to, subject, htmlBody string) error
 }
 
+const minimumHospitalWorkerAgeYears = 15
+
 type emailJob struct {
 	to                        string
 	subject                   string
@@ -734,7 +736,7 @@ func patientProfilePersistenceError(err error) error {
 }
 
 func doctorProfilePersistenceError(err error) error {
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	if errors.Is(err, userrepo.ErrDoctorSIPConflict) || errors.Is(err, gorm.ErrDuplicatedKey) {
 		return constant.ErrDoctorSIPAlreadyExists
 	}
 	return constant.ErrInternalServerError
@@ -1737,6 +1739,13 @@ func (s *Service) completePatientProfile(ctx context.Context, users *userrepo.Re
 	if err := ulog.ValidateStruct(req); err != nil {
 		return ulog.MapValidationError(err)
 	}
+	currentUser, err := users.GetByIDForUpdate(ctx, userID)
+	if err != nil {
+		return constant.ErrInternalServerError
+	}
+	if currentUser == nil {
+		return constant.ErrUserNotFound
+	}
 	updates := map[string]any{
 		"first_name": req.FirstName,
 		"last_name":  req.LastName,
@@ -1756,12 +1765,28 @@ func (s *Service) completePatientProfile(ctx context.Context, users *userrepo.Re
 			return constant.ErrDuplicateNIK
 		}
 	}
-	if req.DOB != nil && *req.DOB != "" {
-		tm, err := time.ParseInLocation("2006-01-02", *req.DOB, s.loc)
-		if err != nil || tm.After(time.Now().In(s.loc)) {
+	effectiveDOB := currentUser.DOB
+	if req.DOB != nil && strings.TrimSpace(*req.DOB) != "" {
+		tm, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(*req.DOB), s.loc)
+		today := calendarDate(time.Now().In(s.loc))
+		if err != nil || tm.After(today) {
 			return constant.ErrInvalidDateFormat
 		}
+		effectiveDOB = &tm
 		updates["dob"] = tm
+	}
+	isWorker, roleErr := users.UserIsActiveHospitalWorker(ctx, userID)
+	if roleErr != nil {
+		return constant.ErrInternalServerError
+	}
+	if isWorker {
+		if effectiveDOB == nil {
+			return constant.NewFieldRequiredError("dob")
+		}
+		today := calendarDate(time.Now().In(s.loc))
+		if !olderThanHospitalWorkerMinimum(*effectiveDOB, today) {
+			return constant.ErrHospitalWorkerMinimumAge
+		}
 	}
 	if err := users.UpdateByID(ctx, userID, updates); err != nil {
 		return patientProfilePersistenceError(err)
@@ -1791,21 +1816,57 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 	if err := ulog.ValidateStruct(req); err != nil {
 		return ulog.MapValidationError(err)
 	}
+	if req.SIPNumber == nil || strings.TrimSpace(*req.SIPNumber) == "" {
+		return constant.NewFieldRequiredError("sip_number")
+	}
+	sipNumber := strings.TrimSpace(*req.SIPNumber)
+	var requestedDOB *time.Time
+	if req.DOB != nil {
+		value := strings.TrimSpace(*req.DOB)
+		if value != "" {
+			dob, err := time.ParseInLocation("2006-01-02", value, s.loc)
+			today := calendarDate(time.Now().In(s.loc))
+			if err != nil || dob.After(today) {
+				return constant.ErrInvalidDateFormat
+			}
+			if !olderThanHospitalWorkerMinimum(dob, today) {
+				return constant.ErrHospitalWorkerMinimumAge
+			}
+			requestedDOB = &dob
+		}
+	}
+	currentUser, err := users.GetByIDForUpdate(ctx, userID)
+	if err != nil {
+		return constant.ErrInternalServerError
+	}
+	if currentUser == nil {
+		return constant.ErrUserNotFound
+	}
+	effectiveDOB := currentUser.DOB
+	if requestedDOB != nil {
+		effectiveDOB = requestedDOB
+	}
+	if effectiveDOB == nil {
+		return constant.NewFieldRequiredError("dob")
+	}
+	if !olderThanHospitalWorkerMinimum(*effectiveDOB, calendarDate(time.Now().In(s.loc))) {
+		return constant.ErrHospitalWorkerMinimumAge
+	}
+	sipExists, err := users.ExistsSIPExcludingUser(ctx, sipNumber, userID)
+	if err != nil {
+		return constant.ErrInternalServerError
+	}
+	if sipExists {
+		return constant.ErrDoctorSIPAlreadyExists
+	}
 	updates := map[string]any{
 		"first_name": req.FirstName,
 		"last_name":  req.LastName,
 		"address":    req.Address,
 		"gender":     req.Gender,
 	}
-	if req.DOB != nil {
-		value := strings.TrimSpace(*req.DOB)
-		if value != "" {
-			dob, err := time.ParseInLocation("2006-01-02", value, s.loc)
-			if err != nil || dob.After(time.Now().In(s.loc)) {
-				return constant.ErrInvalidDateFormat
-			}
-			updates["dob"] = dob
-		}
+	if requestedDOB != nil {
+		updates["dob"] = *requestedDOB
 	}
 	if err := users.UpdateByID(ctx, userID, updates); err != nil {
 		return constant.ErrInternalServerError
@@ -1813,7 +1874,7 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 
 	prof := map[string]any{
 		"user_id":    userID,
-		"sip_number": req.SIPNumber,
+		"sip_number": sipNumber,
 		"specialty":  req.Specialty,
 	}
 	if err := users.UpsertDoctorProfile(ctx, prof); err != nil {
@@ -1821,6 +1882,14 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 	}
 	ulog.Infof(ctx, "doctor profile updated user_id=%s", userID)
 	return nil
+}
+
+func calendarDate(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
+func olderThanHospitalWorkerMinimum(dob, today time.Time) bool {
+	return dob.AddDate(minimumHospitalWorkerAgeYears, 0, 0).Before(today)
 }
 
 func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, rawProfile *json.RawMessage) (*response.SetProfileResponse, error) {
@@ -1850,6 +1919,9 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		}
 		if input.SIPNumber == nil || strings.TrimSpace(*input.SIPNumber) == "" {
 			return nil, constant.NewFieldRequiredError("sip_number")
+		}
+		if input.DOB == nil || strings.TrimSpace(*input.DOB) == "" {
+			return nil, constant.NewFieldRequiredError("dob")
 		}
 		sipNumber := strings.TrimSpace(*input.SIPNumber)
 		input.SIPNumber = &sipNumber
@@ -1887,17 +1959,18 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		if err != nil {
 			return constant.ErrInternalServerError
 		}
-		if profileExists && hasRole {
-			return constant.ErrProfileAlreadySet
+		if err := validateSetProfileState(profileExists, hasRole); err != nil {
+			return err
 		}
-		if !profileExists {
-			if role == constant.RolePatient {
-				if err := s.completePatientProfile(ctx, users, userID, patientRequest); err != nil {
-					return err
-				}
-			} else if err := s.completeDoctorProfile(ctx, users, userID, doctorRequest); err != nil {
+		// A partially initialized account (profile without role, or role without
+		// profile) is repaired from the submitted payload. Never silently ignore
+		// profile data merely because an orphaned profile row already exists.
+		if role == constant.RolePatient {
+			if err := s.completePatientProfile(ctx, users, userID, patientRequest); err != nil {
 				return err
 			}
+		} else if err := s.completeDoctorProfile(ctx, users, userID, doctorRequest); err != nil {
+			return err
 		}
 		if !hasRole {
 			if err := roles.Assign(ctx, userID, r.ID); err != nil {
@@ -1949,6 +2022,13 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		Role:    role,
 		Profile: prof,
 	}, nil
+}
+
+func validateSetProfileState(profileExists, hasRole bool) error {
+	if profileExists && hasRole {
+		return constant.ErrProfileAlreadySet
+	}
+	return nil
 }
 
 /* ==================== Password helpers ==================== */

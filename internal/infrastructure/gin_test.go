@@ -77,6 +77,29 @@ func TestCORSUsesExactConfiguredAllowlist(t *testing.T) {
 	}
 }
 
+func TestCORSExposesDeprecationResponseHeaders(t *testing.T) {
+	setGinTestConfig()
+	resetHealthChecksForTest()
+	router := NewGinEngine()
+	router.GET("/legacy", func(c *gin.Context) {
+		c.Header("Deprecation", "@1788739200")
+		c.Header("Link", `</v1/profile>; rel="successor-version"`)
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/legacy", nil)
+	request.Header.Set("Origin", "https://app.example.com")
+	router.ServeHTTP(recorder, request)
+
+	exposed := strings.ToLower(recorder.Header().Get("Access-Control-Expose-Headers"))
+	for _, header := range []string{"deprecation", "link"} {
+		if !strings.Contains(exposed, header) {
+			t.Errorf("Access-Control-Expose-Headers = %q, want %q exposed", exposed, header)
+		}
+	}
+}
+
 func TestAccessLogClientFingerprintIsKeyed(t *testing.T) {
 	setGinTestConfig()
 	config.Env.JWT.Secret = "first-secret-with-at-least-32-bytes"

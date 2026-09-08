@@ -44,7 +44,7 @@ func NewGinEngine() *gin.Engine {
 		AllowOrigins:     config.Env.Server.CORSAllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "X-Hospital-ID", "X-Hospital-Code"},
-		ExposeHeaders:    []string{"X-Request-ID"},
+		ExposeHeaders:    []string{"X-Request-ID", "Deprecation", "Link"},
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))

@@ -2,11 +2,60 @@ package user
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	"github.com/gin-gonic/gin"
 )
+
+func TestLegacyProfileUpdateHandlersAdvertiseSuccessorAndDelegate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controller := &Controller{}
+	tests := []struct {
+		name    string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{
+			name:    "patient",
+			path:    "/v1/profile/patient",
+			handler: controller.UpdatePatientProfile,
+		},
+		{
+			name:    "doctor",
+			path:    "/v1/profile/doctor",
+			handler: controller.UpdateDoctorProfile,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router := gin.New()
+			router.PUT(test.path, LegacyProfileDeprecation(), test.handler)
+			request := httptest.NewRequest(http.MethodPut, test.path, strings.NewReader("{"))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+
+			if got := recorder.Header().Get("Deprecation"); got != legacyProfileDeprecationDate {
+				t.Errorf("Deprecation = %q, want %q", got, legacyProfileDeprecationDate)
+			}
+			if got := recorder.Header().Get("Link"); got != profileSuccessorLink {
+				t.Errorf("Link = %q, want %q", got, profileSuccessorLink)
+			}
+			if got := recorder.Header().Get("Sunset"); got != "" {
+				t.Errorf("Sunset = %q, want empty until a removal date is approved", got)
+			}
+			if recorder.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d; middleware chain must delegate to the existing handler", recorder.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
 
 func TestToMeDTOIncludesUsernameAndNIK(t *testing.T) {
 	username := "patient_example"

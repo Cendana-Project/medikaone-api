@@ -3,9 +3,11 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -13,6 +15,25 @@ import (
 )
 
 type Repository struct{ db *gorm.DB }
+
+var (
+	ErrHospitalWorkerDOBRequired = errors.New("hospital worker date of birth is required")
+	ErrHospitalWorkerUnderage    = errors.New("hospital worker minimum age is not met")
+)
+
+// ErrDoctorSIPConflict identifies a database-enforced SIP uniqueness conflict.
+// Services use this operation-specific error because GORM's translated duplicate
+// key error does not retain the PostgreSQL constraint name.
+var ErrDoctorSIPConflict = errors.New("doctor SIP conflicts with another profile")
+
+// UnifiedProfileUpdate groups the independently optional profile fragments
+// written by PATCH /v1/profile. ApplyUnifiedProfileUpdate persists all
+// non-empty fragments in one database transaction.
+type UnifiedProfileUpdate struct {
+	UserFields    map[string]any
+	PatientFields map[string]any
+	DoctorFields  map[string]any
+}
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
@@ -24,6 +45,164 @@ func (r *Repository) Begin(ctx context.Context) *gorm.DB {
 
 func (r *Repository) Transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
 	return r.db.WithContext(ctx).Transaction(fn)
+}
+
+func (r *Repository) ApplyUnifiedProfileUpdate(ctx context.Context, userID string, update UnifiedProfileUpdate) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&user, "id = ? AND deleted_at IS NULL", userID).Error; err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		isHospitalWorker, err := userIsActiveHospitalWorker(tx, userID)
+		if err != nil {
+			return err
+		}
+		if isHospitalWorker {
+			effectiveDOB := user.DOB
+			if value, updated := update.UserFields["dob"]; updated {
+				switch dob := value.(type) {
+				case time.Time:
+					effectiveDOB = &dob
+				case *time.Time:
+					effectiveDOB = dob
+				case nil:
+					effectiveDOB = nil
+				default:
+					return fmt.Errorf("unsupported dob update type %T", value)
+				}
+			}
+			if effectiveDOB == nil {
+				return ErrHospitalWorkerDOBRequired
+			}
+			if !hospitalWorkerDOBMeetsMinimum(*effectiveDOB, now) {
+				return ErrHospitalWorkerUnderage
+			}
+		}
+		if len(update.UserFields) > 0 {
+			fields := cloneFields(update.UserFields)
+			fields["updated_at"] = now
+			if err := tx.Model(&entity.User{}).
+				Where("id = ? AND deleted_at IS NULL", userID).
+				Updates(fields).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(update.PatientFields) > 0 {
+			values := cloneFields(update.PatientFields)
+			values["user_id"] = userID
+			values["updated_at"] = now
+			assignments := cloneFields(update.PatientFields)
+			assignments["updated_at"] = now
+			if err := tx.Table("patient_profiles").
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "user_id"}},
+					DoUpdates: clause.Assignments(assignments),
+				}).
+				Create(values).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(update.DoctorFields) > 0 {
+			values := cloneFields(update.DoctorFields)
+			values["user_id"] = userID
+			values["updated_at"] = now
+			assignments := cloneFields(update.DoctorFields)
+			assignments["updated_at"] = now
+			if err := tx.Table("doctor_profiles").
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "user_id"}},
+					DoUpdates: clause.Assignments(assignments),
+				}).
+				Create(values).Error; err != nil {
+				return mapDoctorProfileWriteError(err)
+			}
+		}
+
+		return nil
+	})
+}
+
+func cloneFields(source map[string]any) map[string]any {
+	copy := make(map[string]any, len(source))
+	for key, value := range source {
+		copy[key] = value
+	}
+	return copy
+}
+
+func (r *Repository) UserHasActiveGlobalRole(ctx context.Context, userID, roleSlug string) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("user_roles ur").
+		Joins("JOIN roles r ON r.id = ur.role_id").
+		Joins("JOIN users u ON u.id = ur.user_id").
+		Where(`ur.user_id = ? AND UPPER(r.slug) = UPPER(?)
+			AND r.active = TRUE AND r.deleted_at IS NULL
+			AND u.status = 'active' AND u.deleted_at IS NULL`, userID, roleSlug).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *Repository) UserHasAnyActiveHospitalRole(ctx context.Context, userID, roleSlug string) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("hospital_user_roles hur").
+		Joins("JOIN user_hospitals uh ON uh.user_id = hur.user_id AND uh.hospital_id = hur.hospital_id").
+		Joins("JOIN hospitals h ON h.id = hur.hospital_id").
+		Joins("JOIN roles r ON r.id = hur.role_id").
+		Joins("JOIN users u ON u.id = hur.user_id").
+		Where(`hur.user_id = ? AND UPPER(r.slug) = UPPER(?)
+			AND uh.is_active = TRUE AND uh.deleted_at IS NULL
+			AND h.is_active = TRUE AND h.deleted_at IS NULL
+			AND r.active = TRUE AND r.deleted_at IS NULL
+			AND u.status = 'active' AND u.deleted_at IS NULL`, userID, roleSlug).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *Repository) UserIsActiveHospitalWorker(ctx context.Context, userID string) (bool, error) {
+	return userIsActiveHospitalWorker(r.db.WithContext(ctx), userID)
+}
+
+func userIsActiveHospitalWorker(db *gorm.DB, userID string) (bool, error) {
+	var worker bool
+	const query = `
+SELECT EXISTS (
+    SELECT 1
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    JOIN users u ON u.id = ur.user_id
+    WHERE ur.user_id = @user_id
+      AND UPPER(r.slug) IN ('ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'BOD')
+      AND r.active = TRUE AND r.deleted_at IS NULL
+      AND u.status = 'active' AND u.deleted_at IS NULL
+    UNION ALL
+    SELECT 1
+    FROM hospital_user_roles hur
+    JOIN user_hospitals uh ON uh.user_id = hur.user_id AND uh.hospital_id = hur.hospital_id
+    JOIN hospitals h ON h.id = hur.hospital_id
+    JOIN roles r ON r.id = hur.role_id
+    JOIN users u ON u.id = hur.user_id
+    WHERE hur.user_id = @user_id
+      AND UPPER(r.slug) IN ('ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'BOD')
+      AND uh.is_active = TRUE AND uh.deleted_at IS NULL
+      AND h.is_active = TRUE AND h.deleted_at IS NULL
+      AND r.active = TRUE AND r.deleted_at IS NULL
+      AND u.status = 'active' AND u.deleted_at IS NULL
+) AS worker`
+	if err := db.Raw(query, map[string]any{"user_id": userID}).Scan(&worker).Error; err != nil {
+		return false, err
+	}
+	return worker, nil
+}
+
+func hospitalWorkerDOBMeetsMinimum(dob, now time.Time) bool {
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	birthDate := time.Date(dob.UTC().Year(), dob.UTC().Month(), dob.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return birthDate.AddDate(15, 0, 0).Before(today)
 }
 
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*entity.User, error) {
@@ -240,7 +419,7 @@ func (r *Repository) UpsertPatientProfile(ctx context.Context, p map[string]any)
 }
 
 func (r *Repository) UpsertDoctorProfile(ctx context.Context, p map[string]any) error {
-	return r.db.WithContext(ctx).Exec(`
+	err := r.db.WithContext(ctx).Exec(`
 		INSERT INTO doctor_profiles (user_id, sip_number, specialty, created_at, updated_at)
 		VALUES (@user_id, @sip_number, @specialty, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
@@ -248,6 +427,24 @@ func (r *Repository) UpsertDoctorProfile(ctx context.Context, p map[string]any) 
 		  specialty  = EXCLUDED.specialty,
 		  updated_at = NOW();
 	`, p).Error
+	return mapDoctorProfileWriteError(err)
+}
+
+func mapDoctorProfileWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return fmt.Errorf("%w: %w", ErrDoctorSIPConflict, err)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		switch postgresError.ConstraintName {
+		case "doctor_profiles_sip_number_key", "ux_doctor_profiles_sip_number_normalized":
+			return fmt.Errorf("%w: %w", ErrDoctorSIPConflict, err)
+		}
+	}
+	return err
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (*entity.User, error) {
@@ -308,6 +505,19 @@ func (r *Repository) ExistsNIKExcludingUser(ctx context.Context, nik, userID str
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&entity.User{}).
 		Where("nik = ? AND id <> ? AND deleted_at IS NULL", nik, userID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *Repository) ExistsSIPExcludingUser(ctx context.Context, sipNumber, userID string) (bool, error) {
+	if strings.TrimSpace(sipNumber) == "" {
+		return false, nil
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Table("doctor_profiles").
+		Where("LOWER(BTRIM(sip_number)) = LOWER(BTRIM(?)) AND user_id <> ?", sipNumber, userID).
 		Count(&count).Error; err != nil {
 		return false, err
 	}

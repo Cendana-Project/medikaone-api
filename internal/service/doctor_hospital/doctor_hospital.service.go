@@ -630,6 +630,12 @@ func mapRepositoryError(err error) error {
 		return constant.ErrAffiliationNotFound
 	case errors.Is(err, repository.ErrNotificationNotFound):
 		return constant.ErrNotificationNotFound
+	case errors.Is(err, repository.ErrDoctorNotEligible):
+		return constant.ErrDoctorNotEligible
+	case errors.Is(err, repository.ErrHospitalWorkerDOBRequired):
+		return constant.NewFieldRequiredError("dob")
+	case errors.Is(err, repository.ErrHospitalWorkerUnderage):
+		return constant.ErrHospitalWorkerMinimumAge
 	default:
 		return constant.ErrInternalServerError
 	}

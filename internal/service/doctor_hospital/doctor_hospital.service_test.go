@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
@@ -34,7 +35,10 @@ type fakeRepository struct {
 	createInput         repository.CreateInvitationInput
 	invitation          *response.DoctorHospitalInvitation
 	acceptedInvitation  string
+	acceptErr           error
 	rejectedInvitation  string
+	updatedStatus       string
+	updateStatusErr     error
 }
 
 func (f *fakeRepository) SearchEligibleDoctors(_ context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
@@ -82,10 +86,18 @@ func (f *fakeRepository) GetInvitationForDoctor(_ context.Context, _, _ string, 
 }
 
 func (f *fakeRepository) AcceptInvitation(_ context.Context, invitationID, _ string, now time.Time) error {
+	if f.acceptErr != nil {
+		return f.acceptErr
+	}
 	f.acceptedInvitation = invitationID
 	f.invitation.Status = "ACCEPTED"
 	f.invitation.RespondedAt = &now
 	return nil
+}
+
+func (f *fakeRepository) UpdateAffiliationStatus(_ context.Context, _, _, status, _ string, _ time.Time) error {
+	f.updatedStatus = status
+	return f.updateStatusErr
 }
 
 func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, _ time.Time) error {
@@ -319,5 +331,57 @@ func TestInvitationResponseRequiresNoPayloadOrSignedContract(t *testing.T) {
 	}
 	if repo.rejectedInvitation != invitationID {
 		t.Fatalf("invitation %s was not rejected", invitationID)
+	}
+}
+
+func TestAcceptInvitationMapsHospitalWorkerDOBFailures(t *testing.T) {
+	doctorID := uuid.NewString()
+	invitationID := uuid.NewString()
+	tests := []struct {
+		name    string
+		repoErr error
+		want    error
+	}{
+		{
+			name: "missing dob", repoErr: repository.ErrHospitalWorkerDOBRequired,
+			want: constant.NewFieldRequiredError("dob"),
+		},
+		{
+			name: "underage", repoErr: repository.ErrHospitalWorkerUnderage,
+			want: constant.ErrHospitalWorkerMinimumAge,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{
+				invitation: &response.DoctorHospitalInvitation{
+					ID: invitationID, DoctorID: doctorID, Status: entity.DoctorHospitalInvitationPending,
+				},
+				acceptErr: test.repoErr,
+			}
+			service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+			if _, err := service.AcceptInvitation(context.Background(), doctorID, invitationID); !errors.Is(err, test.want) {
+				t.Fatalf("AcceptInvitation() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestReactivationMapsHospitalWorkerAgeFailureButSuspensionRemainsAllowed(t *testing.T) {
+	doctorID := uuid.NewString()
+	hospitalID := uuid.NewString()
+	repo := &fakeRepository{updateStatusErr: repository.ErrHospitalWorkerUnderage}
+	service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
+
+	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationActive, uuid.NewString()); !errors.Is(err, constant.ErrHospitalWorkerMinimumAge) {
+		t.Fatalf("reactivation error = %v, want %v", err, constant.ErrHospitalWorkerMinimumAge)
+	}
+
+	repo.updateStatusErr = nil
+	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationSuspended, uuid.NewString()); err != nil {
+		t.Fatalf("suspension should not require an eligible DOB: %v", err)
+	}
+	if repo.updatedStatus != entity.DoctorHospitalAffiliationSuspended {
+		t.Fatalf("updated status = %q, want %q", repo.updatedStatus, entity.DoctorHospitalAffiliationSuspended)
 	}
 }

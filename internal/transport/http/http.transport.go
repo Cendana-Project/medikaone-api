@@ -143,13 +143,15 @@ func (t *Transport) InitRoute() {
 		protected.POST("/auth/choose-role", t.authController.ChooseRole)
 
 		protected.PUT("/profile/patient",
-			transportmw.RequirePermissions(t.roleRepo, constant.PermissionPatientEdit),
+			userCtrl.LegacyProfileDeprecation(),
+			transportmw.RequirePatient(t.roleRepo),
 			t.userController.UpdatePatientProfile,
 		)
 
 		protected.PUT("/auth/password", t.authController.PasswordChange)
 
 		protected.PUT("/profile/doctor",
+			userCtrl.LegacyProfileDeprecation(),
 			transportmw.RequireDoctor(t.roleRepo),
 			t.userController.UpdateDoctorProfile,
 		)

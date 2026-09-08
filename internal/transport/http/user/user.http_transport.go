@@ -27,12 +27,29 @@ type Controller struct {
 	profileSvc *usersvc.Service
 }
 
+const (
+	// RFC 9745 represents a deprecation date as an HTTP Structured Field Date.
+	legacyProfileDeprecationDate = "@1788739200" // 2026-09-07T00:00:00Z
+	profileSuccessorLink         = `</v1/profile>; rel="successor-version"`
+)
+
 func NewController(svc *auth.Service, ur *userrepo.Repository, profileServices ...*usersvc.Service) *Controller {
 	controller := &Controller{svc: svc, userRepo: ur}
 	if len(profileServices) > 0 {
 		controller.profileSvc = profileServices[0]
 	}
 	return controller
+}
+
+// LegacyProfileDeprecation marks the former role-specific PUT routes before
+// role-specific authorization runs. No Sunset header is sent until a removal
+// date is approved.
+func LegacyProfileDeprecation() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Deprecation", legacyProfileDeprecationDate)
+		c.Header("Link", profileSuccessorLink)
+		c.Next()
+	}
 }
 
 // PUT /v1/profile/patient (protected)

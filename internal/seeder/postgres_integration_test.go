@@ -170,7 +170,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		for _, index := range []string{
 			"ux_users_seed_key", "ux_users_email_lower", "ux_users_username_lower", "ux_users_nik_active",
 			"ux_hospitals_seed_key", "ux_hospitals_code_lower", "ux_hospitals_name_lower",
-			"ux_user_hospitals_one_primary",
+			"ux_user_hospitals_one_primary", "ux_doctor_profiles_sip_number_normalized",
 		} {
 			if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, index); got != 1 {
 				t.Fatalf("partial unique index %s count = %d, want 1", index, got)
@@ -187,6 +187,100 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		wantMigrations := migrationFileCount(t)
 		if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM goose_db_version WHERE is_applied AND version_id > 0`); got != wantMigrations {
 			t.Fatalf("applied Goose migration count = %d, want %d", got, wantMigrations)
+		}
+	}); !ok {
+		t.FailNow()
+	}
+
+	if ok := t.Run("unified profile repository preserves patch semantics atomically", func(t *testing.T) {
+		primaryUserID := uuid.NewString()
+		conflictingUserID := uuid.NewString()
+		t.Cleanup(func() {
+			_, _ = sqlDB.Exec(`DELETE FROM users WHERE id IN ($1, $2)`, primaryUserID, conflictingUserID)
+		})
+		if _, err := sqlDB.Exec(`
+			INSERT INTO users (id, email, username, first_name, last_name, phone, password_hash, status)
+			VALUES
+				($1, $2, $3, 'Before', 'Profile', '081234567890', 'integration-hash', 'active'),
+				($4, $5, $6, 'Other', 'Doctor', '081234567891', 'integration-hash', 'active')
+		`, primaryUserID, "profile-"+primaryUserID+"@example.test", "profile-"+primaryUserID,
+			conflictingUserID, "profile-"+conflictingUserID+"@example.test", "profile-"+conflictingUserID); err != nil {
+			t.Fatalf("insert profile integration users: %v", err)
+		}
+		if _, err := sqlDB.Exec(`
+			INSERT INTO patient_profiles (user_id, height_cm, weight_kg, allergies, medical_hist)
+			VALUES ($1, 170, 70, 'dust', 'old history')
+		`, primaryUserID); err != nil {
+			t.Fatalf("insert patient profile: %v", err)
+		}
+		if _, err := sqlDB.Exec(`
+			INSERT INTO doctor_profiles (user_id, sip_number, specialty)
+			VALUES ($1, 'SIP-ORIGINAL', 'General'), ($2, 'SIP-CONFLICT', 'Neurology')
+		`, primaryUserID, conflictingUserID); err != nil {
+			t.Fatalf("insert doctor profiles: %v", err)
+		}
+
+		repository := userrepo.NewRepository(db)
+		exists, err := repository.ExistsSIPExcludingUser(context.Background(), "  sip-conflict  ", primaryUserID)
+		if err != nil || !exists {
+			t.Fatalf("ExistsSIPExcludingUser() = %v, %v; want true for normalized case variant", exists, err)
+		}
+		if err := repository.ApplyUnifiedProfileUpdate(context.Background(), primaryUserID, userrepo.UnifiedProfileUpdate{
+			UserFields:    map[string]any{"first_name": "After"},
+			PatientFields: map[string]any{"height_cm": 180, "allergies": nil},
+			DoctorFields:  map[string]any{"specialty": "Cardiology"},
+		}); err != nil {
+			t.Fatalf("ApplyUnifiedProfileUpdate() success path: %v", err)
+		}
+
+		var firstName, phone string
+		if err := sqlDB.QueryRow(`SELECT first_name, phone FROM users WHERE id = $1`, primaryUserID).
+			Scan(&firstName, &phone); err != nil {
+			t.Fatalf("read updated user: %v", err)
+		}
+		if firstName != "After" || phone != "081234567890" {
+			t.Fatalf("user patch = first_name %q phone %q; omitted phone must be preserved", firstName, phone)
+		}
+		var height, weight int
+		var allergies sql.NullString
+		var medicalHistory string
+		if err := sqlDB.QueryRow(`
+			SELECT height_cm, weight_kg, allergies, medical_hist
+			FROM patient_profiles WHERE user_id = $1
+		`, primaryUserID).Scan(&height, &weight, &allergies, &medicalHistory); err != nil {
+			t.Fatalf("read updated patient profile: %v", err)
+		}
+		if height != 180 || weight != 70 || allergies.Valid || medicalHistory != "old history" {
+			t.Fatalf("patient patch = height %d weight %d allergies %#v history %q", height, weight, allergies, medicalHistory)
+		}
+		var sipNumber, specialty string
+		if err := sqlDB.QueryRow(`SELECT sip_number, specialty FROM doctor_profiles WHERE user_id = $1`, primaryUserID).
+			Scan(&sipNumber, &specialty); err != nil {
+			t.Fatalf("read updated doctor profile: %v", err)
+		}
+		if sipNumber != "SIP-ORIGINAL" || specialty != "Cardiology" {
+			t.Fatalf("doctor patch = sip %q specialty %q; omitted SIP must be preserved", sipNumber, specialty)
+		}
+
+		err = repository.ApplyUnifiedProfileUpdate(context.Background(), primaryUserID, userrepo.UnifiedProfileUpdate{
+			UserFields:    map[string]any{"first_name": "Must Roll Back"},
+			PatientFields: map[string]any{"weight_kg": 99},
+			DoctorFields:  map[string]any{"sip_number": "  sip-conflict  "},
+		})
+		if !errors.Is(err, userrepo.ErrDoctorSIPConflict) {
+			t.Fatalf("ApplyUnifiedProfileUpdate() duplicate normalized SIP error = %v, want %v", err, userrepo.ErrDoctorSIPConflict)
+		}
+		if err := sqlDB.QueryRow(`SELECT first_name FROM users WHERE id = $1`, primaryUserID).Scan(&firstName); err != nil {
+			t.Fatalf("read user after rollback: %v", err)
+		}
+		if err := sqlDB.QueryRow(`SELECT weight_kg FROM patient_profiles WHERE user_id = $1`, primaryUserID).Scan(&weight); err != nil {
+			t.Fatalf("read patient after rollback: %v", err)
+		}
+		if err := sqlDB.QueryRow(`SELECT sip_number FROM doctor_profiles WHERE user_id = $1`, primaryUserID).Scan(&sipNumber); err != nil {
+			t.Fatalf("read doctor after rollback: %v", err)
+		}
+		if firstName != "After" || weight != 70 || sipNumber != "SIP-ORIGINAL" {
+			t.Fatalf("failed profile transaction leaked writes: first_name=%q weight=%d sip=%q", firstName, weight, sipNumber)
 		}
 	}); !ok {
 		t.FailNow()

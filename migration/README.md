@@ -9,9 +9,11 @@ go run . migrate --action up
 Migration `20260901010000_harden_user_hospitals.sql`,
 `20260904100000_check_in_walk_in.sql`,
 `20260904150000_examination.sql`, dan
-`20260905090000_prescription.sql` sengaja irreversible. Migration tersebut
+`20260905090000_prescription.sql`, serta
+`20260907100000_doctor_sip_case_insensitive_unique.sql` sengaja irreversible. Migration tersebut
 memisahkan patient record dari akun autentikasi, mempertahankan revisi rekam
-medis final, dan melindungi resep yang sudah diterbitkan. Command aplikasi menolak
+medis final, melindungi resep yang sudah diterbitkan, dan menjaga identitas SIP
+dokter tetap unik tanpa membedakan kapitalisasi. Command aplikasi menolak
 `down`, `down-to`, dan `reset`; pemulihan staging dilakukan melalui command
 reset yang dijaga, bukan downgrade schema. Setiap migration `Up` baru wajib
 non-destruktif terhadap tabel/schema dan harus memperbarui grant runtime minimum
