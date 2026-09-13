@@ -2010,11 +2010,14 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		}
 		prof.HeightCM, prof.WeightKG, prof.Allergies, prof.MedicalHistory = h, w, a, m
 	} else {
-		sipNumber, specialty, err := s.users.GetDoctorProfileByUserID(ctx, userID)
+		doctorProfile, err := s.users.GetDoctorProfile(ctx, userID)
 		if err != nil {
 			return nil, constant.ErrInternalServerError
 		}
-		prof.SIPNumber, prof.Specialty = sipNumber, specialty
+		if doctorProfile != nil {
+			prof.SIPNumber, prof.Specialty = doctorProfile.SIPNumber, doctorProfile.Specialty
+			prof.DoctorMedikaOneID = doctorProfile.DoctorMedikaOneID
+		}
 	}
 
 	ulog.Infof(ctx, "set-profile success user_id=%s role=%s", userID, role)

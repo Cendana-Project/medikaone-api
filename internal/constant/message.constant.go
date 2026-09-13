@@ -135,6 +135,23 @@ func successDetail(titleEng, titleIdn string) response.MessageDetail {
 }
 
 var MessageCatalog = map[MessageCode]response.MessageDetail{
+	MsgDoctorsListed:                         successDetail("Doctors retrieved", "Daftar dokter berhasil diambil"),
+	MsgDoctorRetrieved:                       successDetail("Doctor retrieved", "Dokter berhasil diambil"),
+	MsgHospitalsListed:                       successDetail("Hospitals retrieved", "Daftar rumah sakit berhasil diambil"),
+	MsgHospitalRetrieved:                     successDetail("Hospital retrieved", "Rumah sakit berhasil diambil"),
+	MsgHospitalUpdated:                       successDetail("Hospital updated", "Rumah sakit berhasil diperbarui"),
+	MsgHospitalDeleted:                       successDetail("Hospital deleted", "Rumah sakit berhasil dihapus"),
+	MsgHospitalDepartmentUpdated:             successDetail("Hospital department updated", "Departemen rumah sakit berhasil diperbarui"),
+	MsgHospitalDepartmentDeleted:             successDetail("Hospital department deleted", "Departemen rumah sakit berhasil dihapus"),
+	MsgHospitalRoomUpdated:                   successDetail("Hospital room updated", "Ruangan rumah sakit berhasil diperbarui"),
+	MsgHospitalRoomDeleted:                   successDetail("Hospital room deleted", "Ruangan rumah sakit berhasil dihapus"),
+	MsgDoctorInvitationUpdated:               successDetail("Doctor invitation updated", "Undangan dokter berhasil diperbarui"),
+	MsgDoctorInvitationDeleted:               successDetail("Doctor invitation deleted", "Undangan dokter berhasil dihapus"),
+	MsgDoctorAffiliationDeleted:              successDetail("Doctor affiliation deleted", "Afiliasi dokter berhasil dihapus"),
+	MsgAccountDeleted:                        successDetail("Account deleted", "Akun berhasil dihapus"),
+	MsgNotificationDeleted:                   successDetail("Notification deleted", "Notifikasi berhasil dihapus"),
+	MsgDoctorScheduleCreated:                 successDetail("Doctor schedule created", "Jadwal dokter berhasil dibuat"),
+	MsgDoctorScheduleDeleted:                 successDetail("Doctor schedule deleted", "Jadwal dokter berhasil dihapus"),
 	MsgSuccess:                               successDetail("Operation completed successfully", "Operasi berhasil diselesaikan"),
 	MsgServiceHealthy:                        successDetail("Service is healthy", "Layanan dalam kondisi sehat"),
 	MsgServiceAlive:                          successDetail("Service is alive", "Layanan aktif"),

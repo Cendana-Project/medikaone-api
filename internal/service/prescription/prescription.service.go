@@ -353,6 +353,7 @@ func applyAppointmentIdentity(row *response.Prescription, appointment *repositor
 	row.HospitalAddress = appointment.HospitalAddress
 	row.HospitalPhone = appointment.HospitalPhone
 	row.DoctorName = appointment.DoctorName
+	row.DoctorMedikaOneID = appointment.DoctorMedikaOneID
 	row.DoctorSIPNumber = appointment.DoctorSIPNumber
 }
 

@@ -135,8 +135,8 @@ func (f *fakeRepository) ReviewScheduleChange(context.Context, string, string, s
 
 func TestNormalizeSchedulesSupportsBothBookingModes(t *testing.T) {
 	items, err := normalizeSchedules([]request.DoctorInvitationScheduleRequest{
-		{DayOfWeek: 1, StartTime: "08:00", EndTime: "10:00", BookingMode: "fixed_slot", SlotDurationMins: 30, Capacity: 2},
-		{DayOfWeek: 2, StartTime: "13:00", EndTime: "16:00", BookingMode: "session_queue", Capacity: 20},
+		{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "10:00", BookingMode: "fixed_slot", SlotDurationMins: 30, Capacity: 2},
+		{DayOfWeek: []int{2}, StartTime: "13:00", EndTime: "16:00", BookingMode: "session_queue", Capacity: 20},
 	})
 	if err != nil {
 		t.Fatalf("normalizeSchedules() error = %v", err)
@@ -148,14 +148,14 @@ func TestNormalizeSchedulesSupportsBothBookingModes(t *testing.T) {
 		t.Fatalf("queue normalization = %+v", items[1])
 	}
 
-	_, err = normalizeSchedules([]request.DoctorInvitationScheduleRequest{{DayOfWeek: 1, StartTime: "08:00", EndTime: "09:10", BookingMode: "FIXED_SLOT", SlotDurationMins: 30}})
+	_, err = normalizeSchedules([]request.DoctorInvitationScheduleRequest{{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "09:10", BookingMode: "FIXED_SLOT", SlotDurationMins: 30}})
 	want := constant.NewInvalidFieldValueError("slot_duration_minutes", "an exact divisor of the practice duration for FIXED_SLOT", "dapat membagi durasi praktik secara tepat untuk FIXED_SLOT")
 	if !errors.Is(err, want) {
 		t.Fatalf("misaligned fixed schedule error = %v", err)
 	}
 	_, err = normalizeSchedules([]request.DoctorInvitationScheduleRequest{
-		{DayOfWeek: 1, StartTime: "08:00", EndTime: "10:00"},
-		{DayOfWeek: 1, StartTime: "09:00", EndTime: "11:00"},
+		{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "10:00"},
+		{DayOfWeek: []int{1}, StartTime: "09:00", EndTime: "11:00"},
 	})
 	if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
 		t.Fatalf("overlapping schedule error = %v", err)

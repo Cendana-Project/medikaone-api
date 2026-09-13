@@ -1,6 +1,7 @@
 package hospital
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -44,7 +45,7 @@ func (ctl *Controller) CreateHospital(c *gin.Context) {
 		"longitude":   h.Longitude,
 		"phone":       h.Phone,
 		"description": h.Description,
-		"facilities":  h.Facilities,
+		"facilities":  json.RawMessage(h.Facilities),
 		"is_active":   h.IsActive,
 		"created_at":  h.CreatedAt,
 	}

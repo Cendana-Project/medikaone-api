@@ -2,6 +2,10 @@
 
 Backend monolitik MedikaOne berbasis Go, Gin, PostgreSQL, Redis, dan SMTP. PostgreSQL menyimpan data utama dan relasi tenant rumah sakit; Redis wajib tersedia untuk challenge PIN, rate limit, rotasi refresh token, session version, dan blacklist access token.
 
+Kontrak direktori dokter/rumah sakit, MedikaOne ID dokter, update/delete resource,
+dan jadwal sekali atau array hari dijelaskan di
+[panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md).
+
 ## Menjalankan secara lokal
 
 Prasyarat:
@@ -139,9 +143,33 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.users TO medikaone_app;
 GRANT SELECT ON TABLE public.roles, public.permissions, public.role_permissions TO medikaone_app;
 GRANT SELECT, INSERT ON TABLE public.user_roles TO medikaone_app;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.patient_profiles, public.doctor_profiles TO medikaone_app;
-GRANT SELECT, INSERT ON TABLE public.hospitals, public.hospital_user_roles TO medikaone_app;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.hospitals TO medikaone_app;
+GRANT SELECT, INSERT, DELETE ON TABLE public.hospital_user_roles TO medikaone_app;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.user_hospitals TO medikaone_app;
 GRANT SELECT ON TABLE public.goose_db_version TO medikaone_app;
+
+-- Tabel fitur aktif: diperlukan juga bila role baru dibuat setelah migration.
+GRANT SELECT, INSERT, UPDATE ON TABLE
+    public.hospital_departments, public.hospital_rooms,
+    public.doctor_hospital_invitations, public.doctor_hospital_contracts,
+    public.doctor_hospital_invitation_events, public.doctor_hospital_affiliations,
+    public.doctor_hospital_affiliation_events, public.doctor_hospital_schedules,
+    public.notifications, public.doctor_schedule_change_requests,
+    public.doctor_schedule_change_items, public.doctor_schedule_change_events,
+    public.appointment_daily_counters, public.appointments,
+    public.appointment_status_events, public.appointment_reminders,
+    public.patient_records, public.medical_encounters, public.vital_sign_revisions,
+    public.consultation_note_revisions, public.hospital_medications,
+    public.prescriptions TO medikaone_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    public.doctor_hospital_invitation_schedules, public.encounter_diagnoses,
+    public.prescription_revisions TO medikaone_app;
+GRANT SELECT, INSERT, DELETE ON TABLE
+    public.prescription_items, public.prescription_item_components TO medikaone_app;
+GRANT SELECT, INSERT ON TABLE
+    public.patient_record_events, public.medical_record_attachments,
+    public.medical_record_audit_events, public.prescription_documents,
+    public.prescription_audit_events TO medikaone_app;
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.goose_db_version FROM medikaone_app;
 REVOKE CREATE ON SCHEMA public FROM medikaone_app;
@@ -469,7 +497,7 @@ CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integrat
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Server memerlukan migration terbaru `20260905090000_prescription.sql`; jalankan migration sebelum deployment baru menerima traffic.
+- Server memerlukan migration terbaru `20260913110000_specific_schedules.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Perubahan `day_of_week` menjadi array memerlukan pembaruan client.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
 - Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.

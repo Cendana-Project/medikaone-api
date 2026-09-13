@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -593,6 +594,21 @@ func (r *Repository) GetDoctorProfileByUserID(ctx context.Context, userID string
 	return out.SipNumber, out.Specialty, nil
 }
 
+// GetDoctorProfile returns the immutable public identity alongside professional fields.
+func (r *Repository) GetDoctorProfile(ctx context.Context, userID string) (*response.DoctorProfile, error) {
+	var profile response.DoctorProfile
+	result := r.db.WithContext(ctx).Raw(`
+		SELECT medikaone_id, sip_number, specialty FROM doctor_profiles WHERE user_id = ?
+	`, userID).Scan(&profile)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	return &profile, nil
+}
+
 func (r *Repository) ExistsPatientProfile(ctx context.Context, userID string) (bool, error) {
 	var exists bool
 	err := r.db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM patient_profiles WHERE user_id = ?)`, userID).
@@ -602,7 +618,10 @@ func (r *Repository) ExistsPatientProfile(ctx context.Context, userID string) (b
 
 func (r *Repository) ExistsDoctorProfile(ctx context.Context, userID string) (bool, error) {
 	var exists bool
-	err := r.db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM doctor_profiles WHERE user_id = ?)`, userID).
+	// Role assignment creates an ID-only row. A profile is complete only once
+	// the doctor supplies their required SIP; the identity alone must not block
+	// the initial SetProfile request.
+	err := r.db.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM doctor_profiles WHERE user_id = ? AND NULLIF(BTRIM(sip_number), '') IS NOT NULL)`, userID).
 		Scan(&exists).Error
 	return exists, err
 }

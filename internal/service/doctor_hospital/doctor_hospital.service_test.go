@@ -51,6 +51,10 @@ func (f *fakeRepository) FindEligibleDoctorByID(context.Context, string) (*respo
 	return f.eligible, nil
 }
 
+func (f *fakeRepository) GetDoctorMedikaOneID(context.Context, string) (string, error) {
+	return "MDO-0123456789ABCDEF", nil
+}
+
 func (f *fakeRepository) DepartmentExists(_ context.Context, hospitalID, _ string) (bool, error) {
 	f.departmentHospital = hospitalID
 	return f.departmentExists, nil
@@ -191,16 +195,16 @@ func TestValidatePDFEnforcesTenMegabyteCeiling(t *testing.T) {
 
 func TestValidateSchedulesRejectsOverlap(t *testing.T) {
 	_, err := validateSchedules([]request.DoctorInvitationScheduleRequest{
-		{DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00", Timezone: "Asia/Jakarta"},
-		{DayOfWeek: 1, StartTime: "11:00", EndTime: "13:00", Timezone: "Asia/Jakarta"},
+		{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "12:00", Timezone: "Asia/Jakarta"},
+		{DayOfWeek: []int{1}, StartTime: "11:00", EndTime: "13:00", Timezone: "Asia/Jakarta"},
 	})
 	if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
 		t.Fatalf("expected overlap error, got %v", err)
 	}
 
 	schedules, err := validateSchedules([]request.DoctorInvitationScheduleRequest{
-		{DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00"},
-		{DayOfWeek: 1, StartTime: "12:00", EndTime: "16:00"},
+		{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "12:00"},
+		{DayOfWeek: []int{1}, StartTime: "12:00", EndTime: "16:00"},
 	})
 	if err != nil {
 		t.Fatalf("adjacent schedules should be valid: %v", err)
@@ -265,7 +269,7 @@ func TestCreateInvitationScopesPlacementAndCleansFailedUpload(t *testing.T) {
 
 	_, err := service.CreateInvitation(context.Background(), hospitalID, uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
 		DoctorID: doctorID, DepartmentID: departmentID, RoomID: &roomID,
-		Schedules: []request.DoctorInvitationScheduleRequest{{DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00"}},
+		Schedules: []request.DoctorInvitationScheduleRequest{{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "12:00"}},
 	}, UploadedFile{Filename: "contract.pdf", MIMEType: "application/pdf", Content: []byte("%PDF-test")})
 	if !errors.Is(err, constant.ErrDoctorInvitationExists) {
 		t.Fatalf("expected mapped duplicate error, got %v", err)
@@ -295,7 +299,7 @@ func TestCreateInvitationRejectsExistingCrossHospitalScheduleBeforeUpload(t *tes
 
 	_, err := service.CreateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
 		DoctorID: repo.eligible.ID, DepartmentID: uuid.NewString(),
-		Schedules: []request.DoctorInvitationScheduleRequest{{DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00"}},
+		Schedules: []request.DoctorInvitationScheduleRequest{{DayOfWeek: []int{1}, StartTime: "08:00", EndTime: "12:00"}},
 	}, UploadedFile{Filename: "contract.pdf", MIMEType: "application/pdf", Content: []byte("%PDF-test")})
 	if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
 		t.Fatalf("expected schedule conflict, got %v", err)
@@ -373,13 +377,17 @@ func TestReactivationMapsHospitalWorkerAgeFailureButSuspensionRemainsAllowed(t *
 	repo := &fakeRepository{updateStatusErr: repository.ErrHospitalWorkerUnderage}
 	service := NewService(repo, &fakeStorage{}, nil, MaxContractBytes, time.Minute)
 
-	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationActive, uuid.NewString()); !errors.Is(err, constant.ErrHospitalWorkerMinimumAge) {
+	if _, err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationActive, uuid.NewString()); !errors.Is(err, constant.ErrHospitalWorkerMinimumAge) {
 		t.Fatalf("reactivation error = %v, want %v", err, constant.ErrHospitalWorkerMinimumAge)
 	}
 
 	repo.updateStatusErr = nil
-	if err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationSuspended, uuid.NewString()); err != nil {
+	result, err := service.UpdateAffiliationStatus(context.Background(), hospitalID, doctorID, entity.DoctorHospitalAffiliationSuspended, uuid.NewString())
+	if err != nil {
 		t.Fatalf("suspension should not require an eligible DOB: %v", err)
+	}
+	if result.DoctorID != doctorID || result.DoctorMedikaOneID != "MDO-0123456789ABCDEF" {
+		t.Fatalf("suspension response must include doctor identity: %#v", result)
 	}
 	if repo.updatedStatus != entity.DoctorHospitalAffiliationSuspended {
 		t.Fatalf("updated status = %q, want %q", repo.updatedStatus, entity.DoctorHospitalAffiliationSuspended)

@@ -14,6 +14,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/email"
 	"github.com/Cendana-Project/medikaone-api/internal/infrastructure"
 	appointmentRepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
+	doctorRepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor"
 	doctorHospitalRepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
 	examinationRepo "github.com/Cendana-Project/medikaone-api/internal/repository/examination"
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
@@ -22,6 +23,7 @@ import (
 	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	appointmentSvc "github.com/Cendana-Project/medikaone-api/internal/service/appointment"
 	authSvc "github.com/Cendana-Project/medikaone-api/internal/service/auth"
+	doctorSvc "github.com/Cendana-Project/medikaone-api/internal/service/doctor"
 	doctorHospitalSvc "github.com/Cendana-Project/medikaone-api/internal/service/doctor_hospital"
 	examinationSvc "github.com/Cendana-Project/medikaone-api/internal/service/examination"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
@@ -31,6 +33,7 @@ import (
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
 	appointmentHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
 	authHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
+	doctorHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor"
 	doctorHospitalHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	examinationHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
@@ -68,6 +71,7 @@ func runServer(parent context.Context) (returnErr error) {
 	aRepo := appointmentRepo.NewRepository(gormDB)
 	eRepo := examinationRepo.NewRepository(gormDB)
 	pRepo := prescriptionRepo.NewRepository(gormDB)
+	dRepo := doctorRepo.NewRepository(gormDB)
 	privateStorage, err := storageclient.NewSupabaseClient(config.Env.Storage)
 	if err != nil {
 		return fmt.Errorf("configure private storage: %w", err)
@@ -122,6 +126,7 @@ func runServer(parent context.Context) (returnErr error) {
 		storageclient.SignedURLTTL(config.Env.Storage),
 	)
 	authController := authHTTP.NewController(authService, uRepo)
+	doctorController := doctorHTTP.NewController(doctorSvc.NewService(dRepo))
 	userController := userHTTP.NewController(authService, uRepo, userProfileService)
 	hospitalController := hospHTTP.NewController(hospitalService)
 	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
@@ -133,6 +138,7 @@ func runServer(parent context.Context) (returnErr error) {
 	httpTransport.NewTransport().
 		WithGinEngine(r).
 		WithAuthController(authController).
+		WithDoctorController(doctorController).
 		WithUserController(userController).
 		WithHospitalController(hospitalController).
 		WithDoctorHospitalController(doctorHospitalController).

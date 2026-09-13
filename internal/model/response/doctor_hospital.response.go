@@ -6,28 +6,31 @@ import (
 )
 
 type DoctorSearchResult struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Username  string `json:"username"`
-	Phone     string `json:"phone"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	SIPNumber string `json:"sip_number"`
-	Specialty string `json:"specialty"`
+	DoctorMedikaOneID string `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	ID                string `json:"id"`
+	Email             string `json:"email"`
+	Username          string `json:"username"`
+	Phone             string `json:"phone"`
+	FirstName         string `json:"first_name"`
+	LastName          string `json:"last_name"`
+	SIPNumber         string `json:"sip_number" gorm:"column:sip_number"`
+	Specialty         string `json:"specialty"`
 }
 
 type DoctorHospitalSchedule struct {
-	ID                  string `json:"id,omitempty"`
-	DayOfWeek           int    `json:"day_of_week"`
-	StartTime           string `json:"start_time"`
-	EndTime             string `json:"end_time"`
-	Timezone            string `json:"timezone"`
-	BookingMode         string `json:"booking_mode"`
-	SlotDurationMinutes int    `json:"slot_duration_minutes"`
-	Capacity            int    `json:"capacity"`
+	ID                  string  `json:"id,omitempty"`
+	DayOfWeek           int     `json:"-"`
+	ScheduleDate        *string `json:"schedule_date,omitempty"`
+	StartTime           string  `json:"start_time"`
+	EndTime             string  `json:"end_time"`
+	Timezone            string  `json:"timezone"`
+	BookingMode         string  `json:"booking_mode"`
+	SlotDurationMinutes int     `json:"slot_duration_minutes"`
+	Capacity            int     `json:"capacity"`
 }
 
 type DoctorHospitalInvitation struct {
+	DoctorMedikaOneID  string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                 string                   `json:"id"`
 	HospitalID         string                   `json:"hospital_id"`
 	HospitalCode       string                   `json:"hospital_code"`
@@ -36,7 +39,7 @@ type DoctorHospitalInvitation struct {
 	DoctorEmail        string                   `json:"doctor_email"`
 	DoctorFirstName    string                   `json:"doctor_first_name"`
 	DoctorLastName     string                   `json:"doctor_last_name"`
-	SIPNumber          string                   `json:"sip_number"`
+	SIPNumber          string                   `json:"sip_number" gorm:"column:sip_number"`
 	Specialty          string                   `json:"specialty"`
 	DepartmentID       string                   `json:"department_id"`
 	DepartmentName     string                   `json:"department_name"`
@@ -52,26 +55,33 @@ type DoctorHospitalInvitation struct {
 	CreatedAt          time.Time                `json:"created_at"`
 	ContractFilename   string                   `json:"contract_filename"`
 	SignedContractName *string                  `json:"signed_contract_filename,omitempty"`
-	Schedules          []DoctorHospitalSchedule `json:"schedules"`
+	Schedules          []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
 }
 
 type HospitalDoctor struct {
-	AffiliationID string                   `json:"affiliation_id"`
-	HospitalID    string                   `json:"hospital_id"`
-	HospitalName  string                   `json:"hospital_name"`
-	DoctorID      string                   `json:"doctor_id"`
-	Email         string                   `json:"email"`
-	FirstName     string                   `json:"first_name"`
-	LastName      string                   `json:"last_name"`
-	SIPNumber     string                   `json:"sip_number"`
-	Specialty     string                   `json:"specialty"`
-	DepartmentID  string                   `json:"department_id"`
-	Department    string                   `json:"department"`
-	RoomID        *string                  `json:"room_id,omitempty"`
-	Room          *string                  `json:"room,omitempty"`
-	Status        string                   `json:"status"`
-	JoinedAt      time.Time                `json:"joined_at"`
-	Schedules     []DoctorHospitalSchedule `json:"schedules"`
+	DoctorMedikaOneID string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	AffiliationID     string                   `json:"affiliation_id"`
+	HospitalID        string                   `json:"hospital_id"`
+	HospitalName      string                   `json:"hospital_name"`
+	DoctorID          string                   `json:"doctor_id"`
+	Email             string                   `json:"email"`
+	FirstName         string                   `json:"first_name"`
+	LastName          string                   `json:"last_name"`
+	SIPNumber         string                   `json:"sip_number" gorm:"column:sip_number"`
+	Specialty         string                   `json:"specialty"`
+	DepartmentID      string                   `json:"department_id"`
+	Department        string                   `json:"department"`
+	RoomID            *string                  `json:"room_id,omitempty"`
+	Room              *string                  `json:"room,omitempty"`
+	Status            string                   `json:"status"`
+	JoinedAt          time.Time                `json:"joined_at"`
+	Schedules         []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+}
+
+type DoctorAffiliationStatus struct {
+	DoctorID          string `json:"doctor_id"`
+	DoctorMedikaOneID string `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	Status            string `json:"status"`
 }
 
 type Notification struct {

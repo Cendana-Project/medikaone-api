@@ -51,7 +51,7 @@ func NewGinEngine() *gin.Engine {
 		AllowOrigins:     config.Env.Server.CORSAllowedOrigins,
 		AllowOriginFunc:  func(origin string) bool { return localDevOriginPattern.MatchString(origin) },
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "X-Hospital-ID", "X-Hospital-Code"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "X-Hospital-ID", "X-Hospital-Code", "Idempotency-Key"},
 		ExposeHeaders:    []string{"X-Request-ID", "Deprecation", "Link"},
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,

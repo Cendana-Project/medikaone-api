@@ -6,6 +6,12 @@ type CreateScheduleChangeRequest struct {
 	Schedules     []DoctorInvitationScheduleRequest `json:"schedules" validate:"required,min=1,max=50"`
 }
 
+type CreateSpecificScheduleRequest struct {
+	AffiliationID string                          `json:"affiliation_id" validate:"required,uuid"`
+	Reason        *string                         `json:"reason,omitempty" validate:"omitempty,max=1000"`
+	Schedule      DoctorInvitationScheduleRequest `json:"schedule"`
+}
+
 type ReviewScheduleChangeRequest struct {
 	Reason *string `json:"reason,omitempty" validate:"omitempty,max=1000"`
 }

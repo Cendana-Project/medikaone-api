@@ -47,8 +47,9 @@ type PatientProfile struct {
 
 // DoctorProfile untuk user berperan DOCTOR.
 type DoctorProfile struct {
-	SIPNumber *string `json:"sip_number"`
-	Specialty *string `json:"specialty"`
+	DoctorMedikaOneID string  `json:"doctor_medikaone_id" gorm:"column:medikaone_id"`
+	SIPNumber         *string `json:"sip_number" gorm:"column:sip_number"`
+	Specialty         *string `json:"specialty"`
 }
 
 // HospitalBrief untuk ringkas info keanggotaan hospital user (multi-tenant).

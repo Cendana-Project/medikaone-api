@@ -19,6 +19,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 const checkInGrantTTL = 5 * time.Minute
@@ -237,7 +238,7 @@ func (s *Service) CreateWalkInAppointment(ctx context.Context, hospitalID, actor
 	now := s.now()
 	localNow := now.In(location)
 	date := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
-	if int(date.Weekday()) != schedule.DayOfWeek {
+	if !util.ScheduleMatchesDate(schedule.DayOfWeek, schedule.ScheduleDate, date) {
 		return nil, false, constant.ErrScheduleNotFound
 	}
 	sessionStart, sessionEnd, err := scheduleWindow(*schedule, date)

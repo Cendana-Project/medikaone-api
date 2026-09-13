@@ -291,19 +291,24 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			t.Fatalf("Run() error = %v", err)
 		}
 		stableIDs := map[string]string{
-			"user":       scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),
-			"role":       scalarString(t, sqlDB, `SELECT id::text FROM roles WHERE slug = 'SUPER_ADMIN' AND deleted_at IS NULL`),
-			"permission": scalarString(t, sqlDB, `SELECT id::text FROM permissions WHERE slug = 'user.view' AND deleted_at IS NULL`),
-			"hospital":   scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-001' AND deleted_at IS NULL`),
+			"doctor_medikaone": scalarString(t, sqlDB, `SELECT profile.medikaone_id FROM doctor_profiles profile JOIN users doctor ON doctor.id = profile.user_id WHERE doctor.email = 'doctor001@medikaone.id'`),
+			"user":             scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),
+			"role":             scalarString(t, sqlDB, `SELECT id::text FROM roles WHERE slug = 'SUPER_ADMIN' AND deleted_at IS NULL`),
+			"permission":       scalarString(t, sqlDB, `SELECT id::text FROM permissions WHERE slug = 'user.view' AND deleted_at IS NULL`),
+			"hospital":         scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-001' AND deleted_at IS NULL`),
 		}
 		if err := Run(db); err != nil {
 			t.Fatalf("second idempotent Run() error = %v", err)
 		}
+		testDoctorIdentityIntegration(t, db)
+		testAccountDeletionIntegration(t, db)
+		testResourceLifecycleIntegration(t, db)
 		currentIDs := map[string]string{
-			"user":       scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),
-			"role":       scalarString(t, sqlDB, `SELECT id::text FROM roles WHERE slug = 'SUPER_ADMIN' AND deleted_at IS NULL`),
-			"permission": scalarString(t, sqlDB, `SELECT id::text FROM permissions WHERE slug = 'user.view' AND deleted_at IS NULL`),
-			"hospital":   scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-001' AND deleted_at IS NULL`),
+			"doctor_medikaone": scalarString(t, sqlDB, `SELECT profile.medikaone_id FROM doctor_profiles profile JOIN users doctor ON doctor.id = profile.user_id WHERE doctor.email = 'doctor001@medikaone.id'`),
+			"user":             scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),
+			"role":             scalarString(t, sqlDB, `SELECT id::text FROM roles WHERE slug = 'SUPER_ADMIN' AND deleted_at IS NULL`),
+			"permission":       scalarString(t, sqlDB, `SELECT id::text FROM permissions WHERE slug = 'user.view' AND deleted_at IS NULL`),
+			"hospital":         scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-001' AND deleted_at IS NULL`),
 		}
 		for fixture, want := range stableIDs {
 			if got := currentIDs[fixture]; got != want {
@@ -714,6 +719,10 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			t.Fatal("failed demo reset changed the unowned colliding user")
 		}
 	}); !ok {
+		t.FailNow()
+	}
+
+	if ok := t.Run("specific schedule mutations preserve history", func(t *testing.T) { runSpecificScheduleIntegration(t, db, sqlDB) }); !ok {
 		t.FailNow()
 	}
 

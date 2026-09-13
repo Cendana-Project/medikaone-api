@@ -932,7 +932,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,
 		ErrInvalidHospitalFacilities, ErrUserNotLinkedToHospital, ErrHospitalWorkerMinimumAge,
-		ErrDoctorNotEligible,
+		ErrDoctorNotEligible, ErrDoctorNotFound, ErrResourceInUse, ErrLastAdministrator,
 		ErrDoctorInvitationNotFound, ErrDoctorInvitationExists, ErrDoctorInvitationExpired,
 		ErrInvalidDoctorInvitationState, ErrHospitalPlacementNotFound,
 		ErrDepartmentAlreadyExists, ErrRoomAlreadyExists, ErrDoctorScheduleConflict,
