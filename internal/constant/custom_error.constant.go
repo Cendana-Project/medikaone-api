@@ -908,6 +908,7 @@ var (
 // documentation generation. Aliases are intentionally omitted.
 func APIErrorCatalog() []response.CustomError {
 	return []response.CustomError{
+		ErrHospitalImageInvalid, ErrHospitalImageNotFound, ErrHospitalGalleryFull, ErrHospitalReviewNotFound, ErrHospitalReviewVisitRequired,
 		ErrInternalServerError, ErrValidationError, ErrMalformedJSON, ErrRequestBodyRequired,
 		ErrEndpointNotFound, ErrUnauthorized, ErrForbidden, ErrTooManyRequests,
 		ErrPublicAuthRateLimitExceeded, ErrRegistrationPINCooldown,
@@ -932,7 +933,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrHospitalAdminRequired, ErrHospitalCodeAlreadyExists,
 		ErrHospitalNameAlreadyExists, ErrHospitalAlreadyExists, ErrInvalidHospitalCoordinates,
 		ErrInvalidHospitalFacilities, ErrUserNotLinkedToHospital, ErrHospitalWorkerMinimumAge,
-		ErrDoctorNotEligible,
+		ErrDoctorNotEligible, ErrDoctorNotFound, ErrResourceInUse, ErrLastAdministrator,
 		ErrDoctorInvitationNotFound, ErrDoctorInvitationExists, ErrDoctorInvitationExpired,
 		ErrInvalidDoctorInvitationState, ErrHospitalPlacementNotFound,
 		ErrDepartmentAlreadyExists, ErrRoomAlreadyExists, ErrDoctorScheduleConflict,

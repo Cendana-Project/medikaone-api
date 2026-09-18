@@ -53,7 +53,7 @@ type PrescriptionItem struct {
 	MaxDailyDose                 *string                 `json:"max_daily_dose,omitempty"`
 	ControlledSubstance          bool                    `json:"controlled_substance"`
 	SATUSEHATMedicationRequestID *string                 `json:"satusehat_medication_request_id,omitempty"`
-	Components                   []PrescriptionComponent `json:"components"`
+	Components                   []PrescriptionComponent `json:"components" gorm:"-"`
 }
 
 type PrescriptionDocument struct {
@@ -85,14 +85,15 @@ type PrescriptionRevision struct {
 	HospitalAddressSnapshot    *string               `json:"-"`
 	HospitalPhoneSnapshot      *string               `json:"-"`
 	DoctorNameSnapshot         string                `json:"-"`
-	DoctorSIPNumberSnapshot    string                `json:"-"`
-	Items                      []PrescriptionItem    `json:"items"`
-	Document                   *PrescriptionDocument `json:"document,omitempty"`
+	DoctorSIPNumberSnapshot    string                `json:"-" gorm:"column:doctor_sip_number_snapshot"`
+	Items                      []PrescriptionItem    `json:"items" gorm:"-"`
+	Document                   *PrescriptionDocument `json:"document,omitempty" gorm:"-"`
 	CreatedAt                  time.Time             `json:"created_at"`
 	UpdatedAt                  time.Time             `json:"updated_at"`
 }
 
 type Prescription struct {
+	DoctorMedikaOneID  string                `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                 string                `json:"id"`
 	EncounterID        string                `json:"encounter_id"`
 	AppointmentID      string                `json:"appointment_id"`
@@ -113,14 +114,16 @@ type Prescription struct {
 	HospitalPhone      *string               `json:"hospital_phone,omitempty"`
 	DoctorID           string                `json:"doctor_id"`
 	DoctorName         string                `json:"doctor_name"`
-	DoctorSIPNumber    *string               `json:"doctor_sip_number,omitempty"`
+	DoctorSIPNumber    *string               `json:"doctor_sip_number,omitempty" gorm:"column:doctor_sip_number"`
 	AppointmentDate    string                `json:"appointment_date"`
-	CurrentRevision    *PrescriptionRevision `json:"current_revision,omitempty"`
+	CurrentRevision    *PrescriptionRevision `json:"current_revision,omitempty" gorm:"-"`
 	CreatedAt          time.Time             `json:"created_at"`
 	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
 type PrescriptionSummary struct {
+	DoctorID           string     `json:"doctor_id"`
+	DoctorMedikaOneID  string     `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                 string     `json:"id"`
 	EncounterID        string     `json:"encounter_id"`
 	AppointmentID      string     `json:"appointment_id"`
@@ -139,13 +142,15 @@ type PrescriptionDocumentURL struct {
 }
 
 type PrescriptionVerification struct {
+	DoctorID           string             `json:"doctor_id"`
+	DoctorMedikaOneID  string             `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	Valid              bool               `json:"valid"`
 	PrescriptionNumber string             `json:"prescription_number"`
 	Status             string             `json:"status"`
 	PatientName        string             `json:"patient_name"`
 	HospitalName       string             `json:"hospital_name"`
 	DoctorName         string             `json:"doctor_name"`
-	DoctorSIPNumber    *string            `json:"doctor_sip_number,omitempty"`
+	DoctorSIPNumber    *string            `json:"doctor_sip_number,omitempty" gorm:"column:doctor_sip_number"`
 	IssuedAt           time.Time          `json:"issued_at"`
-	Items              []PrescriptionItem `json:"items"`
+	Items              []PrescriptionItem `json:"items" gorm:"-"`
 }

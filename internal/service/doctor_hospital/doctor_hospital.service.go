@@ -36,6 +36,7 @@ const (
 )
 
 type Repository interface {
+	GetDoctorMedikaOneID(context.Context, string) (string, error)
 	SearchEligibleDoctors(context.Context, string, int) ([]response.DoctorSearchResult, error)
 	FindEligibleDoctorByID(context.Context, string) (*response.DoctorSearchResult, error)
 	CreateDepartment(context.Context, string, string, string, time.Time) (*entity.HospitalDepartment, error)
@@ -137,6 +138,9 @@ func (s *Service) CreateDepartment(ctx context.Context, hospitalID string, req r
 		return nil, constant.NewInvalidFieldLengthError("name", "at most 120 characters long", "memiliki maksimal 120 karakter")
 	}
 	department, err := s.repo.CreateDepartment(ctx, hospitalID, code, name, s.now())
+	if errors.Is(err, repository.ErrPlacementNotFound) {
+		return nil, constant.ErrHospitalPlacementNotFound
+	}
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return nil, constant.ErrDepartmentAlreadyExists
 	}
@@ -462,15 +466,22 @@ func (s *Service) ListDoctorAffiliations(ctx context.Context, doctorID, status s
 	return rows, nil
 }
 
-func (s *Service) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string) error {
+func (s *Service) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string) (*response.DoctorAffiliationStatus, error) {
 	if _, err := uuid.Parse(doctorID); err != nil {
-		return constant.ErrInvalidUUIDFormat
+		return nil, constant.ErrInvalidUUIDFormat
 	}
 	status = strings.ToUpper(strings.TrimSpace(status))
 	if status != entity.DoctorHospitalAffiliationActive && status != entity.DoctorHospitalAffiliationSuspended {
-		return constant.NewInvalidFieldValueError("status", "ACTIVE or SUSPENDED", "ACTIVE atau SUSPENDED")
+		return nil, constant.NewInvalidFieldValueError("status", "ACTIVE or SUSPENDED", "ACTIVE atau SUSPENDED")
 	}
-	return mapRepositoryError(s.repo.UpdateAffiliationStatus(ctx, hospitalID, doctorID, status, actorID, s.now()))
+	identity, err := s.repo.GetDoctorMedikaOneID(ctx, doctorID)
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	if err := mapRepositoryError(s.repo.UpdateAffiliationStatus(ctx, hospitalID, doctorID, status, actorID, s.now())); err != nil {
+		return nil, err
+	}
+	return &response.DoctorAffiliationStatus{DoctorID: doctorID, DoctorMedikaOneID: identity, Status: status}, nil
 }
 
 func (s *Service) ListNotifications(ctx context.Context, userID string, unreadOnly bool) ([]response.Notification, error) {
@@ -515,12 +526,16 @@ func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repos
 		return nil, constant.NewInvalidFieldLengthError("schedules", "at most 50 items long", "memiliki maksimal 50 item")
 	}
 	output := make([]repository.Schedule, 0, len(input))
-	type interval struct{ start, end int }
-	byDay := make(map[int][]interval)
+	type interval struct {
+		start, end, day int
+		date            *string
+	}
+	var intervals []interval
 	commonTimezone := ""
 	for _, value := range input {
-		if value.DayOfWeek < 0 || value.DayOfWeek > 6 {
-			return nil, constant.NewInvalidFieldValueError("day_of_week", "an integer from 0 through 6", "berupa angka bulat dari 0 sampai 6")
+		days, err := util.ScheduleDays(value.DayOfWeek, value.ScheduleDate)
+		if err != nil {
+			return nil, err
 		}
 		start, err := time.Parse("15:04", strings.TrimSpace(value.StartTime))
 		if err != nil {
@@ -568,17 +583,18 @@ func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repos
 		} else if commonTimezone != timezone {
 			return nil, constant.NewInvalidFieldValueError("timezone", "the same timezone for every schedule entry", "zona waktu yang sama untuk seluruh entri jadwal")
 		}
-		for _, existing := range byDay[value.DayOfWeek] {
-			if startMinute < existing.end && endMinute > existing.start {
-				return nil, constant.ErrDoctorScheduleConflict
+		for _, day := range days {
+			for _, existing := range intervals {
+				if util.ScheduleDatesOverlap(day, value.ScheduleDate, existing.day, existing.date) && startMinute < existing.end && endMinute > existing.start {
+					return nil, constant.ErrDoctorScheduleConflict
+				}
+			}
+			intervals = append(intervals, interval{startMinute, endMinute, day, value.ScheduleDate})
+			output = append(output, repository.Schedule{DayOfWeek: day, ScheduleDate: value.ScheduleDate, StartTime: start.Format("15:04"), EndTime: end.Format("15:04"), Timezone: timezone, BookingMode: bookingMode, SlotDurationMinutes: slotDuration, Capacity: capacity})
+			if len(output) > MaxSchedules {
+				return nil, constant.NewInvalidFieldLengthError("schedules", "at most 50 expanded weekday entries", "maksimal 50 entri setelah ekspansi hari")
 			}
 		}
-		byDay[value.DayOfWeek] = append(byDay[value.DayOfWeek], interval{start: startMinute, end: endMinute})
-		output = append(output, repository.Schedule{
-			DayOfWeek: value.DayOfWeek, StartTime: start.Format("15:04"),
-			EndTime: end.Format("15:04"), Timezone: timezone,
-			BookingMode: bookingMode, SlotDurationMinutes: slotDuration, Capacity: capacity,
-		})
 	}
 	return output, nil
 }

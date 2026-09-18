@@ -136,8 +136,8 @@ func (ctl *Controller) UpdateAffiliationStatus(c *gin.Context) {
 		util.HandleError(c, err)
 		return
 	}
-	err := ctl.service.UpdateAffiliationStatus(c.Request.Context(), hospitalID(c), c.Param("doctor_id"), req.Status, util.GetUserID(c))
-	respond(c, constant.MsgDoctorAffiliationStatusUpdated, http.StatusOK, gin.H{"doctor_id": c.Param("doctor_id"), "status": strings.ToUpper(req.Status)}, err)
+	result, err := ctl.service.UpdateAffiliationStatus(c.Request.Context(), hospitalID(c), c.Param("doctor_id"), req.Status, util.GetUserID(c))
+	respond(c, constant.MsgDoctorAffiliationStatusUpdated, http.StatusOK, result, err)
 }
 
 func (ctl *Controller) ListDoctorInvitations(c *gin.Context) {

@@ -10,6 +10,9 @@ type AvailabilitySlot struct {
 }
 
 type DoctorScheduleAvailability struct {
+	DayOfWeek           []int              `json:"day_of_week"`
+	ScheduleDate        *string            `json:"schedule_date,omitempty"`
+	DoctorMedikaOneID   string             `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ScheduleID          string             `json:"schedule_id"`
 	AffiliationID       string             `json:"affiliation_id"`
 	HospitalID          string             `json:"hospital_id"`
@@ -32,6 +35,7 @@ type DoctorScheduleAvailability struct {
 }
 
 type DoctorTodaySchedule struct {
+	DoctorMedikaOneID   string    `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ScheduleID          string    `json:"schedule_id"`
 	AffiliationID       string    `json:"affiliation_id"`
 	HospitalID          string    `json:"hospital_id"`
@@ -44,7 +48,8 @@ type DoctorTodaySchedule struct {
 	RoomID              *string   `json:"room_id,omitempty"`
 	RoomName            *string   `json:"room_name,omitempty"`
 	Date                string    `json:"date"`
-	DayOfWeek           int       `json:"day_of_week"`
+	DayOfWeek           []int     `json:"day_of_week"`
+	ScheduleDate        *string   `json:"schedule_date,omitempty"`
 	Timezone            string    `json:"timezone"`
 	StartTime           string    `json:"start_time"`
 	EndTime             string    `json:"end_time"`
@@ -57,6 +62,7 @@ type DoctorTodaySchedule struct {
 }
 
 type Appointment struct {
+	DoctorMedikaOneID      string     `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                     string     `json:"id"`
 	AppointmentNumber      string     `json:"appointment_number"`
 	PatientID              *string    `json:"patient_id,omitempty"`
@@ -152,37 +158,41 @@ type AppointmentPage struct {
 }
 
 type ScheduleChangeRequest struct {
-	ID               string                   `json:"id"`
-	AffiliationID    string                   `json:"affiliation_id"`
-	HospitalID       string                   `json:"hospital_id"`
-	HospitalName     string                   `json:"hospital_name"`
-	DoctorID         string                   `json:"doctor_id"`
-	DoctorName       string                   `json:"doctor_name"`
-	RequestedBy      string                   `json:"requested_by"`
-	RequestedByParty string                   `json:"requested_by_party"`
-	Status           string                   `json:"status"`
-	Reason           *string                  `json:"reason,omitempty"`
-	ReviewedBy       *string                  `json:"reviewed_by,omitempty"`
-	ReviewedAt       *time.Time               `json:"reviewed_at,omitempty"`
-	RejectionReason  *string                  `json:"rejection_reason,omitempty"`
-	ExpiresAt        time.Time                `json:"expires_at"`
-	CreatedAt        time.Time                `json:"created_at"`
-	UpdatedAt        time.Time                `json:"updated_at"`
-	Schedules        []DoctorHospitalSchedule `json:"schedules"`
+	Operation         string                   `json:"operation"`
+	TargetScheduleID  *string                  `json:"target_schedule_id,omitempty"`
+	DoctorMedikaOneID string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	ID                string                   `json:"id"`
+	AffiliationID     string                   `json:"affiliation_id"`
+	HospitalID        string                   `json:"hospital_id"`
+	HospitalName      string                   `json:"hospital_name"`
+	DoctorID          string                   `json:"doctor_id"`
+	DoctorName        string                   `json:"doctor_name"`
+	RequestedBy       string                   `json:"requested_by"`
+	RequestedByParty  string                   `json:"requested_by_party"`
+	Status            string                   `json:"status"`
+	Reason            *string                  `json:"reason,omitempty"`
+	ReviewedBy        *string                  `json:"reviewed_by,omitempty"`
+	ReviewedAt        *time.Time               `json:"reviewed_at,omitempty"`
+	RejectionReason   *string                  `json:"rejection_reason,omitempty"`
+	ExpiresAt         time.Time                `json:"expires_at"`
+	CreatedAt         time.Time                `json:"created_at"`
+	UpdatedAt         time.Time                `json:"updated_at"`
+	Schedules         []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
 }
 
 type AppointmentReminder struct {
-	ID               string    `json:"id"`
-	AppointmentID    string    `json:"appointment_id"`
-	ReminderType     string    `json:"reminder_type"`
-	DueAt            time.Time `json:"due_at"`
-	PatientID        string    `json:"patient_id"`
-	PatientEmail     string    `json:"patient_email"`
-	PatientFirstName string    `json:"patient_first_name"`
-	DoctorID         string    `json:"doctor_id"`
-	DoctorEmail      string    `json:"doctor_email"`
-	DoctorFirstName  string    `json:"doctor_first_name"`
-	HospitalName     string    `json:"hospital_name"`
-	ScheduledStartAt time.Time `json:"scheduled_start_at"`
-	Timezone         string    `json:"timezone"`
+	DoctorMedikaOneID string    `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	ID                string    `json:"id"`
+	AppointmentID     string    `json:"appointment_id"`
+	ReminderType      string    `json:"reminder_type"`
+	DueAt             time.Time `json:"due_at"`
+	PatientID         string    `json:"patient_id"`
+	PatientEmail      string    `json:"patient_email"`
+	PatientFirstName  string    `json:"patient_first_name"`
+	DoctorID          string    `json:"doctor_id"`
+	DoctorEmail       string    `json:"doctor_email"`
+	DoctorFirstName   string    `json:"doctor_first_name"`
+	HospitalName      string    `json:"hospital_name"`
+	ScheduledStartAt  time.Time `json:"scheduled_start_at"`
+	Timezone          string    `json:"timezone"`
 }

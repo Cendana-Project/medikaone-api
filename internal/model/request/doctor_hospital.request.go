@@ -16,13 +16,14 @@ type DoctorSearchQuery struct {
 }
 
 type DoctorInvitationScheduleRequest struct {
-	DayOfWeek        int    `json:"day_of_week"`
-	StartTime        string `json:"start_time"`
-	EndTime          string `json:"end_time"`
-	Timezone         string `json:"timezone,omitempty"`
-	BookingMode      string `json:"booking_mode,omitempty"`
-	SlotDurationMins int    `json:"slot_duration_minutes,omitempty"`
-	Capacity         int    `json:"capacity,omitempty"`
+	DayOfWeek        []int   `json:"day_of_week"`
+	ScheduleDate     *string `json:"schedule_date,omitempty"`
+	StartTime        string  `json:"start_time"`
+	EndTime          string  `json:"end_time"`
+	Timezone         string  `json:"timezone,omitempty"`
+	BookingMode      string  `json:"booking_mode,omitempty"`
+	SlotDurationMins int     `json:"slot_duration_minutes,omitempty"`
+	Capacity         int     `json:"capacity,omitempty"`
 }
 
 type CreateDoctorHospitalInvitationRequest struct {

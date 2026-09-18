@@ -62,9 +62,13 @@ func TestCORSUsesExactConfiguredAllowlist(t *testing.T) {
 	allowedRequest := httptest.NewRequest(http.MethodOptions, "/resource", nil)
 	allowedRequest.Header.Set("Origin", "https://app.example.com")
 	allowedRequest.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	allowedRequest.Header.Set("Access-Control-Request-Headers", "authorization,content-type,idempotency-key")
 	router.ServeHTTP(allowed, allowedRequest)
 	if allowed.Code != http.StatusNoContent || allowed.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" {
 		t.Fatalf("allowed preflight = %d headers=%v", allowed.Code, allowed.Header())
+	}
+	if !strings.Contains(strings.ToLower(allowed.Header().Get("Access-Control-Allow-Headers")), "idempotency-key") {
+		t.Fatal("booking idempotency header is not allowed by CORS")
 	}
 
 	denied := httptest.NewRecorder()

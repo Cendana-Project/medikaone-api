@@ -165,6 +165,11 @@ func (r *Repository) CreateWalkIn(ctx context.Context, input WalkInInput) (*resp
 		if err != nil {
 			return err
 		}
+		if record.UserID != nil {
+			if err := requireActivePatient(tx, *record.UserID); err != nil {
+				return err
+			}
+		}
 		if created {
 			if err := insertPatientRecordEvent(tx, record.ID, input.ActorID, input.Schedule.HospitalID, "CREATED", map[string]any{"source": "walk_in"}, input.Now); err != nil {
 				return err
@@ -192,6 +197,9 @@ func (r *Repository) CreateWalkIn(ctx context.Context, input WalkInInput) (*resp
 			return nil
 		}
 
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "appointment:affiliation:"+input.Schedule.AffiliationID).Error; err != nil {
+			return err
+		}
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "appointment:slot:"+input.Schedule.ID+":"+input.ScheduledStartAt.UTC().Format(time.RFC3339)).Error; err != nil {
 			return err
 		}
@@ -200,20 +208,29 @@ func (r *Repository) CreateWalkIn(ctx context.Context, input WalkInInput) (*resp
 			SELECT schedule.id, schedule.affiliation_id, affiliation.hospital_id,
 			       COALESCE(hospital.code, 'HOSPITAL') AS hospital_code,
 			       affiliation.doctor_id, affiliation.department_id, affiliation.room_id,
-			       schedule.day_of_week, TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
+			       schedule.day_of_week, schedule.schedule_date::text AS schedule_date, TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(schedule.end_time, 'HH24:MI') AS end_time, schedule.timezone,
 			       schedule.booking_mode, schedule.slot_duration_minutes, schedule.capacity
 			FROM doctor_hospital_schedules schedule
 			JOIN doctor_hospital_affiliations affiliation ON affiliation.id = schedule.affiliation_id
 			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+			JOIN users doctor ON doctor.id = affiliation.doctor_id
+			JOIN hospital_departments department ON department.id = affiliation.department_id
+			LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 			WHERE schedule.id = ? AND affiliation.hospital_id = ?
 			  AND schedule.is_active = TRUE AND affiliation.status = 'ACTIVE'
 			  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
-			FOR SHARE OF schedule`, input.Schedule.ID, input.Schedule.HospitalID).Scan(&schedule).Error; err != nil {
+			  AND affiliation.deleted_at IS NULL AND doctor.status = 'active' AND doctor.deleted_at IS NULL
+			  AND department.is_active = TRUE AND (affiliation.room_id IS NULL OR room.is_active = TRUE)
+			FOR SHARE OF schedule, affiliation, hospital, doctor, department`, input.Schedule.ID, input.Schedule.HospitalID).Scan(&schedule).Error; err != nil {
 			return err
 		}
 		if schedule.ID == "" {
 			return ErrScheduleNotFound
+		}
+
+		if !validScheduleOccurrence(schedule, input.AppointmentDate, input.ScheduledStartAt, input.ScheduledEndAt) {
+			return ErrSlotUnavailable
 		}
 
 		var overlaps bool

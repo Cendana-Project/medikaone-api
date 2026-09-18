@@ -361,8 +361,17 @@ func configureStorageEnv(t *testing.T) {
 	t.Setenv("SUPABASE_STORAGE_BUCKET", "doctor-contracts")
 	t.Setenv("SUPABASE_MEDICAL_STORAGE_BUCKET", "medical-records")
 	t.Setenv("SUPABASE_PROFILE_STORAGE_BUCKET", "profile-images")
+	t.Setenv("SUPABASE_HOSPITAL_STORAGE_BUCKET", "hospital-images")
 	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
 	t.Setenv("SUPABASE_SECRET_KEY", "sb_secret_test")
+}
+
+func TestHospitalStorageRequiresSeparateBucket(t *testing.T) {
+	cfg := validConfig()
+	cfg.Storage.HospitalBucket = cfg.Storage.ProfileBucket
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "hospital_bucket must be separate") {
+		t.Fatalf("shared hospital bucket accepted: %v", err)
+	}
 }
 
 func validConfig() *EnvConfig {
@@ -411,7 +420,7 @@ func validConfig() *EnvConfig {
 		},
 		SMTP: SMTP{Enabled: false},
 		Storage: Storage{
-			Enabled: true, Provider: "supabase", Bucket: "doctor-contracts", MedicalBucket: "medical-records", ProfileBucket: "profile-images",
+			Enabled: true, Provider: "supabase", Bucket: "doctor-contracts", MedicalBucket: "medical-records", ProfileBucket: "profile-images", HospitalBucket: "hospital-images",
 			MaxFileSizeBytes: 10 * 1024 * 1024, SignedURLTTL: 5 * time.Minute,
 			Supabase: SupabaseStorage{URL: "https://project.supabase.co", SecretKey: "sb_secret_test"},
 		},

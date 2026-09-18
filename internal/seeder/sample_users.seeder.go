@@ -22,6 +22,8 @@ type sampleUserSeed struct {
 	NIK       string
 	DOB       string
 	Address   string
+	SIPNumber string
+	Specialty string
 }
 
 func sampleUserSeeds() []sampleUserSeed {
@@ -68,6 +70,8 @@ func sampleUserSeeds() []sampleUserSeed {
 			LastName:  fmt.Sprintf("%03d", i),
 			Password:  "Password123",
 			RoleSlug:  constant.RoleDoctor,
+			SIPNumber: fmt.Sprintf("SIP-DEMO-DOCTOR-%03d", i),
+			Specialty: "Umum",
 			Phone:     fmt.Sprintf("081210000%03d", i),
 			Gender:    []string{"L", "P"}[i%2],
 			NIK:       genNIK("1201", i),
@@ -143,6 +147,16 @@ func SeedSampleUsers(db *gorm.DB) error {
 		}
 		if err := db.Model(&entity.User{}).Where("id = ?", created.ID).Updates(updates).Error; err != nil {
 			return fmt.Errorf("update demo user %d (%s): %w", i, user.Email, err)
+		}
+		if user.RoleSlug == constant.RoleDoctor {
+			// Omit medikaone_id so new fixtures receive the database default and
+			// repeated runs preserve each doctor's immutable public identifier.
+			if err := db.Exec(`INSERT INTO doctor_profiles (user_id, sip_number, specialty, created_at, updated_at)
+				VALUES (?, ?, ?, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE
+				SET sip_number = EXCLUDED.sip_number, specialty = EXCLUDED.specialty, updated_at = NOW()`,
+				created.ID, user.SIPNumber, user.Specialty).Error; err != nil {
+				return fmt.Errorf("seed doctor profile for %s: %w", user.Email, err)
+			}
 		}
 	}
 	return nil

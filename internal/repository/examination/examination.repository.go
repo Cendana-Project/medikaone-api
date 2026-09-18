@@ -526,7 +526,7 @@ func (r *Repository) GetEncounter(ctx context.Context, appointmentID, actorID st
 		       profile.allergies AS patient_allergies,
 		       profile.medical_hist AS patient_medical_history,
 		       encounter.hospital_id::text, hospital.name AS hospital_name,
-		       encounter.doctor_id::text,
+		       encounter.doctor_id::text, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       CONCAT_WS(' ', doctor.first_name, NULLIF(doctor.last_name, '')) AS doctor_name,
 		       encounter.department_id::text, department.name AS department_name,
 		       appointment.appointment_date::text, appointment.reason_for_visit,
@@ -537,6 +537,7 @@ func (r *Repository) GetEncounter(ctx context.Context, appointmentID, actorID st
 		LEFT JOIN patient_profiles profile ON profile.user_id = patient.user_id
 		JOIN hospitals hospital ON hospital.id = encounter.hospital_id
 		JOIN users doctor ON doctor.id = encounter.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		JOIN hospital_departments department ON department.id = encounter.department_id
 		WHERE encounter.appointment_id = ?
 	`, appointmentID).Scan(&out)
@@ -673,7 +674,7 @@ func (r *Repository) listHistory(ctx context.Context, where string, arg any) ([]
 	query := `
 		SELECT encounter.id::text, encounter.appointment_id::text,
 		       encounter.hospital_id::text, hospital.name AS hospital_name,
-		       encounter.doctor_id::text,
+		       encounter.doctor_id::text, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       CONCAT_WS(' ', doctor.first_name, NULLIF(doctor.last_name, '')) AS doctor_name,
 		       department.name AS department_name, appointment.appointment_date::text,
 		       encounter.completed_at
@@ -682,6 +683,7 @@ func (r *Repository) listHistory(ctx context.Context, where string, arg any) ([]
 		JOIN patient_records patient ON patient.id = encounter.patient_record_id
 		JOIN hospitals hospital ON hospital.id = encounter.hospital_id
 		JOIN users doctor ON doctor.id = encounter.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		JOIN hospital_departments department ON department.id = encounter.department_id
 		WHERE encounter.status = 'COMPLETED' AND ` + where + `
 		ORDER BY appointment.appointment_date DESC, encounter.completed_at DESC

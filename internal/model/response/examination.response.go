@@ -51,7 +51,7 @@ type ConsultationNote struct {
 	FinalizedAt          *time.Time  `json:"finalized_at,omitempty"`
 	SupersedesRevisionID *string     `json:"supersedes_revision_id,omitempty"`
 	CorrectionReason     *string     `json:"correction_reason,omitempty"`
-	Diagnoses            []Diagnosis `json:"diagnoses"`
+	Diagnoses            []Diagnosis `json:"diagnoses" gorm:"-"`
 	CreatedAt            time.Time   `json:"created_at"`
 	UpdatedAt            time.Time   `json:"updated_at"`
 }
@@ -74,10 +74,11 @@ type MedicalAttachmentURL struct {
 }
 
 type MedicalEncounter struct {
+	DoctorMedikaOneID     string              `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                    string              `json:"id"`
 	AppointmentID         string              `json:"appointment_id"`
 	PatientRecordID       string              `json:"patient_record_id"`
-	PatientMedikaOneID    *string             `json:"patient_medikaone_id,omitempty"`
+	PatientMedikaOneID    *string             `json:"patient_medikaone_id,omitempty" gorm:"column:patient_medikaone_id"`
 	PatientName           string              `json:"patient_name"`
 	PatientDateOfBirth    string              `json:"patient_date_of_birth"`
 	PatientGender         string              `json:"patient_gender"`
@@ -92,23 +93,24 @@ type MedicalEncounter struct {
 	AppointmentDate       string              `json:"appointment_date"`
 	ReasonForVisit        string              `json:"reason_for_visit"`
 	Status                string              `json:"status"`
-	Vitals                *VitalSigns         `json:"vitals,omitempty"`
-	Consultation          *ConsultationNote   `json:"consultation,omitempty"`
-	Attachments           []MedicalAttachment `json:"attachments"`
+	Vitals                *VitalSigns         `json:"vitals,omitempty" gorm:"-"`
+	Consultation          *ConsultationNote   `json:"consultation,omitempty" gorm:"-"`
+	Attachments           []MedicalAttachment `json:"attachments" gorm:"-"`
 	CompletedAt           *time.Time          `json:"completed_at,omitempty"`
 	CreatedAt             time.Time           `json:"created_at"`
 	UpdatedAt             time.Time           `json:"updated_at"`
 }
 
 type MedicalEncounterSummary struct {
-	ID               string     `json:"id"`
-	AppointmentID    string     `json:"appointment_id"`
-	HospitalID       string     `json:"hospital_id"`
-	HospitalName     string     `json:"hospital_name"`
-	DoctorID         string     `json:"doctor_id"`
-	DoctorName       string     `json:"doctor_name"`
-	DepartmentName   string     `json:"department_name"`
-	AppointmentDate  string     `json:"appointment_date"`
-	PrimaryDiagnosis *Diagnosis `json:"primary_diagnosis,omitempty"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	DoctorMedikaOneID string     `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	ID                string     `json:"id"`
+	AppointmentID     string     `json:"appointment_id"`
+	HospitalID        string     `json:"hospital_id"`
+	HospitalName      string     `json:"hospital_name"`
+	DoctorID          string     `json:"doctor_id"`
+	DoctorName        string     `json:"doctor_name"`
+	DepartmentName    string     `json:"department_name"`
+	AppointmentDate   string     `json:"appointment_date"`
+	PrimaryDiagnosis  *Diagnosis `json:"primary_diagnosis,omitempty" gorm:"-"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
 }

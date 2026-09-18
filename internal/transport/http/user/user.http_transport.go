@@ -233,13 +233,11 @@ func (ctl *Controller) globalProfile(ctx context.Context, userID string) (*respo
 	if roleSlug == constant.RolePatient || h != nil || w != nil || a != nil || m != nil {
 		dto.PatientProfile = &response.PatientProfile{HeightCM: h, WeightKG: w, Allergies: a, MedicalHistory: m}
 	}
-	sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
+	doctorProfile, err := ctl.userRepo.GetDoctorProfile(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if roleSlug == constant.RoleDoctor || sip != nil || spec != nil {
-		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
-	}
+	dto.DoctorProfile = doctorProfile
 	hospitals, err := ctl.userRepo.ListHospitalsByUserID(ctx, userID)
 	if err != nil {
 		return nil, constant.ErrInternalServerError
@@ -342,12 +340,12 @@ func (ctl *Controller) TenantMe(c *gin.Context) {
 	// Enrich sesuai role scoped
 	switch roleSlug {
 	case constant.RoleDoctor:
-		sip, spec, err := ctl.userRepo.GetDoctorProfileByUserID(ctx, userID)
+		doctorProfile, err := ctl.userRepo.GetDoctorProfile(ctx, userID)
 		if err != nil {
 			util.HandleError(c, constant.ErrInternalServerError)
 			return
 		}
-		dto.DoctorProfile = &response.DoctorProfile{SIPNumber: sip, Specialty: spec}
+		dto.DoctorProfile = doctorProfile
 	case constant.RolePatient:
 		h, w, a, m, err := ctl.userRepo.GetPatientProfileByUserID(ctx, userID)
 		if err != nil {

@@ -115,7 +115,7 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 	result := make([]response.DoctorScheduleAvailability, 0)
 	for date := from; !date.After(to); date = date.AddDate(0, 0, 1) {
 		for _, schedule := range schedules {
-			if int(date.Weekday()) != schedule.DayOfWeek {
+			if !util.ScheduleMatchesDate(schedule.DayOfWeek, schedule.ScheduleDate, date) {
 				continue
 			}
 			sessionStart, sessionEnd, parseErr := scheduleWindow(schedule, date)
@@ -123,9 +123,10 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 				return nil, constant.ErrInternalServerError
 			}
 			row := response.DoctorScheduleAvailability{
+				DayOfWeek: util.ScheduleWeekdays(schedule.DayOfWeek, schedule.ScheduleDate), ScheduleDate: schedule.ScheduleDate,
 				ScheduleID: schedule.ID, AffiliationID: schedule.AffiliationID,
 				HospitalID: schedule.HospitalID, HospitalName: schedule.HospitalName,
-				DoctorID: schedule.DoctorID, DoctorName: schedule.DoctorName,
+				DoctorID: schedule.DoctorID, DoctorMedikaOneID: schedule.DoctorMedikaOneID, DoctorName: schedule.DoctorName,
 				DepartmentID: schedule.DepartmentID, DepartmentName: schedule.DepartmentName,
 				RoomID: schedule.RoomID, RoomName: schedule.RoomName,
 				Date: date.Format("2006-01-02"), Timezone: schedule.Timezone,
@@ -243,7 +244,7 @@ func (s *Service) ListDoctorTodaySchedules(ctx context.Context, doctorID string)
 			return nil, constant.ErrInternalServerError
 		}
 		localNow := now.In(location)
-		if int(localNow.Weekday()) != schedule.DayOfWeek {
+		if !util.ScheduleMatchesDate(schedule.DayOfWeek, schedule.ScheduleDate, localNow) {
 			continue
 		}
 		sessionStart, sessionEnd, windowErr := scheduleWindow(schedule, localNow)
@@ -259,10 +260,10 @@ func (s *Service) ListDoctorTodaySchedules(ctx context.Context, doctorID string)
 		result = append(result, response.DoctorTodaySchedule{
 			ScheduleID: schedule.ID, AffiliationID: schedule.AffiliationID,
 			HospitalID: schedule.HospitalID, HospitalCode: schedule.HospitalCode, HospitalName: schedule.HospitalName,
-			DoctorID: schedule.DoctorID, DoctorName: schedule.DoctorName,
+			DoctorID: schedule.DoctorID, DoctorMedikaOneID: schedule.DoctorMedikaOneID, DoctorName: schedule.DoctorName,
 			DepartmentID: schedule.DepartmentID, DepartmentName: schedule.DepartmentName,
 			RoomID: schedule.RoomID, RoomName: schedule.RoomName,
-			Date: localNow.Format("2006-01-02"), DayOfWeek: schedule.DayOfWeek,
+			Date: localNow.Format("2006-01-02"), DayOfWeek: util.ScheduleWeekdays(schedule.DayOfWeek, schedule.ScheduleDate), ScheduleDate: schedule.ScheduleDate,
 			Timezone: schedule.Timezone, StartTime: schedule.StartTime, EndTime: schedule.EndTime,
 			SessionStartAt: sessionStart, SessionEndAt: sessionEnd, SessionStatus: status,
 			BookingMode: schedule.BookingMode, SlotDurationMinutes: schedule.SlotDurationMinutes, Capacity: schedule.Capacity,
@@ -428,6 +429,13 @@ func (s *Service) CreateHospitalScheduleChange(ctx context.Context, hospitalID, 
 }
 
 func (s *Service) createScheduleChange(ctx context.Context, actorID, party, hospitalID string, req request.CreateScheduleChangeRequest) (*response.ScheduleChangeRequest, error) {
+	return s.createScheduleMutation(ctx, actorID, party, hospitalID, req, "REPLACE", nil)
+}
+
+func (s *Service) createScheduleMutation(ctx context.Context, actorID, party, hospitalID string, req request.CreateScheduleChangeRequest, operation string, target *string) (*response.ScheduleChangeRequest, error) {
+	if _, err := uuid.Parse(req.AffiliationID); err != nil {
+		return nil, constant.ErrInvalidUUIDFormat
+	}
 	affiliation, err := s.repo.GetAffiliation(ctx, req.AffiliationID)
 	if err != nil {
 		return nil, mapRepositoryError(err)
@@ -436,13 +444,26 @@ func (s *Service) createScheduleChange(ctx context.Context, actorID, party, hosp
 		(party == entity.ScheduleChangePartyHospital && affiliation.HospitalID != hospitalID) {
 		return nil, constant.ErrAffiliationNotFound
 	}
-	schedules, err := normalizeSchedules(req.Schedules)
-	if err != nil {
-		return nil, err
+	var schedules []repository.ScheduleItem
+	if operation != "REMOVE" {
+		schedules, err = normalizeSchedules(req.Schedules)
+		if err != nil {
+			return nil, err
+		}
+		for _, schedule := range schedules {
+			if schedule.ScheduleDate == nil {
+				continue
+			}
+			loc, _ := time.LoadLocation(schedule.Timezone)
+			start, parseErr := time.ParseInLocation("2006-01-02 15:04", *schedule.ScheduleDate+" "+schedule.StartTime, loc)
+			if parseErr != nil || !start.After(s.now()) {
+				return nil, constant.NewInvalidFieldValueError("schedule_date", "a future practice date and time", "tanggal dan waktu praktik di masa depan")
+			}
+		}
 	}
 	now := s.now()
 	row, err := s.repo.CreateScheduleChange(ctx, repository.ScheduleChangeInput{
-		AffiliationID: req.AffiliationID, ActorID: actorID, ActorParty: party,
+		AffiliationID: req.AffiliationID, ActorID: actorID, ActorParty: party, Operation: operation, TargetScheduleID: target,
 		HospitalID: hospitalID, Reason: cleanOptional(req.Reason), Schedules: schedules,
 		Now: now, ExpiresAt: now.Add(ScheduleChangeTTL),
 	})
@@ -578,7 +599,7 @@ func (s *Service) prepareBookInput(ctx context.Context, patientID, idempotencyKe
 		return repository.BookInput{}, mapRepositoryError(err)
 	}
 	sessionStart, sessionEnd, err := scheduleWindow(*schedule, date)
-	if err != nil || int(date.Weekday()) != schedule.DayOfWeek {
+	if err != nil || !util.ScheduleMatchesDate(schedule.DayOfWeek, schedule.ScheduleDate, date) {
 		return repository.BookInput{}, constant.ErrScheduleNotFound
 	}
 	start, end := sessionStart, sessionEnd
@@ -678,13 +699,17 @@ func normalizeSchedules(input []request.DoctorInvitationScheduleRequest) ([]repo
 	if len(input) == 0 || len(input) > MaximumScheduleEntries {
 		return nil, constant.NewInvalidFieldLengthError("schedules", "between 1 and 50 items long", "memiliki 1 sampai 50 item")
 	}
-	type interval struct{ start, end int }
-	byDay := map[int][]interval{}
+	type interval struct {
+		start, end, day int
+		date            *string
+	}
+	var intervals []interval
 	timezone := ""
 	result := make([]repository.ScheduleItem, 0, len(input))
 	for _, value := range input {
-		if value.DayOfWeek < 0 || value.DayOfWeek > 6 {
-			return nil, constant.NewInvalidFieldValueError("day_of_week", "an integer from 0 through 6", "berupa angka bulat dari 0 sampai 6")
+		days, err := util.ScheduleDays(value.DayOfWeek, value.ScheduleDate)
+		if err != nil {
+			return nil, err
 		}
 		start, err := time.Parse("15:04", strings.TrimSpace(value.StartTime))
 		if err != nil {
@@ -727,13 +752,18 @@ func normalizeSchedules(input []request.DoctorInvitationScheduleRequest) ([]repo
 		if mode == entity.BookingModeFixedSlot && (endMinute-startMinute)%duration != 0 {
 			return nil, constant.NewInvalidFieldValueError("slot_duration_minutes", "an exact divisor of the practice duration for FIXED_SLOT", "dapat membagi durasi praktik secara tepat untuk FIXED_SLOT")
 		}
-		for _, existing := range byDay[value.DayOfWeek] {
-			if startMinute < existing.end && endMinute > existing.start {
-				return nil, constant.ErrDoctorScheduleConflict
+		for _, day := range days {
+			for _, existing := range intervals {
+				if util.ScheduleDatesOverlap(day, value.ScheduleDate, existing.day, existing.date) && startMinute < existing.end && endMinute > existing.start {
+					return nil, constant.ErrDoctorScheduleConflict
+				}
+			}
+			intervals = append(intervals, interval{startMinute, endMinute, day, value.ScheduleDate})
+			result = append(result, repository.ScheduleItem{DayOfWeek: day, ScheduleDate: value.ScheduleDate, StartTime: start.Format("15:04"), EndTime: end.Format("15:04"), Timezone: zone, BookingMode: mode, SlotDurationMinutes: duration, Capacity: capacity})
+			if len(result) > MaximumScheduleEntries {
+				return nil, constant.NewInvalidFieldLengthError("schedules", "at most 50 expanded weekday entries", "maksimal 50 entri setelah ekspansi hari")
 			}
 		}
-		byDay[value.DayOfWeek] = append(byDay[value.DayOfWeek], interval{startMinute, endMinute})
-		result = append(result, repository.ScheduleItem{DayOfWeek: value.DayOfWeek, StartTime: start.Format("15:04"), EndTime: end.Format("15:04"), Timezone: zone, BookingMode: mode, SlotDurationMinutes: duration, Capacity: capacity})
 	}
 	return result, nil
 }

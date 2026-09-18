@@ -25,6 +25,7 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type AppointmentContext struct {
+	DoctorMedikaOneID  string `gorm:"column:doctor_medikaone_id"`
 	AppointmentID      string
 	EncounterID        string
 	PatientRecordID    string
@@ -39,7 +40,7 @@ type AppointmentContext struct {
 	HospitalPhone      *string
 	DoctorID           string
 	DoctorName         string
-	DoctorSIPNumber    *string
+	DoctorSIPNumber    *string `gorm:"column:doctor_sip_number"`
 	AppointmentDate    string
 	AppointmentStatus  string
 }
@@ -87,7 +88,7 @@ func (r *Repository) GetAppointmentContext(ctx context.Context, appointmentID st
 		       profile.allergies AS patient_allergies,
 		       appointment.hospital_id::text, hospital.name AS hospital_name,
 		       hospital.address AS hospital_address, hospital.phone AS hospital_phone,
-		       appointment.doctor_id::text,
+		       appointment.doctor_id::text, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       CONCAT_WS(' ', doctor.first_name, NULLIF(doctor.last_name, '')) AS doctor_name,
 		       doctor_profile.sip_number AS doctor_sip_number,
 		       appointment.appointment_date::text, appointment.status AS appointment_status
@@ -447,7 +448,7 @@ func (r *Repository) ListForPatient(ctx context.Context, patientUserID string) (
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT prescription.id::text, encounter.id::text AS encounter_id,
 		       encounter.appointment_id::text, prescription.prescription_number,
-		       prescription.status,
+		       prescription.status, encounter.doctor_id::text, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       COALESCE(NULLIF(revision.hospital_name_snapshot, ''), hospital.name) AS hospital_name,
 		       COALESCE(NULLIF(revision.doctor_name_snapshot, ''),
 		                CONCAT_WS(' ', doctor.first_name, NULLIF(doctor.last_name, ''))) AS doctor_name,
@@ -460,6 +461,7 @@ func (r *Repository) ListForPatient(ctx context.Context, patientUserID string) (
 		JOIN patient_records patient ON patient.id = encounter.patient_record_id
 		JOIN hospitals hospital ON hospital.id = encounter.hospital_id
 		JOIN users doctor ON doctor.id = encounter.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		LEFT JOIN prescription_revisions revision ON revision.id = prescription.current_revision_id
 		WHERE patient.user_id = ? AND encounter.status = 'COMPLETED'
 		  AND prescription.status IN ('ISSUED','CANCELLED')
@@ -499,6 +501,7 @@ func (r *Repository) Verify(ctx context.Context, tokenHash string) (*response.Pr
 	return &response.PrescriptionVerification{
 		Valid: true, PrescriptionNumber: row.PrescriptionNumber, Status: row.Status,
 		PatientName: row.PatientName, HospitalName: row.HospitalName,
+		DoctorID: row.DoctorID, DoctorMedikaOneID: row.DoctorMedikaOneID,
 		DoctorName: row.DoctorName, DoctorSIPNumber: row.DoctorSIPNumber,
 		IssuedAt: *row.CurrentRevision.IssuedAt, Items: row.CurrentRevision.Items,
 	}, nil
@@ -521,7 +524,7 @@ func (r *Repository) get(ctx context.Context, where string, args ...any) (*respo
 		       profile.allergies AS patient_allergies,
 		       encounter.hospital_id::text, hospital.name AS hospital_name,
 		       hospital.address AS hospital_address, hospital.phone AS hospital_phone,
-		       encounter.doctor_id::text,
+		       encounter.doctor_id::text, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       CONCAT_WS(' ', doctor.first_name, NULLIF(doctor.last_name, '')) AS doctor_name,
 		       doctor_profile.sip_number AS doctor_sip_number,
 		       appointment.appointment_date::text,

@@ -48,6 +48,7 @@ type Document struct {
 
 type Schedule struct {
 	DayOfWeek           int
+	ScheduleDate        *string
 	StartTime           string
 	EndTime             string
 	Timezone            string
@@ -80,7 +81,7 @@ type ContractDocument struct {
 }
 
 const eligibleDoctorSelect = `
-	SELECT u.id, u.email,
+	SELECT u.id, u.email, dp.medikaone_id AS doctor_medikaone_id,
 	       COALESCE(u.username, '') AS username,
 	       COALESCE(u.phone, '') AS phone,
 	       COALESCE(u.first_name, '') AS first_name,
@@ -89,11 +90,20 @@ const eligibleDoctorSelect = `
 	       COALESCE(dp.specialty, '') AS specialty
 	FROM users u
 	JOIN doctor_profiles dp ON dp.user_id = u.id
-	JOIN user_roles ur ON ur.user_id = u.id
-	JOIN roles role ON role.id = ur.role_id
-	WHERE UPPER(role.slug) = ?
-	  AND role.active = TRUE
+	JOIN roles role ON UPPER(role.slug) = ?
+	WHERE role.active = TRUE
 	  AND role.deleted_at IS NULL
+	  AND (
+	       EXISTS (SELECT 1 FROM user_roles membership WHERE membership.user_id = u.id AND membership.role_id = role.id)
+	       OR EXISTS (
+	           SELECT 1 FROM hospital_user_roles assignment
+	           JOIN user_hospitals membership ON membership.user_id = assignment.user_id AND membership.hospital_id = assignment.hospital_id
+	           JOIN hospitals hospital ON hospital.id = assignment.hospital_id
+	           WHERE assignment.user_id = u.id AND assignment.role_id = role.id
+	             AND membership.is_active = TRUE AND membership.deleted_at IS NULL
+	             AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+	       )
+	  )
 	  AND u.deleted_at IS NULL
 	  AND u.status = 'active'
 	  AND u.verified_at IS NOT NULL
@@ -113,6 +123,7 @@ func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string,
 	query := eligibleDoctorSelect + `
 	  AND (
 	       u.id::text = ?
+	       OR dp.medikaone_id = ?
 	       OR LOWER(u.email) LIKE ?
 	       OR LOWER(COALESCE(u.username, '')) LIKE ?
 	       OR LOWER(COALESCE(dp.sip_number, '')) LIKE ?
@@ -139,6 +150,7 @@ func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string,
 	args := []any{
 		constant.RoleDoctor,
 		identity,
+		strings.ToUpper(identity),
 		containsPattern, containsPattern, containsPattern, containsPattern,
 		containsPattern, containsPattern, containsPattern,
 		normalizedPhone, normalizedPhone,
@@ -169,6 +181,20 @@ func escapeLikePattern(value string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }
 
+// GetDoctorMedikaOneID includes historical/inactive profiles: suspending a
+// hospital affiliation must not require a doctor to remain invite-eligible.
+func (r *Repository) GetDoctorMedikaOneID(ctx context.Context, doctorID string) (string, error) {
+	var identity string
+	result := r.db.WithContext(ctx).Raw(`SELECT medikaone_id FROM doctor_profiles WHERE user_id = ?`, doctorID).Scan(&identity)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", ErrAffiliationNotFound
+	}
+	return identity, nil
+}
+
 func normalizePhoneIdentity(value string) string {
 	var digits strings.Builder
 	for _, char := range value {
@@ -192,7 +218,16 @@ func (r *Repository) CreateDepartment(ctx context.Context, hospitalID, code, nam
 		ID: uuid.NewString(), HospitalID: hospitalID, Code: code, Name: name,
 		IsActive: true, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := r.db.WithContext(ctx).Create(department).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var id string
+		if err := tx.Raw(`SELECT id FROM hospitals WHERE id = ? AND is_active = TRUE AND deleted_at IS NULL FOR SHARE`, hospitalID).Scan(&id).Error; err != nil {
+			return err
+		}
+		if id == "" {
+			return ErrPlacementNotFound
+		}
+		return tx.Create(department).Error
+	}); err != nil {
 		return nil, err
 	}
 	return department, nil
@@ -218,7 +253,12 @@ func (r *Repository) CreateRoom(ctx context.Context, hospitalID, departmentID, c
 		ID: uuid.NewString(), HospitalID: hospitalID, DepartmentID: departmentID,
 		Code: code, Name: name, IsActive: true, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := r.db.WithContext(ctx).Create(room).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockActivePlacement(tx, hospitalID, departmentID, nil); err != nil {
+			return err
+		}
+		return tx.Create(room).Error
+	}); err != nil {
 		return nil, err
 	}
 	return room, nil
@@ -268,12 +308,14 @@ func hasActiveScheduleConflict(db *gorm.DB, doctorID string, schedules []Schedul
 				JOIN doctor_hospital_schedules existing
 				  ON existing.affiliation_id = affiliation.id
 				 AND existing.is_active = TRUE
+				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
 				WHERE affiliation.doctor_id = ?
 				  AND affiliation.status = 'ACTIVE'
 				  AND existing.day_of_week = ?
+				  AND (existing.schedule_date IS NULL OR CAST(? AS date) IS NULL OR existing.schedule_date = CAST(? AS date))
 				  AND existing.start_time < ?::time
 				  AND existing.end_time > ?::time
-			)`, doctorID, proposed.DayOfWeek, proposed.EndTime, proposed.StartTime).
+			)`, doctorID, proposed.DayOfWeek, proposed.ScheduleDate, proposed.ScheduleDate, proposed.EndTime, proposed.StartTime).
 			Scan(&conflict).Error; err != nil {
 			return false, err
 		}
@@ -291,13 +333,19 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 	}
 	notificationID := uuid.NewString()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockActivePlacement(tx, input.HospitalID, input.DepartmentID, input.RoomID); err != nil {
+			return err
+		}
 		if err := expirePendingInvitations(tx, input.HospitalID, input.DoctorID, input.Now); err != nil {
 			return err
 		}
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", input.DoctorID).Error; err != nil {
+			return err
+		}
+		if err := lockAndValidateHospitalWorkerDOB(tx, input.DoctorID, input.Now); err != nil {
+			return err
+		}
 		if len(input.Schedules) > 0 {
-			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", input.DoctorID).Error; err != nil {
-				return err
-			}
 			conflict, err := hasActiveScheduleConflict(tx, input.DoctorID, input.Schedules)
 			if err != nil {
 				return err
@@ -312,6 +360,7 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 			SELECT EXISTS(
 				SELECT 1 FROM doctor_hospital_affiliations
 				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
+				  AND deleted_at IS NULL
 				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
 				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
 				UNION ALL
@@ -319,7 +368,7 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
 				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
 				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-				  AND status = 'PENDING'
+				  AND status = 'PENDING' AND deleted_at IS NULL
 			)`, input.HospitalID, input.DoctorID, input.DepartmentID, input.RoomID,
 			input.HospitalID, input.DoctorID, input.DepartmentID, input.RoomID).Scan(&exists).Error; err != nil {
 			return err
@@ -356,10 +405,10 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 		for _, schedule := range input.Schedules {
 			if err := tx.Exec(`
 				INSERT INTO doctor_hospital_invitation_schedules (
-					id, invitation_id, day_of_week, start_time, end_time, timezone,
+					id, invitation_id, day_of_week, schedule_date, start_time, end_time, timezone,
 					booking_mode, slot_duration_minutes, capacity, created_at
-				) VALUES (?, ?, ?, ?::time, ?::time, ?, ?, ?, ?, ?)`,
-				uuid.NewString(), invitationID, schedule.DayOfWeek, schedule.StartTime,
+				) VALUES (?, ?, ?, ?::date, ?::time, ?::time, ?, ?, ?, ?, ?)`,
+				uuid.NewString(), invitationID, schedule.DayOfWeek, schedule.ScheduleDate, schedule.StartTime,
 				schedule.EndTime, schedule.Timezone, schedule.BookingMode,
 				schedule.SlotDurationMinutes, schedule.Capacity, input.Now).Error; err != nil {
 				return err
@@ -393,7 +442,7 @@ func expirePendingInvitations(tx *gorm.DB, hospitalID, doctorID string, now time
 	return tx.Transaction(func(expiryTx *gorm.DB) error {
 		var invitations []entity.DoctorHospitalInvitation
 		q := expiryTx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ? AND expires_at <= ?", entity.DoctorHospitalInvitationPending, now)
+			Where("status = ? AND expires_at <= ? AND deleted_at IS NULL", entity.DoctorHospitalInvitationPending, now)
 		if hospitalID != "" {
 			q = q.Where("hospital_id = ?", hospitalID)
 		}
@@ -439,6 +488,7 @@ func (r *Repository) listInvitations(ctx context.Context, ownerType, ownerID, st
 	if ownerType == "hospital" {
 		where = "i.hospital_id = ?"
 	}
+	where += " AND i.deleted_at IS NULL"
 	args := []any{ownerID}
 	if status != "" {
 		where += " AND i.status = ?"
@@ -470,6 +520,7 @@ func (r *Repository) GetInvitationForHospital(ctx context.Context, hospitalID, i
 }
 
 func (r *Repository) getInvitation(ctx context.Context, where string, args ...any) (*response.DoctorHospitalInvitation, error) {
+	where += " AND i.deleted_at IS NULL"
 	var out response.DoctorHospitalInvitation
 	if err := r.db.WithContext(ctx).Raw(invitationSelect+" WHERE "+where+" LIMIT 1", args...).Scan(&out).Error; err != nil {
 		return nil, err
@@ -486,7 +537,7 @@ func (r *Repository) getInvitation(ctx context.Context, where string, args ...an
 
 const invitationSelect = `
 	SELECT i.id, i.hospital_id, h.code AS hospital_code, h.name AS hospital_name,
-	       i.doctor_id, u.email AS doctor_email, u.first_name AS doctor_first_name,
+	       i.doctor_id, dp.medikaone_id AS doctor_medikaone_id, u.email AS doctor_email, u.first_name AS doctor_first_name,
 	       u.last_name AS doctor_last_name, COALESCE(dp.sip_number, '') AS sip_number,
 	       COALESCE(dp.specialty, '') AS specialty,
 	       i.department_id, department.name AS department_name,
@@ -507,7 +558,7 @@ func (r *Repository) attachInvitationSchedules(ctx context.Context, invitations 
 	for i := range invitations {
 		var schedules []response.DoctorHospitalSchedule
 		if err := r.db.WithContext(ctx).Raw(`
-			SELECT id, day_of_week,
+			SELECT id, day_of_week, schedule_date::text AS schedule_date,
 			       TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time,
 			       timezone, booking_mode, slot_duration_minutes, capacity
@@ -526,9 +577,12 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		return err
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockInvitationHospital(tx, invitationID, "", doctorID); err != nil {
+			return err
+		}
 		var invitation entity.DoctorHospitalInvitation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND doctor_id = ?", invitationID, doctorID).
+			Where("id = ? AND doctor_id = ? AND deleted_at IS NULL", invitationID, doctorID).
 			First(&invitation).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrInvitationNotFound
@@ -540,6 +594,9 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 		}
 		if invitation.Status != entity.DoctorHospitalInvitationPending {
 			return ErrInvalidInvitationState
+		}
+		if err := lockActivePlacement(tx, invitation.HospitalID, invitation.DepartmentID, invitation.RoomID); err != nil {
+			return err
 		}
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", doctorID).Error; err != nil {
 			return err
@@ -557,8 +614,10 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 				  ON affiliation.doctor_id = ? AND affiliation.status = 'ACTIVE'
 				JOIN doctor_hospital_schedules existing
 				  ON existing.affiliation_id = affiliation.id AND existing.is_active = TRUE
+				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
 				WHERE proposed.invitation_id = ?
 				  AND proposed.day_of_week = existing.day_of_week
+				  AND (proposed.schedule_date IS NULL OR existing.schedule_date IS NULL OR proposed.schedule_date = existing.schedule_date)
 				  AND proposed.start_time < existing.end_time
 				  AND proposed.end_time > existing.start_time
 			)`, doctorID, invitationID).Scan(&conflict).Error; err != nil {
@@ -581,10 +640,10 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 
 		if err := tx.Exec(`
 			INSERT INTO doctor_hospital_schedules (
-				id, affiliation_id, day_of_week, start_time, end_time, timezone,
+				id, affiliation_id, day_of_week, schedule_date, start_time, end_time, timezone,
 				booking_mode, slot_duration_minutes, capacity, is_active, created_at, updated_at
 			)
-			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone,
+			SELECT gen_random_uuid(), ?, day_of_week, schedule_date, start_time, end_time, timezone,
 			       booking_mode, slot_duration_minutes, capacity, TRUE, ?, ?
 			FROM doctor_hospital_invitation_schedules
 			WHERE invitation_id = ?`, affiliationID, now, now, invitationID).Error; err != nil {
@@ -646,7 +705,7 @@ func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorI
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitation entity.DoctorHospitalInvitation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND doctor_id = ?", invitationID, doctorID).First(&invitation).Error; err != nil {
+			Where("id = ? AND doctor_id = ? AND deleted_at IS NULL", invitationID, doctorID).First(&invitation).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrInvitationNotFound
 			}
@@ -686,7 +745,7 @@ func (r *Repository) CancelInvitation(ctx context.Context, invitationID, hospita
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var invitation entity.DoctorHospitalInvitation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND hospital_id = ?", invitationID, hospitalID).First(&invitation).Error; err != nil {
+			Where("id = ? AND hospital_id = ? AND deleted_at IS NULL", invitationID, hospitalID).First(&invitation).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrInvitationNotFound
 			}
@@ -725,9 +784,12 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 	newID := uuid.NewString()
 	var doctorID string
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockInvitationHospital(tx, invitationID, hospitalID, ""); err != nil {
+			return err
+		}
 		var invitation entity.DoctorHospitalInvitation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND hospital_id = ?", invitationID, hospitalID).First(&invitation).Error; err != nil {
+			Where("id = ? AND hospital_id = ? AND deleted_at IS NULL", invitationID, hospitalID).First(&invitation).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrInvitationNotFound
 			}
@@ -741,12 +803,22 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 			return ErrInvalidInvitationState
 		}
 		doctorID = invitation.DoctorID
+		if err := lockActivePlacement(tx, hospitalID, invitation.DepartmentID, invitation.RoomID); err != nil {
+			return err
+		}
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", doctorID).Error; err != nil {
+			return err
+		}
+		if err := lockAndValidateHospitalWorkerDOB(tx, doctorID, now); err != nil {
+			return err
+		}
 
 		var exists bool
 		if err := tx.Raw(`
 			SELECT EXISTS(
 				SELECT 1 FROM doctor_hospital_affiliations
 				WHERE hospital_id = ? AND doctor_id = ? AND department_id = ?
+				  AND deleted_at IS NULL
 				  AND COALESCE(room_id, '00000000-0000-0000-0000-000000000000'::uuid)
 				      = COALESCE(?::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
 			)`, hospitalID, doctorID, invitation.DepartmentID, invitation.RoomID).Scan(&exists).Error; err != nil {
@@ -783,10 +855,10 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 		}
 		if err := tx.Exec(`
 			INSERT INTO doctor_hospital_invitation_schedules (
-				id, invitation_id, day_of_week, start_time, end_time, timezone,
+				id, invitation_id, day_of_week, schedule_date, start_time, end_time, timezone,
 				booking_mode, slot_duration_minutes, capacity, created_at
 			)
-			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone,
+			SELECT gen_random_uuid(), ?, day_of_week, schedule_date, start_time, end_time, timezone,
 			       booking_mode, slot_duration_minutes, capacity, ?
 			FROM doctor_hospital_invitation_schedules WHERE invitation_id = ?`,
 			newID, now, invitationID).Error; err != nil {
@@ -819,6 +891,7 @@ func (r *Repository) GetContractForHospital(ctx context.Context, invitationID, h
 }
 
 func (r *Repository) getContract(ctx context.Context, where, version string, args ...any) (*ContractDocument, error) {
+	where += " AND i.deleted_at IS NULL"
 	prefix := "original"
 	if strings.EqualFold(version, "signed") {
 		prefix = "signed"
@@ -871,6 +944,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 	args := []any{}
 	where := `hospital.is_active = TRUE AND hospital.deleted_at IS NULL
 		AND u.status = 'active' AND u.deleted_at IS NULL
+		AND affiliation.deleted_at IS NULL
 		AND department.is_active = TRUE`
 	if hospitalID != "" {
 		where += " AND affiliation.hospital_id = ?"
@@ -888,7 +962,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT affiliation.id AS affiliation_id, affiliation.hospital_id,
 		       hospital.name AS hospital_name,
-		       affiliation.doctor_id, u.email, u.first_name, u.last_name,
+		       affiliation.doctor_id, dp.medikaone_id AS doctor_medikaone_id, u.email, u.first_name, u.last_name,
 		       COALESCE(dp.sip_number, '') AS sip_number,
 		       COALESCE(dp.specialty, '') AS specialty,
 		       affiliation.department_id, department.name AS department,
@@ -908,7 +982,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 	for i := range rows {
 		var schedules []response.DoctorHospitalSchedule
 		if err := r.db.WithContext(ctx).Raw(`
-			SELECT id, day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+			SELECT id, day_of_week, schedule_date::text AS schedule_date, TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone,
 			       booking_mode, slot_duration_minutes, capacity
 			FROM doctor_hospital_schedules
@@ -923,9 +997,18 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 
 func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string, now time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var affiliationIDs []string
+		if err := tx.Table("doctor_hospital_affiliations").Where("hospital_id = ? AND doctor_id = ? AND deleted_at IS NULL", hospitalID, doctorID).Order("id").Pluck("id", &affiliationIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range affiliationIDs {
+			if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "appointment:affiliation:"+id).Error; err != nil {
+				return err
+			}
+		}
 		var affiliations []entity.DoctorHospitalAffiliation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("hospital_id = ? AND doctor_id = ?", hospitalID, doctorID).
+			Where("hospital_id = ? AND doctor_id = ? AND deleted_at IS NULL", hospitalID, doctorID).
 			Find(&affiliations).Error; err != nil {
 			return err
 		}
@@ -933,12 +1016,17 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 			return ErrAffiliationNotFound
 		}
 		if status == entity.DoctorHospitalAffiliationActive {
+			for _, affiliation := range affiliations {
+				if err := lockActivePlacement(tx, hospitalID, affiliation.DepartmentID, affiliation.RoomID); err != nil {
+					return err
+				}
+			}
 			if err := lockAndValidateHospitalWorkerDOB(tx, doctorID, now); err != nil {
 				return err
 			}
 		}
 		if err := tx.Model(&entity.DoctorHospitalAffiliation{}).
-			Where("hospital_id = ? AND doctor_id = ? AND status <> ?", hospitalID, doctorID, status).
+			Where("hospital_id = ? AND doctor_id = ? AND status <> ? AND deleted_at IS NULL", hospitalID, doctorID, status).
 			Updates(map[string]any{"status": status, "updated_at": now}).Error; err != nil {
 			return err
 		}
@@ -988,7 +1076,7 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 		if status == entity.DoctorHospitalAffiliationActive {
 			eventType = "REACTIVATED"
 		}
-		affiliationIDs := make([]string, 0, len(affiliations))
+		affiliationIDs = make([]string, 0, len(affiliations))
 		for _, affiliation := range affiliations {
 			affiliationIDs = append(affiliationIDs, affiliation.ID)
 			if affiliation.Status == status {
@@ -1038,13 +1126,18 @@ func hospitalWorkerDOBMeetsMinimum(dob, now time.Time) bool {
 }
 
 func (r *Repository) ListNotifications(ctx context.Context, userID string, unreadOnly bool) ([]response.Notification, error) {
-	where := "user_id = ?"
+	where := "user_id = ? AND deleted_at IS NULL"
 	if unreadOnly {
 		where += " AND read_at IS NULL"
 	}
 	var rows []response.Notification
 	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, type, title, body, data, read_at, created_at
+		SELECT id, type, title, body,
+		       CASE WHEN data->>'doctor_id' IS NOT NULL THEN data || COALESCE((
+		           SELECT jsonb_build_object('doctor_medikaone_id', profile.medikaone_id)
+		           FROM doctor_profiles profile WHERE profile.user_id::text = notifications.data->>'doctor_id'
+		       ), '{}'::jsonb) ELSE data END AS data,
+		       read_at, created_at
 		FROM notifications WHERE `+where+`
 		ORDER BY created_at DESC LIMIT 100`, userID).Scan(&rows).Error
 	return rows, err
@@ -1053,7 +1146,7 @@ func (r *Repository) ListNotifications(ctx context.Context, userID string, unrea
 func (r *Repository) MarkNotificationRead(ctx context.Context, userID, notificationID string, now time.Time) error {
 	result := r.db.WithContext(ctx).Exec(`
 		UPDATE notifications SET read_at = COALESCE(read_at, ?)
-		WHERE id = ? AND user_id = ?`, now, notificationID, userID)
+		WHERE id = ? AND user_id = ? AND deleted_at IS NULL`, now, notificationID, userID)
 	if result.Error != nil {
 		return result.Error
 	}

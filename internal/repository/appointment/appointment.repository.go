@@ -46,6 +46,7 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type Schedule struct {
+	DoctorMedikaOneID   string `gorm:"column:doctor_medikaone_id"`
 	ID                  string
 	AffiliationID       string
 	HospitalID          string
@@ -58,6 +59,7 @@ type Schedule struct {
 	RoomID              *string
 	RoomName            *string
 	DayOfWeek           int
+	ScheduleDate        *string
 	StartTime           string
 	EndTime             string
 	Timezone            string
@@ -179,18 +181,21 @@ type WalkInInput struct {
 }
 
 type ScheduleChangeInput struct {
-	AffiliationID string
-	ActorID       string
-	ActorParty    string
-	HospitalID    string
-	Reason        *string
-	Schedules     []ScheduleItem
-	Now           time.Time
-	ExpiresAt     time.Time
+	Operation        string
+	TargetScheduleID *string
+	AffiliationID    string
+	ActorID          string
+	ActorParty       string
+	HospitalID       string
+	Reason           *string
+	Schedules        []ScheduleItem
+	Now              time.Time
+	ExpiresAt        time.Time
 }
 
 type ScheduleItem struct {
 	DayOfWeek           int
+	ScheduleDate        *string
 	StartTime           string
 	EndTime             string
 	Timezone            string
@@ -204,7 +209,7 @@ const appointmentSelect = `
 	       appointment.patient_record_id,
 	       TRIM(CONCAT_WS(' ', patient_record.first_name, patient_record.last_name)) AS patient_name,
 	       appointment.affiliation_id, appointment.schedule_id, appointment.hospital_id,
-	       hospital.name AS hospital_name, appointment.doctor_id,
+	       hospital.name AS hospital_name, appointment.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id,
 	       TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
 	       appointment.department_id, department.name AS department_name,
 	       appointment.room_id, room.name AS room_name,
@@ -225,16 +230,17 @@ const appointmentSelect = `
 	JOIN patient_records patient_record ON patient_record.id = appointment.patient_record_id
 	LEFT JOIN users patient ON patient.id = appointment.patient_id
 	JOIN users doctor ON doctor.id = appointment.doctor_id
+	JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 	JOIN hospitals hospital ON hospital.id = appointment.hospital_id
 	JOIN hospital_departments department ON department.id = appointment.department_id
 	LEFT JOIN hospital_rooms room ON room.id = appointment.room_id
 	JOIN doctor_hospital_schedules schedule ON schedule.id = appointment.schedule_id`
 
 func (r *Repository) ListActiveSchedules(ctx context.Context, filter AvailabilityFilter) ([]Schedule, error) {
-	where := `affiliation.status = 'ACTIVE' AND schedule.is_active = TRUE
+	where := `affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL AND schedule.is_active = TRUE
 		AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
 		AND doctor.status = 'active' AND doctor.deleted_at IS NULL
-		AND department.is_active = TRUE`
+		AND department.is_active = TRUE AND (affiliation.room_id IS NULL OR room.is_active = TRUE)`
 	args := []any{}
 	if filter.HospitalID != "" {
 		where += " AND affiliation.hospital_id = ?"
@@ -252,11 +258,11 @@ func (r *Repository) ListActiveSchedules(ctx context.Context, filter Availabilit
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT schedule.id, schedule.affiliation_id, affiliation.hospital_id,
 		       COALESCE(hospital.code, 'HOSPITAL') AS hospital_code, hospital.name AS hospital_name,
-		       affiliation.doctor_id,
+		       affiliation.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id,
 		       TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
 		       affiliation.department_id, department.name AS department_name,
 		       affiliation.room_id, room.name AS room_name,
-		       schedule.day_of_week,
+		       schedule.day_of_week, schedule.schedule_date::text AS schedule_date,
 		       TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
 		       TO_CHAR(schedule.end_time, 'HH24:MI') AS end_time,
 		       schedule.timezone, schedule.booking_mode,
@@ -265,10 +271,11 @@ func (r *Repository) ListActiveSchedules(ctx context.Context, filter Availabilit
 		JOIN doctor_hospital_affiliations affiliation ON affiliation.id = schedule.affiliation_id
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users doctor ON doctor.id = affiliation.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
 		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 		WHERE `+where+`
-		ORDER BY hospital.name, doctor.first_name, schedule.day_of_week, schedule.start_time`, args...).Scan(&rows).Error
+		ORDER BY hospital.name, doctor.first_name, schedule.schedule_date, schedule.day_of_week, schedule.start_time`, args...).Scan(&rows).Error
 	return rows, err
 }
 
@@ -334,6 +341,11 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	).Error; err != nil {
 		return "", false, err
 	}
+	if input.PatientID != "" {
+		if err := requireActivePatient(tx.WithContext(ctx), input.PatientID); err != nil {
+			return "", false, err
+		}
+	}
 	if input.PatientRecordID == "" {
 		patientRecordID, err := ensurePatientRecordForUser(tx.WithContext(ctx), input.PatientID, input.Now)
 		if err != nil {
@@ -375,6 +387,7 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 		ID                  string
 		AffiliationID       string
 		DayOfWeek           int
+		ScheduleDate        *string
 		StartTime           string
 		EndTime             string
 		Timezone            string
@@ -383,7 +396,7 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 		Capacity            int
 	}
 	if err := tx.WithContext(ctx).Raw(`
-		SELECT schedule.id, schedule.affiliation_id, schedule.day_of_week,
+		SELECT schedule.id, schedule.affiliation_id, schedule.day_of_week, schedule.schedule_date::text AS schedule_date,
 		       TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
 		       TO_CHAR(schedule.end_time, 'HH24:MI') AS end_time,
 		       schedule.timezone, schedule.booking_mode,
@@ -391,10 +404,15 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 		FROM doctor_hospital_schedules schedule
 		JOIN doctor_hospital_affiliations affiliation ON affiliation.id = schedule.affiliation_id
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+		JOIN users doctor ON doctor.id = affiliation.doctor_id
+		JOIN hospital_departments department ON department.id = affiliation.department_id
+		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 		WHERE schedule.id = ? AND schedule.affiliation_id = ?
 		  AND schedule.is_active = TRUE AND affiliation.status = 'ACTIVE'
 		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
-		FOR SHARE OF schedule`, input.Schedule.ID, input.Schedule.AffiliationID).Scan(&currentSchedule).Error; err != nil {
+		  AND affiliation.deleted_at IS NULL AND doctor.status = 'active' AND doctor.deleted_at IS NULL
+		  AND department.is_active = TRUE AND (affiliation.room_id IS NULL OR room.is_active = TRUE)
+		FOR SHARE OF schedule, affiliation, hospital, doctor, department`, input.Schedule.ID, input.Schedule.AffiliationID).Scan(&currentSchedule).Error; err != nil {
 		return "", false, err
 	}
 	if currentSchedule.ID == "" {
@@ -402,12 +420,17 @@ func (r *Repository) bookTx(ctx context.Context, tx *gorm.DB, input BookInput, e
 	}
 	if currentSchedule.AffiliationID != input.Schedule.AffiliationID ||
 		currentSchedule.DayOfWeek != input.Schedule.DayOfWeek ||
+		!sameScheduleDate(currentSchedule.ScheduleDate, input.Schedule.ScheduleDate) ||
 		currentSchedule.StartTime != input.Schedule.StartTime ||
 		currentSchedule.EndTime != input.Schedule.EndTime ||
 		currentSchedule.Timezone != input.Schedule.Timezone ||
 		currentSchedule.BookingMode != input.Schedule.BookingMode ||
 		currentSchedule.SlotDurationMinutes != input.Schedule.SlotDurationMinutes ||
 		currentSchedule.Capacity != input.Schedule.Capacity {
+		return "", false, ErrSlotUnavailable
+	}
+
+	if !validScheduleOccurrence(input.Schedule, input.AppointmentDate, input.ScheduledStartAt, input.ScheduledEndAt) {
 		return "", false, ErrSlotUnavailable
 	}
 
@@ -527,6 +550,9 @@ func ensurePatientRecordForUser(tx *gorm.DB, userID string, now time.Time) (stri
 		`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`,
 		"patient-record-user:"+userID,
 	).Error; err != nil {
+		return "", err
+	}
+	if err := requireActivePatient(tx, userID); err != nil {
 		return "", err
 	}
 	var existingID string
@@ -955,12 +981,13 @@ func (r *Repository) ClaimDueReminders(ctx context.Context, now time.Time, limit
 		return tx.Raw(`
 			SELECT reminder.id, reminder.appointment_id, reminder.reminder_type, reminder.due_at,
 			       appointment.patient_id, patient.email AS patient_email, patient.first_name AS patient_first_name,
-			       appointment.doctor_id, doctor.email AS doctor_email, doctor.first_name AS doctor_first_name,
+			       appointment.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id, doctor.email AS doctor_email, doctor.first_name AS doctor_first_name,
 			       hospital.name AS hospital_name, appointment.scheduled_start_at, schedule.timezone
 			FROM appointment_reminders reminder
 			JOIN appointments appointment ON appointment.id = reminder.appointment_id
 			JOIN users patient ON patient.id = appointment.patient_id
 			JOIN users doctor ON doctor.id = appointment.doctor_id
+			JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 			JOIN hospitals hospital ON hospital.id = appointment.hospital_id
 			JOIN doctor_hospital_schedules schedule ON schedule.id = appointment.schedule_id
 			WHERE reminder.id IN ?`, ids).Scan(&rows).Error
@@ -1033,16 +1060,19 @@ func (r *Repository) GetAffiliation(ctx context.Context, affiliationID string) (
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT affiliation.id AS affiliation_id, affiliation.hospital_id,
 		       COALESCE(hospital.code, 'HOSPITAL') AS hospital_code, hospital.name AS hospital_name,
-		       affiliation.doctor_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
+		       affiliation.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
 		       affiliation.department_id, department.name AS department_name,
 		       affiliation.room_id, room.name AS room_name
 		FROM doctor_hospital_affiliations affiliation
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users doctor ON doctor.id = affiliation.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
 		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
-		WHERE affiliation.id = ? AND affiliation.status = 'ACTIVE'
-		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL`, affiliationID).Scan(&row).Error; err != nil {
+		WHERE affiliation.id = ? AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+		  AND doctor.status = 'active' AND doctor.deleted_at IS NULL AND department.is_active = TRUE
+		  AND (affiliation.room_id IS NULL OR room.is_active = TRUE)`, affiliationID).Scan(&row).Error; err != nil {
 		return nil, err
 	}
 	if row.AffiliationID == "" {
@@ -1053,9 +1083,41 @@ func (r *Repository) GetAffiliation(ctx context.Context, affiliationID string) (
 
 func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleChangeInput) (*response.ScheduleChangeRequest, error) {
 	changeID := uuid.NewString()
+	if input.Operation == "" {
+		input.Operation = "REPLACE"
+	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "schedule-change:"+input.AffiliationID).Error; err != nil {
 			return err
+		}
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "appointment:affiliation:"+input.AffiliationID).Error; err != nil {
+			return err
+		}
+		var valid string
+		if err := tx.Raw(`SELECT affiliation.id FROM doctor_hospital_affiliations affiliation
+			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+			JOIN users doctor ON doctor.id = affiliation.doctor_id
+			JOIN hospital_departments department ON department.id = affiliation.department_id
+			LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
+			WHERE affiliation.id = ? AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+			AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+			AND doctor.status = 'active' AND doctor.deleted_at IS NULL AND department.is_active = TRUE
+			AND (affiliation.room_id IS NULL OR room.is_active = TRUE)
+			AND ((? = 'DOCTOR' AND affiliation.doctor_id = CAST(? AS uuid)) OR (? = 'HOSPITAL' AND affiliation.hospital_id = CAST(NULLIF(?, '') AS uuid)))
+			FOR SHARE OF affiliation, hospital, doctor, department`, input.AffiliationID, input.ActorParty, input.ActorID, input.ActorParty, input.HospitalID).Scan(&valid).Error; err != nil {
+			return err
+		}
+		if valid == "" {
+			return ErrAffiliationNotFound
+		}
+		if input.TargetScheduleID != nil {
+			var target string
+			if err := tx.Raw(`SELECT id FROM doctor_hospital_schedules WHERE id = ? AND affiliation_id = ? AND is_active = TRUE FOR SHARE`, input.TargetScheduleID, input.AffiliationID).Scan(&target).Error; err != nil {
+				return err
+			}
+			if target == "" {
+				return ErrScheduleNotFound
+			}
 		}
 		var pending bool
 		if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_requests WHERE affiliation_id = ? AND status = 'PENDING')`, input.AffiliationID).Scan(&pending).Error; err != nil {
@@ -1067,18 +1129,18 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 		if err := tx.Exec(`
 			INSERT INTO doctor_schedule_change_requests (
 				id, affiliation_id, requested_by, requested_by_party, status, reason,
-				expires_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)`, changeID, input.AffiliationID,
-			input.ActorID, input.ActorParty, input.Reason, input.ExpiresAt, input.Now, input.Now).Error; err != nil {
+				expires_at, created_at, updated_at, operation, target_schedule_id
+			) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)`, changeID, input.AffiliationID,
+			input.ActorID, input.ActorParty, input.Reason, input.ExpiresAt, input.Now, input.Now, input.Operation, input.TargetScheduleID).Error; err != nil {
 			return err
 		}
 		for _, schedule := range input.Schedules {
 			if err := tx.Exec(`
 				INSERT INTO doctor_schedule_change_items (
-					id, change_request_id, day_of_week, start_time, end_time, timezone,
+					id, change_request_id, day_of_week, schedule_date, start_time, end_time, timezone,
 					booking_mode, slot_duration_minutes, capacity, created_at
-				) VALUES (?, ?, ?, ?::time, ?::time, ?, ?, ?, ?, ?)`, uuid.NewString(), changeID,
-				schedule.DayOfWeek, schedule.StartTime, schedule.EndTime, schedule.Timezone,
+				) VALUES (?, ?, ?, ?::date, ?::time, ?::time, ?, ?, ?, ?, ?)`, uuid.NewString(), changeID,
+				schedule.DayOfWeek, schedule.ScheduleDate, schedule.StartTime, schedule.EndTime, schedule.Timezone,
 				schedule.BookingMode, schedule.SlotDurationMinutes, schedule.Capacity, input.Now).Error; err != nil {
 				return err
 			}
@@ -1095,25 +1157,26 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 }
 
 func (r *Repository) GetScheduleChange(ctx context.Context, changeID string) (*response.ScheduleChangeRequest, error) {
-	var row response.ScheduleChangeRequest
+	row := response.ScheduleChangeRequest{Schedules: []response.DoctorHospitalSchedule{}}
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT change.id, change.affiliation_id, affiliation.hospital_id, hospital.name AS hospital_name,
-		       affiliation.doctor_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
-		       change.requested_by, change.requested_by_party, change.status, change.reason,
+		       affiliation.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
+		       change.requested_by, change.requested_by_party, change.status, change.reason, change.operation, change.target_schedule_id,
 		       change.reviewed_by, change.reviewed_at, change.rejection_reason,
 		       change.expires_at, change.created_at, change.updated_at
 		FROM doctor_schedule_change_requests change
 		JOIN doctor_hospital_affiliations affiliation ON affiliation.id = change.affiliation_id
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users doctor ON doctor.id = affiliation.doctor_id
-		WHERE change.id = ?`, changeID).Scan(&row).Error; err != nil {
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
+		WHERE change.id = ? AND affiliation.deleted_at IS NULL AND hospital.deleted_at IS NULL AND doctor.deleted_at IS NULL`, changeID).Scan(&row).Error; err != nil {
 		return nil, err
 	}
 	if row.ID == "" {
 		return nil, ErrScheduleChangeNotFound
 	}
 	if err := r.db.WithContext(ctx).Raw(`
-		SELECT id, day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+		SELECT id, day_of_week, schedule_date::text AS schedule_date, TO_CHAR(start_time, 'HH24:MI') AS start_time,
 		       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone, booking_mode,
 		       slot_duration_minutes, capacity
 		FROM doctor_schedule_change_items WHERE change_request_id = ?
@@ -1124,7 +1187,7 @@ func (r *Repository) GetScheduleChange(ctx context.Context, changeID string) (*r
 }
 
 func (r *Repository) ListScheduleChanges(ctx context.Context, hospitalID, doctorID, status string) ([]response.ScheduleChangeRequest, error) {
-	where := []string{"1=1"}
+	where := []string{"affiliation.deleted_at IS NULL", "hospital.deleted_at IS NULL", "doctor.deleted_at IS NULL"}
 	args := []any{}
 	if hospitalID != "" {
 		where = append(where, "affiliation.hospital_id = ?")
@@ -1141,21 +1204,23 @@ func (r *Repository) ListScheduleChanges(ctx context.Context, hospitalID, doctor
 	var rows []response.ScheduleChangeRequest
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT change.id, change.affiliation_id, affiliation.hospital_id, hospital.name AS hospital_name,
-		       affiliation.doctor_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
-		       change.requested_by, change.requested_by_party, change.status, change.reason,
+		       affiliation.doctor_id, doctor_profile.medikaone_id AS doctor_medikaone_id, TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name,
+		       change.requested_by, change.requested_by_party, change.status, change.reason, change.operation, change.target_schedule_id,
 		       change.reviewed_by, change.reviewed_at, change.rejection_reason,
 		       change.expires_at, change.created_at, change.updated_at
 		FROM doctor_schedule_change_requests change
 		JOIN doctor_hospital_affiliations affiliation ON affiliation.id = change.affiliation_id
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users doctor ON doctor.id = affiliation.doctor_id
+		JOIN doctor_profiles doctor_profile ON doctor_profile.user_id = doctor.id
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY change.created_at DESC LIMIT 100`, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for i := range rows {
+		rows[i].Schedules = []response.DoctorHospitalSchedule{}
 		if err := r.db.WithContext(ctx).Raw(`
-			SELECT id, day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+			SELECT id, day_of_week, schedule_date::text AS schedule_date, TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone, booking_mode,
 			       slot_duration_minutes, capacity
 			FROM doctor_schedule_change_items WHERE change_request_id = ?
@@ -1170,6 +1235,8 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 	expired := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current struct {
+			Operation        string
+			TargetScheduleID *string
 			Status           string
 			AffiliationID    string
 			DoctorID         string
@@ -1178,7 +1245,7 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 		}
 		if err := tx.Raw(`
 			SELECT change.status, change.affiliation_id, affiliation.doctor_id,
-			       change.requested_by_party, change.expires_at
+			       change.requested_by_party, change.expires_at, change.operation, change.target_schedule_id
 			FROM doctor_schedule_change_requests change
 			JOIN doctor_hospital_affiliations affiliation ON affiliation.id = change.affiliation_id
 			WHERE change.id = ? FOR UPDATE OF change`, changeID).Scan(&current).Error; err != nil {
@@ -1225,18 +1292,49 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))`, current.DoctorID).Error; err != nil {
 			return err
 		}
-		var activeAppointments bool
-		if err := tx.Raw(`
-			SELECT EXISTS(
-				SELECT 1 FROM appointments
-				WHERE affiliation_id = ? AND scheduled_start_at >= ?
-				  AND status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION')
-			)`, current.AffiliationID, now).Scan(&activeAppointments).Error; err != nil {
+		var affiliationActive bool
+		if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_hospital_affiliations affiliation
+			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+			JOIN users doctor ON doctor.id = affiliation.doctor_id
+			JOIN hospital_departments department ON department.id = affiliation.department_id
+			WHERE affiliation.id = ? AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+			AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL AND doctor.status = 'active' AND doctor.deleted_at IS NULL
+			AND department.is_active = TRUE)`, current.AffiliationID).Scan(&affiliationActive).Error; err != nil {
 			return err
 		}
-		if activeAppointments {
-			return ErrScheduleChangeAppointments
+		if !affiliationActive {
+			return ErrAffiliationNotFound
 		}
+		if current.Operation != "ADD" {
+			var activeAppointments bool
+			if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM appointments
+				WHERE affiliation_id = ?
+				AND (CAST(? AS uuid) IS NULL OR schedule_id = CAST(? AS uuid))
+				AND status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION'))`, current.AffiliationID, current.TargetScheduleID, current.TargetScheduleID).Scan(&activeAppointments).Error; err != nil {
+				return err
+			}
+			if activeAppointments {
+				return ErrScheduleChangeAppointments
+			}
+		}
+		if current.Operation == "REMOVE" {
+			result := tx.Exec(`UPDATE doctor_hospital_schedules SET is_active = FALSE, updated_at = ? WHERE id = ? AND affiliation_id = ? AND is_active = TRUE`, now, current.TargetScheduleID, current.AffiliationID)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return ErrScheduleNotFound
+			}
+		}
+		var pastSpecific bool
+		if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_items WHERE change_request_id = ? AND schedule_date IS NOT NULL
+			AND ((schedule_date + start_time) AT TIME ZONE timezone) <= ?)`, changeID, now).Scan(&pastSpecific).Error; err != nil {
+			return err
+		}
+		if pastSpecific {
+			return ErrInvalidScheduleChangeState
+		}
+
 		var scheduleConflict bool
 		if err := tx.Raw(`
 			SELECT EXISTS(
@@ -1244,33 +1342,37 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 				FROM doctor_schedule_change_items proposed
 				JOIN doctor_hospital_affiliations other_affiliation
 				  ON other_affiliation.doctor_id = ?
-				 AND other_affiliation.id <> ?
+				 AND (? = 'ADD' OR other_affiliation.id <> ?)
 				 AND other_affiliation.status = 'ACTIVE'
 				JOIN doctor_hospital_schedules existing
 				  ON existing.affiliation_id = other_affiliation.id
 				 AND existing.is_active = TRUE
+				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
 				WHERE proposed.change_request_id = ?
 				  AND proposed.day_of_week = existing.day_of_week
+				  AND (proposed.schedule_date IS NULL OR existing.schedule_date IS NULL OR proposed.schedule_date = existing.schedule_date)
 				  AND proposed.start_time < existing.end_time
 				  AND proposed.end_time > existing.start_time
-			)`, current.DoctorID, current.AffiliationID, changeID).Scan(&scheduleConflict).Error; err != nil {
+			)`, current.DoctorID, current.Operation, current.AffiliationID, changeID).Scan(&scheduleConflict).Error; err != nil {
 			return err
 		}
 		if scheduleConflict {
 			return ErrDoctorScheduleConflict
 		}
-		if err := tx.Exec(`UPDATE doctor_hospital_schedules SET is_active = FALSE, updated_at = ? WHERE affiliation_id = ? AND is_active = TRUE`, now, current.AffiliationID).Error; err != nil {
-			return err
+		if current.Operation == "REPLACE" {
+			if err := tx.Exec(`UPDATE doctor_hospital_schedules SET is_active = FALSE, updated_at = ? WHERE affiliation_id = ? AND is_active = TRUE`, now, current.AffiliationID).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Exec(`
 			INSERT INTO doctor_hospital_schedules (
-				id, affiliation_id, day_of_week, start_time, end_time, timezone,
+				id, affiliation_id, day_of_week, schedule_date, start_time, end_time, timezone,
 				booking_mode, slot_duration_minutes, capacity, is_active, created_at, updated_at
 			)
-			SELECT gen_random_uuid(), ?, day_of_week, start_time, end_time, timezone,
+			SELECT gen_random_uuid(), ?, day_of_week, schedule_date, start_time, end_time, timezone,
 			       booking_mode, slot_duration_minutes, capacity, TRUE, ?, ?
 			FROM doctor_schedule_change_items WHERE change_request_id = ?
-			ON CONFLICT (affiliation_id, day_of_week, start_time, end_time)
+			ON CONFLICT (affiliation_id, day_of_week, (COALESCE(schedule_date, 'infinity'::date)), start_time, end_time) WHERE is_active = TRUE
 			DO UPDATE SET timezone = EXCLUDED.timezone, booking_mode = EXCLUDED.booking_mode,
 			              slot_duration_minutes = EXCLUDED.slot_duration_minutes,
 			              capacity = EXCLUDED.capacity, is_active = TRUE, updated_at = EXCLUDED.updated_at`,
@@ -1286,7 +1388,11 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 		if err := insertScheduleChangeEvent(tx, changeID, actorID, "APPROVED", now); err != nil {
 			return err
 		}
-		return notifyScheduleCounterpart(tx, current.AffiliationID, actorParty, "SCHEDULE_CHANGE_APPROVED", "Perubahan jadwal disetujui", "Jadwal baru telah aktif.", changeID, now)
+		approvalBody := "Jadwal baru telah aktif."
+		if current.Operation == "REMOVE" {
+			approvalBody = "Jadwal praktik telah dihapus."
+		}
+		return notifyScheduleCounterpart(tx, current.AffiliationID, actorParty, "SCHEDULE_CHANGE_APPROVED", "Perubahan jadwal disetujui", approvalBody, changeID, now)
 	})
 	if err != nil {
 		return err

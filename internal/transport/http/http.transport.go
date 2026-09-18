@@ -8,6 +8,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	appointmentCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/appointment"
 	authCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/auth"
+	doctorCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor"
 	doctorHospitalCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/doctor_hospital"
 	examinationCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
@@ -25,6 +26,7 @@ import (
 type Transport struct {
 	router                   *gin.Engine
 	authController           *authCtrl.Controller
+	doctorController         *doctorCtrl.Controller
 	userController           *userCtrl.Controller
 	hospitalController       *hospCtrl.Controller
 	doctorHospitalController *doctorHospitalCtrl.Controller
@@ -43,6 +45,10 @@ func NewTransport() *Transport                              { return new(Transpo
 func (t *Transport) WithGinEngine(r *gin.Engine) *Transport { t.router = r; return t }
 func (t *Transport) WithAuthController(c *authCtrl.Controller) *Transport {
 	t.authController = c
+	return t
+}
+func (t *Transport) WithDoctorController(c *doctorCtrl.Controller) *Transport {
+	t.doctorController = c
 	return t
 }
 func (t *Transport) WithUserController(c *userCtrl.Controller) *Transport {
@@ -99,6 +105,12 @@ func (t *Transport) InitRoute() {
 	t.router.GET("/ping", func(c *gin.Context) { t.warmupController.Ping(c) })
 
 	v1 := t.router.Group("/v1")
+	v1.GET("/doctors", t.doctorController.ListDoctors)
+	v1.GET("/doctors/:doctor_id", t.doctorController.GetDoctor)
+	v1.GET("/hospitals", t.hospitalController.ListHospitals)
+	v1.GET("/hospitals/:hospital_id", t.hospitalController.GetHospital)
+	v1.GET("/hospitals/:hospital_id/images", t.hospitalController.ListImages)
+	v1.GET("/hospitals/:hospital_id/reviews", t.hospitalController.ListReviews)
 	v1.GET("/prescriptions/verify/:token",
 		transportmw.RateLimitPublicPrescriptionVerificationByIP(
 			t.rdb, config.Env.Auth.PublicIPRateLimit, config.Env.Auth.PublicIPRateWindow,
@@ -134,6 +146,10 @@ func (t *Transport) InitRoute() {
 	protected.Use(transportmw.AuthRequired(t.rdb, t.userRepo))
 	{
 		protected.GET("/me", t.userController.Me)
+		protected.DELETE("/account", t.authController.DeleteAccount)
+		protected.GET("/hospitals/:hospital_id/reviews/me", t.hospitalController.GetOwnReview)
+		protected.PUT("/hospitals/:hospital_id/reviews/me", t.hospitalController.PutReview)
+		protected.DELETE("/hospitals/:hospital_id/reviews/me", t.hospitalController.DeleteOwnReview)
 		protected.GET("/profile", t.userController.Profile)
 		protected.PATCH("/profile", t.userController.UpdateProfile)
 		protected.PUT("/profile/photo", t.userController.UploadProfilePhoto)
@@ -194,6 +210,7 @@ func (t *Transport) InitRoute() {
 
 		protected.GET("/notifications", t.doctorHospitalController.ListNotifications)
 		protected.PATCH("/notifications/:notification_id/read", t.doctorHospitalController.MarkNotificationRead)
+		protected.DELETE("/notifications/:notification_id", t.doctorHospitalController.DeleteNotification)
 
 		protected.GET("/appointments/availability",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
@@ -336,6 +353,14 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
 			t.appointmentController.CreateDoctorScheduleChange,
 		)
+		protected.POST("/doctor/specific-schedules",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.CreateDoctorSpecificSchedule,
+		)
+		protected.DELETE("/doctor/schedules/:schedule_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.DeleteDoctorSchedule,
+		)
 		protected.GET("/doctor/schedule-change-requests",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
 			t.appointmentController.ListDoctorScheduleChanges,
@@ -354,6 +379,53 @@ func (t *Transport) InitRoute() {
 	tenant := v1.Group("/")
 	tenant.Use(transportmw.AuthRequired(t.rdb, t.userRepo), transportmw.TenantContext())
 	{
+		tenant.POST("/hospitals/:hospital_id/images", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.UploadImage)
+		tenant.PATCH("/hospitals/:hospital_id/images/:image_id", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.UpdateImage)
+		tenant.DELETE("/hospitals/:hospital_id/images/:image_id", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.DeleteImage)
+		tenant.PATCH("/hospitals/:hospital_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.hospitalController.UpdateHospital,
+		)
+		tenant.DELETE("/hospitals/:hospital_id",
+			transportmw.RequireSuperAdmin(t.roleRepo),
+			t.hospitalController.DeleteHospital,
+		)
+		tenant.PATCH("/hospitals/:hospital_id/departments/:department_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.UpdateDepartment,
+		)
+		tenant.DELETE("/hospitals/:hospital_id/departments/:department_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.DeleteDepartment,
+		)
+		tenant.PATCH("/hospitals/:hospital_id/rooms/:room_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.UpdateRoom,
+		)
+		tenant.DELETE("/hospitals/:hospital_id/rooms/:room_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.DeleteRoom,
+		)
+		tenant.PATCH("/hospitals/:hospital_id/doctor-invitations/:invitation_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.UpdateInvitation,
+		)
+		tenant.DELETE("/hospitals/:hospital_id/doctor-invitations/:invitation_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.DeleteInvitation,
+		)
+		tenant.DELETE("/hospitals/:hospital_id/doctors/:doctor_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.DeleteAffiliation,
+		)
+		tenant.POST("/hospitals/:hospital_id/specific-schedules",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.CreateHospitalSpecificSchedule,
+		)
+		tenant.DELETE("/hospitals/:hospital_id/schedules/:schedule_id",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.DeleteHospitalSchedule,
+		)
 		tenant.POST("/hospitals/:hospital_id/admins",
 			transportmw.RequireSuperAdmin(t.roleRepo),
 			t.hospitalController.CreateHospitalAdmin,

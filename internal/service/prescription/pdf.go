@@ -45,6 +45,7 @@ func (r *pdfRenderer) Render(prescription *response.Prescription, verificationUR
 	writeLabelValue(pdf, "Pasien", prescription.PatientName)
 	writeLabelValue(pdf, "Tanggal lahir", prescription.PatientDateOfBirth)
 	writeLabelValue(pdf, "Dokter", prescription.DoctorName)
+	writeLabelValue(pdf, "MedikaOne ID Dokter", prescription.DoctorMedikaOneID)
 	sip := "-"
 	if prescription.DoctorSIPNumber != nil {
 		sip = *prescription.DoctorSIPNumber

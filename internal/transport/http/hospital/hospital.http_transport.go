@@ -1,6 +1,7 @@
 package hospital
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -44,9 +45,11 @@ func (ctl *Controller) CreateHospital(c *gin.Context) {
 		"longitude":   h.Longitude,
 		"phone":       h.Phone,
 		"description": h.Description,
-		"facilities":  h.Facilities,
-		"is_active":   h.IsActive,
-		"created_at":  h.CreatedAt,
+		"facilities":  json.RawMessage(h.Facilities),
+		"email":       h.Email, "website": h.Website, "established_year": h.EstablishedYear,
+		"timezone": h.Timezone, "opening_hours": json.RawMessage(h.OpeningHours),
+		"is_active":  h.IsActive,
+		"created_at": h.CreatedAt,
 	}
 	util.HandleResponse(c, resp, nil)
 }

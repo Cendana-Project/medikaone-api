@@ -30,6 +30,22 @@ func TestDemoUserEmailsAreUnique(t *testing.T) {
 	}
 }
 
+func TestDemoDoctorsHaveDistinctProfessionalProfiles(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, fixture := range sampleUserSeeds() {
+		if fixture.RoleSlug != "DOCTOR" {
+			continue
+		}
+		if fixture.SIPNumber == "" || fixture.Specialty == "" || seen[fixture.SIPNumber] {
+			t.Fatalf("doctor fixture %s needs a distinct SIP and specialty", fixture.Email)
+		}
+		seen[fixture.SIPNumber] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("professional doctor fixtures = %d, want 3", len(seen))
+	}
+}
+
 func TestDemoUserSeedKeysAreUnique(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, key := range demoUserSeedKeys() {
