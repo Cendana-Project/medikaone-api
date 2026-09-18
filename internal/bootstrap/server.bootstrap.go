@@ -84,6 +84,10 @@ func runServer(parent context.Context) (returnErr error) {
 	if err != nil {
 		return fmt.Errorf("configure profile storage: %w", err)
 	}
+	hospitalStorage, err := storageclient.NewSupabaseClientForBucket(config.Env.Storage, config.Env.Storage.HospitalBucket)
+	if err != nil {
+		return fmt.Errorf("configure hospital image storage: %w", err)
+	}
 	sender := email.NewSMTPSender(&email.Config{
 		Enabled:     config.Env.SMTP.Enabled,
 		Host:        config.Env.SMTP.Host,
@@ -97,7 +101,7 @@ func runServer(parent context.Context) (returnErr error) {
 	})
 
 	authService := authSvc.NewService(uRepo, rRepo, rdb, sender, hRepo)
-	hospitalService := hospSvc.NewService(uRepo, rRepo, hRepo)
+	hospitalService := hospSvc.NewService(uRepo, rRepo, hRepo).WithDirectoryStorage(hospitalStorage, config.Env.Storage.HospitalBucket, storageclient.SignedURLTTL(config.Env.Storage), storageclient.MaxFileSize(config.Env.Storage))
 	doctorHospitalService := doctorHospitalSvc.NewService(
 		dhRepo,
 		privateStorage,

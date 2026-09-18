@@ -1,17 +1,22 @@
 package request
 
 type CreateHospitalRequest struct {
-	Code        string   `json:"code" validate:"required,uppercase,alphanumdash,min=3,max=40"`
-	Name        string   `json:"name" validate:"required,max=160"`
-	Address     string   `json:"address" validate:"required,max=1000"`
-	City        string   `json:"city" validate:"required,max=100"`
-	Province    string   `json:"province" validate:"required,max=100"`
-	Country     string   `json:"country" validate:"omitempty,max=100"`
-	Latitude    *float64 `json:"latitude" validate:"omitempty"`
-	Longitude   *float64 `json:"longitude" validate:"omitempty"`
-	Phone       string   `json:"phone" validate:"required,max=50"`
-	Description string   `json:"description" validate:"omitempty,max=200"`
-	Facilities  any      `json:"facilities" validate:"omitempty"` // JSON (obj/array)
+	Code            string               `json:"code" validate:"required,uppercase,alphanumdash,min=3,max=40"`
+	Name            string               `json:"name" validate:"required,max=160"`
+	Address         string               `json:"address" validate:"required,max=1000"`
+	City            string               `json:"city" validate:"required,max=100"`
+	Province        string               `json:"province" validate:"required,max=100"`
+	Country         string               `json:"country" validate:"omitempty,max=100"`
+	Latitude        *float64             `json:"latitude" validate:"omitempty"`
+	Longitude       *float64             `json:"longitude" validate:"omitempty"`
+	Phone           string               `json:"phone" validate:"required,max=50"`
+	Description     string               `json:"description" validate:"omitempty,max=10000"`
+	Facilities      any                  `json:"facilities" validate:"omitempty"` // JSON (obj/array)
+	Email           string               `json:"email" validate:"omitempty,max=190"`
+	Website         string               `json:"website" validate:"omitempty,max=2048"`
+	EstablishedYear *int                 `json:"established_year"`
+	Timezone        string               `json:"timezone"`
+	OpeningHours    []HospitalOpeningDay `json:"opening_hours"`
 }
 
 type CreateHospitalAdminRequest struct {

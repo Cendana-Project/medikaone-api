@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
@@ -17,13 +16,18 @@ import (
 	hrepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	rrepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	urepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
+	"github.com/Cendana-Project/medikaone-api/internal/storage"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type Service struct {
-	userRepo     *urepo.Repository
-	roleRepo     *rrepo.Repository
-	hospitalRepo *hrepo.Repository
+	userRepo         *urepo.Repository
+	roleRepo         *rrepo.Repository
+	hospitalRepo     *hrepo.Repository
+	directoryStorage storage.Client
+	imageBucket      string
+	imageURLTTL      time.Duration
+	imageMaxSize     int64
 }
 
 func NewService(u *urepo.Repository, r *rrepo.Repository, h *hrepo.Repository) *Service {
@@ -97,13 +101,22 @@ func (s *Service) CreateHospital(ctx context.Context, in *request.CreateHospital
 		return nil, constant.ErrHospitalNameAlreadyExists
 	}
 
-	var facilities datatypes.JSON
-	if in.Facilities != nil {
-		encoded, err := json.Marshal(in.Facilities)
-		if err != nil {
-			return nil, constant.ErrInvalidHospitalFacilities
-		}
-		facilities = datatypes.JSON(encoded)
+	encoded, err := json.Marshal(in.Facilities)
+	if err != nil {
+		return nil, constant.ErrInvalidHospitalFacilities
+	}
+	facilities, err := normalizeFacilities(encoded)
+	if err != nil {
+		return nil, err
+	}
+	zone := strings.TrimSpace(in.Timezone)
+	if zone == "" {
+		zone = "Asia/Jakarta"
+	}
+	hours := in.OpeningHours
+	extra, err := directoryUpdateFields(request.UpdateHospitalRequest{Email: &in.Email, Website: &in.Website, EstablishedYear: in.EstablishedYear, Timezone: &zone, OpeningHours: &hours}, time.Now().UTC())
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -119,9 +132,14 @@ func (s *Service) CreateHospital(ctx context.Context, in *request.CreateHospital
 		Phone:       sp(phone),
 		Description: sp(strings.TrimSpace(in.Description)),
 		Facilities:  facilities,
-		IsActive:    true,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Email:       sp(in.Email), Website: sp(in.Website), EstablishedYear: in.EstablishedYear,
+		Timezone: zone, OpeningHours: []byte(extra["opening_hours"].(string)),
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if in.EstablishedYear != nil && *in.EstablishedYear == 0 {
+		h.EstablishedYear = nil
 	}
 
 	if err := s.hospitalRepo.Create(ctx, h); err != nil {

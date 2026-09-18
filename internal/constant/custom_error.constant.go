@@ -908,6 +908,7 @@ var (
 // documentation generation. Aliases are intentionally omitted.
 func APIErrorCatalog() []response.CustomError {
 	return []response.CustomError{
+		ErrHospitalImageInvalid, ErrHospitalImageNotFound, ErrHospitalGalleryFull, ErrHospitalReviewNotFound, ErrHospitalReviewVisitRequired,
 		ErrInternalServerError, ErrValidationError, ErrMalformedJSON, ErrRequestBodyRequired,
 		ErrEndpointNotFound, ErrUnauthorized, ErrForbidden, ErrTooManyRequests,
 		ErrPublicAuthRateLimitExceeded, ErrRegistrationPINCooldown,

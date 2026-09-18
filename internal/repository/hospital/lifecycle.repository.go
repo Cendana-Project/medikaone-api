@@ -3,7 +3,6 @@ package hospital
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,36 +10,22 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 )
 
 var ErrResourceInUse = errors.New("hospital has live appointments")
 
 const publicHospitalColumns = `id, code, name, address, city, province, country,
-    latitude, longitude, phone, description, facilities, is_active, created_at, updated_at`
+    latitude, longitude, phone, description, facilities, is_active, created_at, updated_at,
+    email, website, established_year, timezone, opening_hours`
 
 func (r *Repository) ListPublic(ctx context.Context, search, city string, limit, offset int) ([]response.Hospital, error) {
-	query := r.db.WithContext(ctx).Table("hospitals").Select(publicHospitalColumns).
-		Where("is_active = TRUE AND deleted_at IS NULL")
-	if search != "" {
-		pattern := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.ToLower(search)) + "%"
-		query = query.Where("LOWER(name) LIKE ? OR LOWER(COALESCE(code, '')) LIKE ?", pattern, pattern)
-	}
-	if city != "" {
-		query = query.Where("LOWER(city) = LOWER(?)", city)
-	}
-	rows := make([]response.Hospital, 0)
-	err := query.Order("name ASC, id ASC").Limit(limit).Offset(offset).Scan(&rows).Error
-	return rows, err
+	return r.ListDirectory(ctx, request.HospitalDirectoryQuery{Search: search, City: city, Limit: limit, Offset: offset, Sort: "name"})
 }
 
 func (r *Repository) GetPublic(ctx context.Context, hospitalID string) (*response.Hospital, error) {
-	var row response.Hospital
-	if err := r.db.WithContext(ctx).Table("hospitals").Select(publicHospitalColumns).
-		Where("id = ? AND is_active = TRUE AND deleted_at IS NULL", hospitalID).Take(&row).Error; err != nil {
-		return nil, err
-	}
-	return &row, nil
+	return r.GetDirectory(ctx, hospitalID, nil, nil)
 }
 
 func (r *Repository) UpdateHospital(ctx context.Context, hospitalID string, fields map[string]any) (*response.Hospital, error) {

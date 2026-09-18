@@ -2,7 +2,6 @@ package hospital
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
@@ -11,18 +10,22 @@ import (
 )
 
 func (ctl *Controller) ListHospitals(c *gin.Context) {
-	limit, limitErr := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	offset, offsetErr := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	if limitErr != nil || offsetErr != nil {
-		util.HandleError(c, constant.NewInvalidFieldValueError("pagination", "integer limit and offset", "limit dan offset berupa angka bulat"))
+	q := request.HospitalDirectoryQuery{Limit: 20}
+	if err := c.ShouldBindQuery(&q); err != nil {
+		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid directory query parameters", "parameter query direktori yang valid"))
 		return
 	}
-	rows, err := ctl.svc.ListHospitals(c.Request.Context(), c.Query("search"), c.Query("city"), limit, offset)
+	rows, err := ctl.svc.ListDirectory(c.Request.Context(), q)
 	hospitalRespond(c, constant.MsgHospitalsListed, rows, err)
 }
 
 func (ctl *Controller) GetHospital(c *gin.Context) {
-	row, err := ctl.svc.GetHospital(c.Request.Context(), c.Param("hospital_id"))
+	var q request.HospitalDirectoryQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		util.HandleError(c, constant.ErrInvalidHospitalCoordinates)
+		return
+	}
+	row, err := ctl.svc.GetDirectory(c.Request.Context(), c.Param("hospital_id"), q.Latitude, q.Longitude)
 	hospitalRespond(c, constant.MsgHospitalRetrieved, row, err)
 }
 

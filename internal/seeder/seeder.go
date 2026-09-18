@@ -21,6 +21,8 @@ const resetAllDataSQL = `
 		INTO table_list
 		FROM (VALUES
 			('public', 'notifications'),
+			('public', 'hospital_reviews'),
+			('public', 'hospital_images'),
 			('public', 'prescription_audit_events'),
 			('public', 'prescription_documents'),
 			('public', 'prescription_item_components'),

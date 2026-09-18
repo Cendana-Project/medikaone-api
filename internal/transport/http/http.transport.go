@@ -109,6 +109,8 @@ func (t *Transport) InitRoute() {
 	v1.GET("/doctors/:doctor_id", t.doctorController.GetDoctor)
 	v1.GET("/hospitals", t.hospitalController.ListHospitals)
 	v1.GET("/hospitals/:hospital_id", t.hospitalController.GetHospital)
+	v1.GET("/hospitals/:hospital_id/images", t.hospitalController.ListImages)
+	v1.GET("/hospitals/:hospital_id/reviews", t.hospitalController.ListReviews)
 	v1.GET("/prescriptions/verify/:token",
 		transportmw.RateLimitPublicPrescriptionVerificationByIP(
 			t.rdb, config.Env.Auth.PublicIPRateLimit, config.Env.Auth.PublicIPRateWindow,
@@ -145,6 +147,9 @@ func (t *Transport) InitRoute() {
 	{
 		protected.GET("/me", t.userController.Me)
 		protected.DELETE("/account", t.authController.DeleteAccount)
+		protected.GET("/hospitals/:hospital_id/reviews/me", t.hospitalController.GetOwnReview)
+		protected.PUT("/hospitals/:hospital_id/reviews/me", t.hospitalController.PutReview)
+		protected.DELETE("/hospitals/:hospital_id/reviews/me", t.hospitalController.DeleteOwnReview)
 		protected.GET("/profile", t.userController.Profile)
 		protected.PATCH("/profile", t.userController.UpdateProfile)
 		protected.PUT("/profile/photo", t.userController.UploadProfilePhoto)
@@ -374,6 +379,9 @@ func (t *Transport) InitRoute() {
 	tenant := v1.Group("/")
 	tenant.Use(transportmw.AuthRequired(t.rdb, t.userRepo), transportmw.TenantContext())
 	{
+		tenant.POST("/hospitals/:hospital_id/images", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.UploadImage)
+		tenant.PATCH("/hospitals/:hospital_id/images/:image_id", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.UpdateImage)
+		tenant.DELETE("/hospitals/:hospital_id/images/:image_id", transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo), t.hospitalController.DeleteImage)
 		tenant.PATCH("/hospitals/:hospital_id",
 			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
 			t.hospitalController.UpdateHospital,

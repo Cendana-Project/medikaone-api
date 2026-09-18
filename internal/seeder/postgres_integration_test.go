@@ -725,6 +725,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 	if ok := t.Run("specific schedule mutations preserve history", func(t *testing.T) { runSpecificScheduleIntegration(t, db, sqlDB) }); !ok {
 		t.FailNow()
 	}
+	if ok := t.Run("hospital directory images and verified reviews", func(t *testing.T) { runHospitalDirectoryIntegration(t, db, sqlDB) }); !ok {
+		t.FailNow()
+	}
 
 	if ok := t.Run("appointment booking serializes competing patients", func(t *testing.T) {
 		t.Setenv("SUPERADMIN_EMAIL", "")

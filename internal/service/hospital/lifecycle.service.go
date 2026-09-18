@@ -2,7 +2,6 @@ package hospital
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -25,16 +24,14 @@ func (s *Service) ListHospitals(ctx context.Context, search, city string, limit,
 	if len(search) > 160 || len(city) > 100 {
 		return nil, constant.NewInvalidFieldValueError("search", "search at most 160 and city at most 100 characters", "search maksimal 160 dan city maksimal 100 karakter")
 	}
-	rows, err := s.hospitalRepo.ListPublic(ctx, search, city, limit, offset)
-	return rows, mapLifecycleError(err)
+	return s.ListDirectory(ctx, request.HospitalDirectoryQuery{Search: search, City: city, Limit: limit, Offset: offset})
 }
 
 func (s *Service) GetHospital(ctx context.Context, hospitalID string) (*response.Hospital, error) {
 	if _, err := uuid.Parse(hospitalID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
-	row, err := s.hospitalRepo.GetPublic(ctx, hospitalID)
-	return row, mapLifecycleError(err)
+	return s.GetDirectory(ctx, hospitalID, nil, nil)
 }
 
 func hospitalUpdateFields(req request.UpdateHospitalRequest, now time.Time) (map[string]any, error) {
@@ -69,16 +66,18 @@ func hospitalUpdateFields(req request.UpdateHospitalRequest, now time.Time) (map
 		fields["longitude"] = *req.Longitude
 	}
 	if len(req.Facilities) > 0 {
-		var value any
-		if err := json.Unmarshal(req.Facilities, &value); err != nil {
-			return nil, constant.ErrInvalidHospitalFacilities
+		value, err := normalizeFacilities(req.Facilities)
+		if err != nil {
+			return nil, err
 		}
-		switch value.(type) {
-		case nil, map[string]any, []any:
-			fields["facilities"] = datatypes.JSON(req.Facilities)
-		default:
-			return nil, constant.ErrInvalidHospitalFacilities
-		}
+		fields["facilities"] = datatypes.JSON(value)
+	}
+	extra, err := directoryUpdateFields(req, now)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range extra {
+		fields[key] = value
 	}
 	if len(fields) == 0 {
 		return nil, constant.NewFieldRequiredError("at least one update field")
@@ -95,8 +94,11 @@ func (s *Service) UpdateHospital(ctx context.Context, hospitalID string, req req
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.hospitalRepo.UpdateHospital(ctx, hospitalID, fields)
-	return row, mapLifecycleError(err)
+	_, err = s.hospitalRepo.UpdateHospital(ctx, hospitalID, fields)
+	if err != nil {
+		return nil, mapLifecycleError(err)
+	}
+	return s.GetHospital(ctx, hospitalID)
 }
 
 func (s *Service) DeleteHospital(ctx context.Context, hospitalID, actorID string) error {

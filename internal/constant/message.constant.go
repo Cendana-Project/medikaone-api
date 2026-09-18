@@ -135,6 +135,14 @@ func successDetail(titleEng, titleIdn string) response.MessageDetail {
 }
 
 var MessageCatalog = map[MessageCode]response.MessageDetail{
+	MsgHospitalImagesListed:                  successDetail("Hospital images retrieved", "Foto rumah sakit berhasil diambil"),
+	MsgHospitalImageUploaded:                 successDetail("Hospital image uploaded", "Foto rumah sakit berhasil diunggah"),
+	MsgHospitalImageUpdated:                  successDetail("Hospital image updated", "Foto rumah sakit berhasil diperbarui"),
+	MsgHospitalImageDeleted:                  successDetail("Hospital image deleted", "Foto rumah sakit berhasil dihapus"),
+	MsgHospitalReviewsListed:                 successDetail("Hospital reviews retrieved", "Ulasan rumah sakit berhasil diambil"),
+	MsgHospitalReviewRetrieved:               successDetail("Hospital review retrieved", "Ulasan rumah sakit berhasil diambil"),
+	MsgHospitalReviewSaved:                   successDetail("Hospital review saved", "Ulasan rumah sakit berhasil disimpan"),
+	MsgHospitalReviewDeleted:                 successDetail("Hospital review deleted", "Ulasan rumah sakit berhasil dihapus"),
 	MsgDoctorsListed:                         successDetail("Doctors retrieved", "Daftar dokter berhasil diambil"),
 	MsgDoctorRetrieved:                       successDetail("Doctor retrieved", "Dokter berhasil diambil"),
 	MsgHospitalsListed:                       successDetail("Hospitals retrieved", "Daftar rumah sakit berhasil diambil"),

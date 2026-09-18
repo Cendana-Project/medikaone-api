@@ -46,8 +46,10 @@ func (ctl *Controller) CreateHospital(c *gin.Context) {
 		"phone":       h.Phone,
 		"description": h.Description,
 		"facilities":  json.RawMessage(h.Facilities),
-		"is_active":   h.IsActive,
-		"created_at":  h.CreatedAt,
+		"email":       h.Email, "website": h.Website, "established_year": h.EstablishedYear,
+		"timezone": h.Timezone, "opening_hours": json.RawMessage(h.OpeningHours),
+		"is_active":  h.IsActive,
+		"created_at": h.CreatedAt,
 	}
 	util.HandleResponse(c, resp, nil)
 }

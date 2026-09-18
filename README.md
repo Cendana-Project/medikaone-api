@@ -110,6 +110,7 @@ Environment variable utama untuk deployment:
 | `SUPABASE_STORAGE_BUCKET` | Bucket private kontrak dokter; default `doctor-contracts` |
 | `SUPABASE_MEDICAL_STORAGE_BUCKET` | Bucket private lampiran rekam medis; default `medical-records` |
 | `SUPABASE_PROFILE_STORAGE_BUCKET` | Bucket private foto profil; default `profile-images` |
+| `SUPABASE_HOSPITAL_STORAGE_BUCKET` | Bucket private galeri hospital; default `hospital-images` |
 | `SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES` | Maksimum upload; aplikasi membatasi paling tinggi 10 MB |
 | `SUPABASE_STORAGE_SIGNED_URL_TTL` | Masa berlaku URL download private; default `5m` |
 | `AUTH_PIN_TTL`, `AUTH_PIN_MAX_ATTEMPTS` | Masa berlaku dan batas percobaan PIN |
@@ -160,6 +161,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     public.appointment_status_events, public.appointment_reminders,
     public.patient_records, public.medical_encounters, public.vital_sign_revisions,
     public.consultation_note_revisions, public.hospital_medications,
+    public.hospital_images, public.hospital_reviews,
     public.prescriptions TO medikaone_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
     public.doctor_hospital_invitation_schedules, public.encounter_diagnoses,
@@ -497,7 +499,7 @@ CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integrat
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Server memerlukan migration terbaru `20260913110000_specific_schedules.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Perubahan `day_of_week` menjadi array memerlukan pembaruan client.
+- Server memerlukan migration terbaru `20260919090000_hospital_directory.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Kontrak profil hospital, galeri, review terverifikasi, jam operasional, dan pencarian jarak ada di [panduan direktori hospital](docs/hospital-directory.md). Buat bucket private `hospital-images` sebelum memakai upload foto.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
 - Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.
