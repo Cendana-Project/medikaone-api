@@ -303,6 +303,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		testDoctorIdentityIntegration(t, db)
 		testAccountDeletionIntegration(t, db)
 		testResourceLifecycleIntegration(t, db)
+		testDirectorySeedsIntegration(t, db, sqlDB)
 		currentIDs := map[string]string{
 			"doctor_medikaone": scalarString(t, sqlDB, `SELECT profile.medikaone_id FROM doctor_profiles profile JOIN users doctor ON doctor.id = profile.user_id WHERE doctor.email = 'doctor001@medikaone.id'`),
 			"user":             scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),

@@ -445,6 +445,19 @@ Role fixture disusun berdasarkan scope berikut:
 
 Seeder merekonsiliasi role fixture tenant secara idempotent dan membersihkan membership/role `HSP-MO-001` yang keliru dari fixture global-only. Login hospital untuk user non-super mewajibkan membership serta sedikitnya satu role tenant aktif; global `SUPER_ADMIN` menjadi satu-satunya pengecualian.
 
+Data demo direktori mengikuti schema hospital terbaru:
+
+| Hospital | Jam operasional (`Asia/Jakarta`) | Departemen dan ruangan |
+| --- | --- | --- |
+| `HSP-MO-001` Jakarta | 24 jam setiap hari | Poli Umum (`UMUM-01`), Poli Mata (`MATA-01`), Poli Paru (`PARU-01`) |
+| `HSP-MO-002` Bandung | Senin–Jumat 08:00–20:00, Sabtu 08:00–14:00, Minggu tutup | Poli Umum (`UMUM-01`), Poli Mata (`MATA-01`) |
+
+Keduanya dilengkapi deskripsi, alamat/koordinat, telepon, email/website demo berdomain `.example`, tahun berdiri, fasilitas `{code,name,icon}`, dan `opening_hours` tujuh hari. Kode departemen adalah `POLI-UMUM`, `POLI-MATA`, dan `POLI-PARU`. ID departemen/ruangan tetap sama saat seed diulang; nama dan status aktif fixture dipulihkan. Row lain dengan kode/nama yang sama membuat transaksi gagal, bukan diambil alih. Data departemen/ruangan lain tetap dipertahankan.
+
+Dokter `001`, `002`, dan `003` memiliki spesialisasi Umum, Mata, dan Paru, SIP berbeda, serta `medikaone_id` yang dibuat database dan dipertahankan saat rerun. Pasien memiliki profil awal tinggi/berat badan; rerun mempertahankan pengukuran, alergi, dan riwayat yang kemudian diisi lewat aplikasi.
+
+Seeder ini hanya membutuhkan database. Galeri diisi melalui Upload Hospital Image; rating berasal dari review kunjungan selesai. Undangan, kontrak, afiliasi, dan jadwal diisi melalui alur registrasi dokter di Bruno dengan PDF kontrak yang benar-benar tersedia. Seeder tidak membuat referensi Storage dummy. Setelah dokter menerima undangan, gunakan contoh jadwal `FIXED_SLOT`, `SESSION_QUEUE`, atau Create Specific Schedule; `day_of_week` jadwal dokter berupa array, sedangkan hari pada `opening_hours` hospital berupa integer.
+
 Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
 Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command menolak DSN non-loopback/fallback agar label environment yang salah tidak memasang akun demo pada database remote:
@@ -452,6 +465,15 @@ Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command
 ```bash
 make seed
 ```
+
+Di PowerShell tanpa `make`, setelah konfigurasi menunjuk database lokal dengan `ENV=development` atau `ENV=test`:
+
+```powershell
+go run . migrate --action up
+go run . seed
+```
+
+Perubahan kode seeder tidak otomatis menambah data ke Supabase production. Gunakan migration untuk schema production; akun demo tetap dibatasi oleh guard environment/target database di atas.
 
 Reset seluruh staging menghapus seluruh data aplikasi, menjalankan migration `Up`, lalu seed ulang:
 

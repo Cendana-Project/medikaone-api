@@ -136,6 +136,9 @@ func seedAll(tx *gorm.DB) error {
 	if err := SeedHospitals(tx); err != nil {
 		return fmt.Errorf("seed hospitals: %w", err)
 	}
+	if err := SeedDepartments(tx); err != nil {
+		return fmt.Errorf("seed departments and rooms: %w", err)
+	}
 	if err := SeedUserHospitals(tx); err != nil {
 		return fmt.Errorf("seed user hospitals: %w", err)
 	}
