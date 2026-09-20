@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -52,7 +53,7 @@ type Repository interface {
 	GetInvitationForDoctor(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetInvitationForHospital(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
 	AcceptInvitation(context.Context, string, string, time.Time) error
-	RejectInvitation(context.Context, string, string, time.Time) error
+	RejectInvitation(context.Context, string, string, *string, time.Time) error
 	CancelInvitation(context.Context, string, string, string, time.Time) error
 	ResendInvitation(context.Context, string, string, string, time.Time, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetContractForDoctor(context.Context, string, string, string) (*repository.ContractDocument, error)
@@ -372,11 +373,21 @@ func (s *Service) AcceptInvitation(ctx context.Context, doctorID, invitationID s
 	return s.repo.GetInvitationForDoctor(ctx, doctorID, invitationID, s.now())
 }
 
-func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string) error {
+func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string, req request.RejectDoctorHospitalInvitationRequest) error {
 	if _, err := uuid.Parse(invitationID); err != nil {
 		return constant.ErrInvalidUUIDFormat
 	}
-	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, s.now()))
+	if req.Message != nil {
+		message := strings.TrimSpace(*req.Message)
+		if utf8.RuneCountInString(message) > 1000 {
+			return constant.NewInvalidFieldLengthError("message", "at most 1000 characters long", "memiliki maksimal 1000 karakter")
+		}
+		req.Message = nil
+		if message != "" {
+			req.Message = &message
+		}
+	}
+	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, req.Message, s.now()))
 }
 
 func (s *Service) CancelInvitation(ctx context.Context, hospitalID, invitationID, actorID string) error {

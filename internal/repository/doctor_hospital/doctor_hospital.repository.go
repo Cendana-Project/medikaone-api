@@ -698,7 +698,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 	})
 }
 
-func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, now time.Time) error {
+func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, message *string, now time.Time) error {
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
@@ -718,17 +718,22 @@ func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorI
 			return ErrInvalidInvitationState
 		}
 		if err := tx.Model(&invitation).Updates(map[string]any{
-			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": nil,
+			"status": entity.DoctorHospitalInvitationRejected, "rejection_reason": message,
 			"responded_at": now, "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}
-		if err := insertInvitationEvent(tx, invitationID, doctorID, "REJECTED", now); err != nil {
+		metadata, _ := json.Marshal(map[string]any{"rejection_reason": message})
+		if err := tx.Exec(`INSERT INTO doctor_hospital_invitation_events
+			(id, invitation_id, actor_id, event_type, metadata, created_at)
+			VALUES (?, ?, ?, 'REJECTED', ?::jsonb, ?)`,
+			uuid.NewString(), invitationID, doctorID, string(metadata), now).Error; err != nil {
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{
 			"invitation_id": invitationID, "hospital_id": invitation.HospitalID,
 			"doctor_id": doctorID, "event": "DOCTOR_HOSPITAL_INVITATION_REJECTED",
+			"rejection_reason": message,
 		})
 		return tx.Exec(`
 			INSERT INTO notifications (id, user_id, type, title, body, data, created_at)

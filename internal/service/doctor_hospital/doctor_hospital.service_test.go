@@ -37,6 +37,7 @@ type fakeRepository struct {
 	acceptedInvitation  string
 	acceptErr           error
 	rejectedInvitation  string
+	rejectionMessage    *string
 	updatedStatus       string
 	updateStatusErr     error
 }
@@ -104,8 +105,9 @@ func (f *fakeRepository) UpdateAffiliationStatus(_ context.Context, _, _, status
 	return f.updateStatusErr
 }
 
-func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, _ time.Time) error {
+func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, message *string, _ time.Time) error {
 	f.rejectedInvitation = invitationID
+	f.rejectionMessage = message
 	return nil
 }
 
@@ -330,7 +332,7 @@ func TestInvitationResponseRequiresNoPayloadOrSignedContract(t *testing.T) {
 	}
 
 	repo.invitation.Status = "PENDING"
-	if err := service.RejectInvitation(context.Background(), doctorID, invitationID); err != nil {
+	if err := service.RejectInvitation(context.Background(), doctorID, invitationID, request.RejectDoctorHospitalInvitationRequest{}); err != nil {
 		t.Fatalf("reject without payload failed: %v", err)
 	}
 	if repo.rejectedInvitation != invitationID {

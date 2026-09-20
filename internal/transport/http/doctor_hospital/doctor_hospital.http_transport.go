@@ -161,7 +161,14 @@ func (ctl *Controller) AcceptInvitation(c *gin.Context) {
 }
 
 func (ctl *Controller) RejectInvitation(c *gin.Context) {
-	err := ctl.service.RejectInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"))
+	var req request.RejectDoctorHospitalInvitationRequest
+	// Keep the original bodyless action valid, while rejecting malformed JSON
+	// or unknown fields instead of silently discarding a supplied message.
+	if err := util.DecodeStrictJSON(c.Request.Body, &req); err != nil && !errors.Is(err, io.EOF) {
+		util.HandleError(c, util.MapJSONDecodeError(err))
+		return
+	}
+	err := ctl.service.RejectInvitation(c.Request.Context(), util.GetUserID(c), c.Param("invitation_id"), req)
 	respond(c, constant.MsgDoctorInvitationRejected, http.StatusOK, gin.H{"rejected": err == nil}, err)
 }
 

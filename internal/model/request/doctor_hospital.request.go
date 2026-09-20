@@ -37,3 +37,7 @@ type CreateDoctorHospitalInvitationRequest struct {
 type UpdateDoctorHospitalAffiliationStatusRequest struct {
 	Status string `json:"status" validate:"required,oneof=ACTIVE SUSPENDED"`
 }
+
+type RejectDoctorHospitalInvitationRequest struct {
+	Message *string `json:"message,omitempty"`
+}
