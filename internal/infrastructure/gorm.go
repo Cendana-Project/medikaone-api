@@ -11,6 +11,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/dbtarget"
 	"github.com/jackc/pgx/v5"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
@@ -58,7 +59,7 @@ func OpenDBConn() (*gorm.DB, error) {
 }
 
 // OpenIsolatedDBConn opens a pool without replacing the server's package-global
-// pool or health check. Administrative commands use it with their direct DSN.
+// pool or health check. Administrative commands use it with their admin DSN.
 func OpenIsolatedDBConn(dsn string) (*gorm.DB, error) {
 	cfg := config.Env.Database
 	cfg.DSN = dsn
@@ -203,9 +204,8 @@ func verifyConnectedDatabaseTarget(ctx context.Context, db *gorm.DB, dsn string,
 	if err != nil {
 		return errors.New("verify connected database target")
 	}
-	if result.DatabaseName != parsed.Database || result.SessionUser != parsed.User ||
-		result.CurrentUser != parsed.User || result.SchemaName != "public" {
-		return fmt.Errorf("connected database/user/schema does not match configured public target")
+	if err := dbtarget.VerifySession(parsed, result.DatabaseName, result.SessionUser, result.CurrentUser, result.SchemaName); err != nil {
+		return err
 	}
 	if err := validateRuntimeDatabasePrivileges(
 		requireRestrictedUser,

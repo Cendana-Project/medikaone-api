@@ -148,6 +148,61 @@ func TestRequireMatchingApplicationAndAdminTargetsAllowsSeparateUsers(t *testing
 	}
 }
 
+func TestSupabaseApplicationAndAdminTargets(t *testing.T) {
+	previous := config.Env
+	t.Cleanup(func() { config.Env = previous })
+	app := "postgresql://medikaone_app.abcdefghijklmnopqrst:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&search_path=public"
+	config.Env = &config.EnvConfig{Database: config.Database{DSN: app}}
+	for _, admin := range []string{
+		"postgresql://postgres.abcdefghijklmnopqrst:owner@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&search_path=public",
+		"postgresql://postgres:owner@db.abcdefghijklmnopqrst.supabase.co:5432/postgres?sslmode=verify-full&search_path=public",
+	} {
+		config.Env.Database.AdminDSN = admin
+		if err := requireMatchingApplicationAndAdminTargets(); err != nil {
+			t.Fatal(err)
+		}
+		for _, other := range []string{strings.Replace(admin, "abcdefghijklmnopqrst", "zyxwvutsrqponmlkjihg", 1), strings.Replace(admin, "search_path=public", "search_path=private", 1), strings.Replace(admin, "/postgres?", "/other?", 1)} {
+			config.Env.Database.AdminDSN = other
+			if err := requireMatchingApplicationAndAdminTargets(); err == nil {
+				t.Fatal("different Supabase target accepted")
+			}
+		}
+	}
+}
+
+func TestSupabaseFingerprintIncludesProjectAndAdminUser(t *testing.T) {
+	base := "postgresql://postgres.abcdefghijklmnopqrst:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+	first, err := databaseTargetFingerprint(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := databaseTargetFingerprint(strings.Replace(base, ":secret@", ":newsecret@", 1))
+	if err != nil || rotated != first {
+		t.Fatal("password rotation changed fingerprint", err)
+	}
+	for _, other := range []string{strings.Replace(base, "abcdefghijklmnopqrst", "zyxwvutsrqponmlkjihg", 1), strings.Replace(base, "postgres.", "owner.", 1)} {
+		got, err := databaseTargetFingerprint(other)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == first {
+			t.Fatal("different admin/project matched fingerprint")
+		}
+	}
+}
+
+func TestSupabaseConnectedAdminIdentity(t *testing.T) {
+	dsn := "postgresql://postgres.abcdefghijklmnopqrst:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+	admin := staticPGXQueryRower{values: []string{"postgres", "postgres", "postgres", "public"}}
+	if err := verifyConnectedAdminTarget(context.Background(), admin, dsn); err != nil {
+		t.Fatal(err)
+	}
+	app := staticPGXQueryRower{values: []string{"postgres", "medikaone_app", "medikaone_app", "public"}}
+	if err := verifyConnectedAdminTarget(context.Background(), app, dsn); err == nil {
+		t.Fatal("runtime role passed as migration owner")
+	}
+}
+
 func TestDatabaseTargetFingerprintDoesNotDependOnPassword(t *testing.T) {
 	one, err := databaseTargetFingerprint("postgresql://owner:first@db.example.com:5432/medikaone?sslmode=require")
 	if err != nil {

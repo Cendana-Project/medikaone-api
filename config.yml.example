@@ -24,6 +24,7 @@ database:
   dsn: "postgresql://postgres:postgres@localhost:5432/medikaone?sslmode=disable"
   # Kosong aman untuk server dan development lokal (migration lokal akan
   # memakai dsn). Di staging/production, berikan direct/non-pooler DSN ini
+  # atau Supabase Session Pooler port 5432 (lihat docs/supabase-migration.md)
   # hanya kepada proses migration/reset, bukan kepada proses web.
   admin_dsn: ""
   max_idle_conns: 5

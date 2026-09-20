@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cendana-Project/medikaone-api/internal/dbtarget"
 	mapstructure "github.com/go-viper/mapstructure/v2"
 	"github.com/jackc/pgx/v5"
 	goredis "github.com/redis/go-redis/v9"
@@ -43,6 +44,11 @@ func AuthRedisKeyPrefix() string {
 		if cfg, err := pgx.ParseConfig(strings.TrimSpace(Env.Database.DSN)); err == nil {
 			target = strings.ToLower(cfg.Host) + ":" + strconv.Itoa(int(cfg.Port)) +
 				"|" + cfg.Database + "|" + cfg.RuntimeParams["search_path"]
+			if endpoint, err := dbtarget.Supabase(cfg); err == nil && endpoint != nil {
+				// Pooler hosts are shared across projects. Keep auth/maintenance
+				// isolated by project, and stable across direct/session endpoints.
+				target = endpoint.DirectHost() + ":5432|" + cfg.Database + "|" + cfg.RuntimeParams["search_path"]
+			}
 		}
 	}
 	sum := sha256.Sum256([]byte(environment + "|" + target))
@@ -659,6 +665,9 @@ func validatePostgresDSN(raw, field string, requireTLS, requireDirect bool) erro
 	if err != nil || cfg.Host == "" || cfg.Database == "" || cfg.User == "" {
 		return fmt.Errorf("%s must resolve to a host, database, and user", field)
 	}
+	if _, err := dbtarget.Supabase(cfg); err != nil {
+		return fmt.Errorf("%s: %w", field, err)
+	}
 	if requireTLS {
 		parsedURL, parseErr := url.Parse(raw)
 		if parseErr != nil || !strings.EqualFold(parsedURL.Query().Get("sslmode"), "verify-full") {
@@ -674,18 +683,8 @@ func validatePostgresDSN(raw, field string, requireTLS, requireDirect bool) erro
 		}
 	}
 	if requireDirect {
-		if len(cfg.Fallbacks) != 0 {
-			return fmt.Errorf("%s must contain exactly one direct target without fallbacks", field)
-		}
-		hosts := []string{cfg.Host}
-		for _, fallback := range cfg.Fallbacks {
-			hosts = append(hosts, fallback.Host)
-		}
-		for _, host := range hosts {
-			normalized := strings.ToLower(host)
-			if strings.Contains(normalized, "-pooler") || strings.Contains(normalized, "pgbouncer") {
-				return fmt.Errorf("%s must use a direct/non-pooler endpoint", field)
-			}
+		if err := dbtarget.ValidateAdmin(cfg); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
 		}
 	}
 	return nil
