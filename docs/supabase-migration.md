@@ -29,15 +29,33 @@ dipakai bersama untuk app/admin; database dan runtime parameter seperti search_p
 harus sama. Project berbeda selalu memiliki identitas target dan namespace Redis
 berbeda, walaupun memakai host pooler dan nama database yang sama.
 
+Sertifikat CA publik Supabase tersedia di
+[`certs/supabase-prod-ca-2021.crt`](../certs/supabase-prod-ca-2021.crt).
+Dari root repo, gunakan query parameter berikut pada **kedua** URL PostgreSQL:
+
+```text
+?sslmode=verify-full&sslrootcert=certs%2Fsupabase-prod-ca-2021.crt
+```
+
+Jika URL sudah memiliki query parameter, gunakan `&` untuk menambahkan parameter
+yang belum ada. Path relatif tersebut juga dapat dipakai Render bila start command
+berjalan dari root repo; untuk working directory lain gunakan path absolut file
+sertifikat di deployment. Jangan menyalin path Windows lokal ke Render.
+Sumber, checksum, dan masa berlaku CA dicatat di [`certs/README.md`](../certs/README.md).
+
 ## Persiapan target
 
 1. Gunakan project tujuan yang tidak memiliki tabel MedikaOne yang bentrok. Project
    Storage yang sudah ada dapat dipakai setelah memeriksa schema aplikasi.
 2. Nonaktifkan **Enable Data API** bila project tidak menggunakan REST/GraphQL data
    Supabase. Akses tabel MedikaOne tetap melalui backend. Jika Data API diperlukan
-   aplikasi lain, keluarkan tabel MedikaOne dari schema yang diekspos dan atur grant
-   serta RLS secara khusus sebelum restore; jangan membuka data pasien lewat API
-   tambahan tanpa kontrol akses.
+   aplikasi lain, pertahankan konfigurasi project tersebut dan lindungi tabel
+   MedikaOne sebelum transaksi restore di-commit: cabut grant dari `PUBLIC`,
+   `anon`, `authenticated`, dan `service_role`; aktifkan RLS dengan policy khusus
+   `medikaone_app`. Allowlist grant runtime tetap membatasi operasi per tabel.
+   Cabut juga akses sequence migration dan EXECUTE fungsi aplikasi dari role API;
+   jangan mengubah fungsi extension atau schema internal Supabase. RLS saja tidak
+   cukup untuk `service_role`, karena role tersebut memiliki BYPASSRLS.
 3. Gunakan owner untuk restore/migration. Buat login `medikaone_app` dengan password
    terpisah dan grant runtime dari bagian **Pemisahan koneksi database** di README.
    Pada Supabase sesuaikan `GRANT CONNECT ON DATABASE` menjadi `postgres` jika itu
@@ -67,6 +85,25 @@ memerlukan penghentian semua penulisan ke Neon (server dan worker).
 5. Bandingkan jumlah row tabel utama dan referensi, cek riwayat Goose, lalu jalankan
    migration pending pada target. Full restore dilakukan sebelum migration baru,
    agar tabel lama dan riwayatnya tidak bentrok.
+
+Neon dapat memasang `pgcrypto` di schema `public`, sedangkan Supabase memasangnya
+di `extensions`. Periksa referensi extension dalam hasil `pg_restore
+--section=pre-data`: default `doctor_profiles.medikaone_id` dari Neon dapat memakai
+`public.gen_random_bytes(8)`. Pada target tersebut, sesuaikan menjadi
+`extensions.gen_random_bytes(8)` pada DDL saja. Jangan memindahkan extension
+Supabase atau melakukan penggantian teks pada bagian COPY/data. Restore pre-data,
+data, post-data, dan pembatasan akses dalam satu transaksi; kegagalan harus
+me-rollback seluruh import.
+
+Untuk verifikasi isi yang konsisten, ekspor snapshot dari transaksi read-only
+`REPEATABLE READ`, jalankan `pg_dump --snapshot=...` sebelum transaksi tersebut
+ditutup, dan simpan jumlah row/checksum per tabel dari snapshot yang sama. Bandingkan
+hasil restore terhadap manifest tersebut. Verifikasi backup awal bukan pengganti
+backup akhir saat seluruh penulisan source telah dihentikan.
+
+Setiap migration berikutnya yang menambah tabel atau fungsi juga harus menyertakan
+grant/RLS yang sesuai sebelum backend dibuka kembali. Jangan mengasumsikan default
+privilege project Supabase sama dengan PostgreSQL biasa.
 
 Jika pengguna memilih database kosong, lewati dump/restore dan jalankan migration
 Up pada target yang telah diperiksa. Seeder demo remote tidak dijalankan otomatis.

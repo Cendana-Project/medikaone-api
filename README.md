@@ -192,6 +192,9 @@ Keduanya harus menuju target database yang sama, tanpa daftar multi-host/fallbac
 Panduan pindah database, role, koneksi TLS, backup/restore, dan perintah PowerShell
 ada di [migrasi Supabase](docs/supabase-migration.md). API key Storage/JWKS tidak
 menggantikan koneksi PostgreSQL. Dukungan Supabase tetap memakai auth MedikaOne.
+CA publik Supabase tersedia di `certs/supabase-prod-ca-2021.crt`; tambahkan
+`sslrootcert=certs%2Fsupabase-prod-ca-2021.crt` bersama `sslmode=verify-full` pada
+DSN bila command berjalan dari root repo, termasuk di Render.
 
 ### Redis
 
