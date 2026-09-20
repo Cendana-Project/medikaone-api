@@ -22,6 +22,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/bootstrap"
 	"github.com/Cendana-Project/medikaone-api/internal/config"
+	"github.com/Cendana-Project/medikaone-api/internal/dbtarget"
 	"github.com/Cendana-Project/medikaone-api/internal/infrastructure"
 	"github.com/Cendana-Project/medikaone-api/internal/seeder"
 )
@@ -239,29 +240,36 @@ func databaseTargetFingerprint(rawDSN string) (string, error) {
 	return hex.EncodeToString(sum[:])[:24], nil
 }
 
-func databaseTargetIdentity(rawDSN string, normalizeNeonPooler bool) (string, error) {
-	return databaseTargetIdentityWithUser(rawDSN, normalizeNeonPooler, true)
+func databaseTargetIdentity(rawDSN string, normalizeProviderEndpoints bool) (string, error) {
+	return databaseTargetIdentityWithUser(rawDSN, normalizeProviderEndpoints, true)
 }
 
 // databaseTargetRoutingIdentity identifies where a DSN connects without
 // requiring the application and migration connections to share credentials.
 // The destructive-operation fingerprint still uses databaseTargetIdentity so
 // it remains bound to the configured admin user.
-func databaseTargetRoutingIdentity(rawDSN string, normalizeNeonPooler bool) (string, error) {
-	return databaseTargetIdentityWithUser(rawDSN, normalizeNeonPooler, false)
+func databaseTargetRoutingIdentity(rawDSN string, normalizeProviderEndpoints bool) (string, error) {
+	return databaseTargetIdentityWithUser(rawDSN, normalizeProviderEndpoints, false)
 }
 
-func databaseTargetIdentityWithUser(rawDSN string, normalizeNeonPooler, includeUser bool) (string, error) {
+func databaseTargetIdentityWithUser(rawDSN string, normalizeProviderEndpoints, includeUser bool) (string, error) {
 	cfg, err := pgx.ParseConfig(strings.TrimSpace(rawDSN))
 	if err != nil || cfg.Host == "" || cfg.Database == "" || cfg.User == "" {
 		return "", fmt.Errorf("invalid database DSN")
 	}
+	endpoint, err := dbtarget.Supabase(cfg)
+	if err != nil {
+		return "", err
+	}
 
 	targetSet := map[string]struct{}{
-		normalizeDatabaseHost(cfg.Host, normalizeNeonPooler) + ":" + strconv.Itoa(int(cfg.Port)): {},
+		normalizeDatabaseHost(cfg.Host, normalizeProviderEndpoints) + ":" + strconv.Itoa(int(cfg.Port)): {},
 	}
 	for _, fallback := range cfg.Fallbacks {
-		targetSet[normalizeDatabaseHost(fallback.Host, normalizeNeonPooler)+":"+strconv.Itoa(int(fallback.Port))] = struct{}{}
+		targetSet[normalizeDatabaseHost(fallback.Host, normalizeProviderEndpoints)+":"+strconv.Itoa(int(fallback.Port))] = struct{}{}
+	}
+	if endpoint != nil && normalizeProviderEndpoints {
+		targetSet = map[string]struct{}{endpoint.DirectHost() + ":5432": {}}
 	}
 	targets := make([]string, 0, len(targetSet))
 	for target := range targetSet {
@@ -277,6 +285,9 @@ func databaseTargetIdentityWithUser(rawDSN string, normalizeNeonPooler, includeU
 	identityParts := []string{
 		"targets=" + strings.Join(targets, ","),
 		"database=" + cfg.Database,
+	}
+	if endpoint != nil {
+		identityParts = append(identityParts, "supabase_project="+endpoint.ProjectRef)
 	}
 	if includeUser {
 		identityParts = append(identityParts, "user="+cfg.User)
@@ -337,7 +348,7 @@ func databaseAdminDSN(requireExplicit bool) (string, error) {
 	dsn := strings.TrimSpace(config.Env.Database.AdminDSN)
 	if dsn == "" {
 		if requireExplicit {
-			return "", errors.New("DATABASE_ADMIN_DSN with a direct/non-pooler PostgreSQL URL is required")
+			return "", errors.New("DATABASE_ADMIN_DSN with a direct/non-pooler PostgreSQL URL or Supabase session pooler is required")
 		}
 		dsn = strings.TrimSpace(config.Env.Database.DSN)
 	}
@@ -345,18 +356,8 @@ func databaseAdminDSN(requireExplicit bool) (string, error) {
 	if err != nil || cfg.Host == "" || cfg.Database == "" || cfg.User == "" {
 		return "", errors.New("invalid database admin DSN")
 	}
-	if len(cfg.Fallbacks) != 0 {
-		return "", errors.New("database admin DSN must contain exactly one direct target without fallbacks")
-	}
-	hosts := []string{cfg.Host}
-	for _, fallback := range cfg.Fallbacks {
-		hosts = append(hosts, fallback.Host)
-	}
-	for _, host := range hosts {
-		normalized := strings.ToLower(host)
-		if strings.Contains(normalized, "-pooler") || strings.Contains(normalized, "pgbouncer") {
-			return "", errors.New("database admin DSN must use a direct/non-pooler endpoint")
-		}
+	if err := dbtarget.ValidateAdmin(cfg); err != nil {
+		return "", err
 	}
 	return dsn, nil
 }
@@ -870,9 +871,8 @@ func verifyConnectedAdminTarget(ctx context.Context, conn pgxQueryRower, dsn str
 	`).Scan(&databaseName, &sessionUser, &currentUser, &schemaName); err != nil {
 		return errors.New("verify database admin target")
 	}
-	if databaseName != cfg.Database || sessionUser != cfg.User ||
-		currentUser != cfg.User || schemaName != "public" {
-		return errors.New("connected database/user/schema does not match the configured public database admin target")
+	if err := dbtarget.VerifySession(cfg, databaseName, sessionUser, currentUser, schemaName); err != nil {
+		return err
 	}
 	return nil
 }

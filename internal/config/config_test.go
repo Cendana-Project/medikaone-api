@@ -143,6 +143,41 @@ func TestAuthRedisKeyPrefixSeparatesDatabasePortsWithoutUsingCredentials(t *test
 	}
 }
 
+func TestSupabaseRedisNamespaceUsesProjectAndSurvivesConnectionModeChange(t *testing.T) {
+	previous := Env
+	t.Cleanup(func() { Env = previous })
+	Env = &EnvConfig{Env: "staging"}
+	Env.Database.DSN = "postgresql://medikaone_app.abcdefghijklmnopqrst:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+	first := AuthRedisKeyPrefix()
+	for _, dsn := range []string{
+		"postgresql://different_role.abcdefghijklmnopqrst:rotated@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full",
+		"postgresql://medikaone_app:secret@db.abcdefghijklmnopqrst.supabase.co:5432/postgres?sslmode=verify-full",
+	} {
+		Env.Database.DSN = dsn
+		if got := AuthRedisKeyPrefix(); got != first {
+			t.Fatal("same Supabase project changed auth namespace")
+		}
+	}
+	Env.Database.DSN = "postgresql://medikaone_app.zyxwvutsrqponmlkjihg:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+	if got := AuthRedisKeyPrefix(); got == first {
+		t.Fatal("different Supabase projects share authentication state")
+	}
+}
+
+func TestSupabaseConnectionValidation(t *testing.T) {
+	valid := "postgresql://postgres.abcdefghijklmnopqrst:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full"
+	for _, admin := range []bool{false, true} {
+		if err := validatePostgresDSN(valid, "database", true, admin); err != nil {
+			t.Fatal(err)
+		}
+		for _, invalid := range []string{strings.Replace(valid, ":5432", ":6543", 1), strings.Replace(valid, "postgres.abcdefghijklmnopqrst:", "postgres:", 1), strings.Replace(valid, "verify-full", "require", 1)} {
+			if err := validatePostgresDSN(invalid, "database", true, admin); err == nil {
+				t.Fatal("invalid secure Supabase connection accepted")
+			}
+		}
+	}
+}
+
 func TestValidateRejectsUnsafeProductionTransport(t *testing.T) {
 	cfg := validConfig()
 	cfg.Env = "production"
