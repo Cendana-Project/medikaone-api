@@ -359,4 +359,3 @@ yang tidak terkait.
 - Direktori/rekomendasi: `docs/hospital-directory.md`
 - Migrasi Supabase: `docs/supabase-migration.md`
 - Contoh request/response: `bruno/bruno-medikaone/`
-
