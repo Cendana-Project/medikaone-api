@@ -43,6 +43,13 @@ type HospitalDepartmentSummary struct {
 	Code       string `json:"code"`
 	Name       string `json:"name"`
 }
+
+type DepartmentOption struct {
+	Code          string `json:"code"`
+	Name          string `json:"name"`
+	HospitalCount int64  `json:"hospital_count"`
+	DoctorCount   int64  `json:"doctor_count"`
+}
 type HospitalFacility struct {
 	Code string `json:"code"`
 	Name string `json:"name"`

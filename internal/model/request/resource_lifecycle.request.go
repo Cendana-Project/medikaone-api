@@ -35,7 +35,7 @@ type UpdateHospitalRoomRequest struct {
 }
 
 type UpdateDoctorHospitalInvitationRequest struct {
-	DepartmentID *string                            `json:"department_id" validate:"omitempty,uuid"`
+	DepartmentID *string                            `json:"department_id"`
 	RoomID       *string                            `json:"room_id"`
 	Message      *string                            `json:"message" validate:"omitempty,max=1000"`
 	Schedules    *[]DoctorInvitationScheduleRequest `json:"schedules"`

@@ -111,6 +111,21 @@ func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ str
 	return nil
 }
 
+func TestCreateInvitationMapsBlankDepartmentToPlacementNotFound(t *testing.T) {
+	service := NewService(&fakeRepository{}, nil, nil, 10*1024*1024, 5*time.Minute)
+	_, err := service.CreateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
+		DoctorID: uuid.NewString(), DepartmentID: "   ",
+	}, UploadedFile{})
+	if !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
+		t.Fatalf("blank department error = %v", err)
+	}
+	blank := "   "
+	_, err = service.UpdateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), uuid.NewString(), request.UpdateDoctorHospitalInvitationRequest{DepartmentID: &blank})
+	if !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
+		t.Fatalf("blank updated department error = %v", err)
+	}
+}
+
 type fakeStorage struct {
 	uploadedPath string
 	deletedPath  string

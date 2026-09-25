@@ -12,6 +12,7 @@ rekam medis, dan foto profil. Bucket tidak dibuat otomatis oleh migration Postgr
 | Method / path | Akses dan hasil |
 | --- | --- |
 | `GET /v1/hospitals` | Publik; `data` tetap array, dengan cover image, poli aktif, fasilitas, rating, jam operasional, dan jarak opsional. |
+| `GET /v1/departments` | Publik; pilihan department aktif yang digabung berdasarkan kode, beserta jumlah rumah sakit dan dokter aktif. |
 | `GET /v1/hospitals/:hospital_id` | Publik; profil lengkap beserta `gallery` jika ada foto. ID berupa UUID. |
 | `GET /v1/hospitals/:hospital_id/images` | Publik; array foto dengan signed URL. Array kosong jika belum ada foto. |
 | `POST /v1/hospitals/:hospital_id/images` | ADMIN tenant/SUPER_ADMIN; multipart `image`, `caption` opsional, `sort_order` opsional 0-1000, `is_cover` opsional boolean. HTTP 201. |
@@ -21,6 +22,7 @@ rekam medis, dan foto profil. Bucket tidak dibuat otomatis oleh migration Postgr
 | `GET /v1/hospitals/:hospital_id/reviews/me` | Login; ambil review sendiri, 404 jika belum ada. |
 | `PUT /v1/hospitals/:hospital_id/reviews/me` | Login; buat atau perbarui satu review sendiri per rumah sakit. HTTP 200. |
 | `DELETE /v1/hospitals/:hospital_id/reviews/me` | Login; arsipkan review sendiri dan keluarkan dari perhitungan rating. |
+| `GET /v1/recommendations/hospitals` | Akun pasien; hanya rumah sakit yang mempunyai dokter dan jadwal aktif. Default rating tertinggi. |
 
 POST/PATCH hospital yang sudah ada menerima field profil tambahan. Route admin
 menerima UUID/kode hospital sesuai konteks tenant. Route publik dan review sendiri
@@ -28,8 +30,8 @@ memakai UUID. Hospital nonaktif/terhapus tidak tersedia di direktori publik.
 
 ## Pencarian dan jarak
 
-`GET /v1/hospitals` menerima `search`, `city`, `department` (nama/kode poli),
-`department_id` (UUID poli), `min_rating` (0-5), `latitude`, `longitude`,
+`GET /v1/hospitals` menerima `search`, `city`, `department` (pencarian lama),
+`department_code` (pilihan dari `/v1/departments`), `department_id` (UUID poli), `min_rating` (0-5), `latitude`, `longitude`,
 `radius_km` (>0 sampai 5000), `sort` (`name`, `rating`, `distance`),
 `limit` (1-100, default 20), dan `offset` (0-100000, default 0).
 

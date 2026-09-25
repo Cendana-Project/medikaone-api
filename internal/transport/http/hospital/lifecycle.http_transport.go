@@ -19,6 +19,26 @@ func (ctl *Controller) ListHospitals(c *gin.Context) {
 	hospitalRespond(c, constant.MsgHospitalsListed, rows, err)
 }
 
+func (ctl *Controller) RecommendHospitals(c *gin.Context) {
+	q := request.HospitalDirectoryQuery{Limit: 10, Sort: "rating"}
+	if err := c.ShouldBindQuery(&q); err != nil {
+		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid recommendation query parameters", "parameter query rekomendasi yang valid"))
+		return
+	}
+	rows, err := ctl.svc.RecommendHospitals(c.Request.Context(), q)
+	hospitalRespond(c, constant.MsgHospitalRecommendationsListed, rows, err)
+}
+
+func (ctl *Controller) ListDepartmentOptions(c *gin.Context) {
+	q := request.DepartmentDirectoryQuery{Limit: 100}
+	if err := c.ShouldBindQuery(&q); err != nil {
+		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid department query parameters", "parameter query departemen yang valid"))
+		return
+	}
+	rows, err := ctl.svc.ListDepartmentOptions(c.Request.Context(), q)
+	hospitalRespond(c, constant.MsgDepartmentsListed, rows, err)
+}
+
 func (ctl *Controller) GetHospital(c *gin.Context) {
 	var q request.HospitalDirectoryQuery
 	if err := c.ShouldBindQuery(&q); err != nil {

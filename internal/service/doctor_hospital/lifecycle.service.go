@@ -104,9 +104,14 @@ func (s *Service) UpdateRoom(ctx context.Context, hospitalID, roomID string, req
 		return nil, err
 	}
 	if req.DepartmentID != nil {
-		if err := validateResourceIDs(*req.DepartmentID); err != nil {
+		value := strings.TrimSpace(*req.DepartmentID)
+		if value == "" {
+			return nil, constant.ErrHospitalPlacementNotFound
+		}
+		if err := validateResourceIDs(value); err != nil {
 			return nil, err
 		}
+		req.DepartmentID = &value
 	}
 	if req.Code == nil && req.Name == nil && req.DepartmentID == nil {
 		return nil, constant.NewFieldRequiredError("department_id, code or name")
@@ -145,9 +150,14 @@ func (s *Service) UpdateInvitation(ctx context.Context, hospitalID, invitationID
 		return nil, constant.NewFieldRequiredError("at least one update field")
 	}
 	if req.DepartmentID != nil {
-		if err := validateResourceIDs(*req.DepartmentID); err != nil {
+		value := strings.TrimSpace(*req.DepartmentID)
+		if value == "" {
+			return nil, constant.ErrHospitalPlacementNotFound
+		}
+		if err := validateResourceIDs(value); err != nil {
 			return nil, err
 		}
+		req.DepartmentID = &value
 	}
 	if req.RoomID != nil {
 		value := strings.TrimSpace(*req.RoomID)

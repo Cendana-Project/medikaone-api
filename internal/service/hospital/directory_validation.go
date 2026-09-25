@@ -25,11 +25,12 @@ func invalidDirectory(field, requirement string) error {
 
 func validateDirectoryQuery(q *request.HospitalDirectoryQuery) error {
 	q.Search, q.City, q.Department = strings.TrimSpace(q.Search), strings.TrimSpace(q.City), strings.TrimSpace(q.Department)
+	q.DepartmentCode = strings.ToUpper(strings.TrimSpace(q.DepartmentCode))
 	if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 || q.Offset > 100000 {
 		return invalidDirectory("pagination", "limit 1-100; offset 0-100000")
 	}
-	if utf8.RuneCountInString(q.Search) > 160 || utf8.RuneCountInString(q.City) > 100 || utf8.RuneCountInString(q.Department) > 120 {
-		return invalidDirectory("search", "search <=160; city <=100; department <=120 characters")
+	if utf8.RuneCountInString(q.Search) > 160 || utf8.RuneCountInString(q.City) > 100 || utf8.RuneCountInString(q.Department) > 120 || utf8.RuneCountInString(q.DepartmentCode) > 40 {
+		return invalidDirectory("search", "search <=160; city <=100; department <=120; department_code <=40 characters")
 	}
 	if q.DepartmentID != "" {
 		if _, err := uuid.Parse(q.DepartmentID); err != nil {
@@ -57,6 +58,28 @@ func validateDirectoryQuery(q *request.HospitalDirectoryQuery) error {
 	}
 	if q.Sort == "distance" && q.Latitude == nil {
 		return invalidDirectory("sort", "distance requires latitude and longitude")
+	}
+	return nil
+}
+
+func validateDepartmentDirectoryQuery(q *request.DepartmentDirectoryQuery) error {
+	q.Search = strings.TrimSpace(q.Search)
+	q.HospitalID = strings.TrimSpace(q.HospitalID)
+	if q.Limit == 0 {
+		q.Limit = 100
+	}
+	if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 || q.Offset > 100000 {
+		return invalidDirectory("pagination", "limit 1-100; offset 0-100000")
+	}
+	if utf8.RuneCountInString(q.Search) > 120 {
+		return invalidDirectory("q", "at most 120 characters")
+	}
+	if q.HospitalID != "" {
+		id, err := uuid.Parse(q.HospitalID)
+		if err != nil {
+			return constant.ErrInvalidUUIDFormat
+		}
+		q.HospitalID = id.String()
 	}
 	return nil
 }

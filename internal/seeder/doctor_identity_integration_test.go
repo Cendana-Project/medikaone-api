@@ -11,9 +11,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	appointmentrepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	doctorrepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor"
 	doctorhospitalrepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
+	hospitalrepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	userrepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 )
 
@@ -166,6 +168,24 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 	page, err := directory.ListDoctors(ctx, doctorrepo.Filter{HospitalID: hospitalID, Query: publicID, Page: 1, Limit: 20})
 	if err != nil || page.Total != 1 {
 		t.Fatalf("directory hospital filter = %#v, %v", page, err)
+	}
+	page, err = directory.ListDoctors(ctx, doctorrepo.Filter{
+		DepartmentCode: "IT-DIRECTORY", DepartmentID: departmentID, AvailableOn: date.Format("2006-01-02"),
+		BookingMode: "FIXED_SLOT", Recommended: true, Page: 1, Limit: 10,
+	})
+	if err != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].DoctorID != doctorID {
+		t.Fatalf("mobile doctor filters/recommendation = %#v, %v", page, err)
+	}
+	hospitalDirectory := hospitalrepo.NewRepository(tx)
+	options, err := hospitalDirectory.ListDepartmentOptions(ctx, request.DepartmentDirectoryQuery{Search: "Directory", Limit: 100})
+	if err != nil || len(options) != 1 || options[0].Code != "IT-DIRECTORY" || options[0].HospitalCount != 1 || options[0].DoctorCount != 1 {
+		t.Fatalf("public department options = %#v, %v", options, err)
+	}
+	recommendedHospitals, err := hospitalDirectory.ListDirectory(ctx, request.HospitalDirectoryQuery{
+		DepartmentCode: "IT-DIRECTORY", Recommended: true, Sort: "rating", Limit: 10,
+	})
+	if err != nil || len(recommendedHospitals) != 1 || recommendedHospitals[0].ID != hospitalID {
+		t.Fatalf("patient hospital recommendations = %#v, %v", recommendedHospitals, err)
 	}
 	hospitalRepo := doctorhospitalrepo.NewRepository(tx)
 	doctors, err := hospitalRepo.ListHospitalDoctors(ctx, hospitalID, "ACTIVE")

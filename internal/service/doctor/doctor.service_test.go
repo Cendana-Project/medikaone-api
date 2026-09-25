@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -72,11 +73,28 @@ func TestListDoctorsNormalizesAndBoundsQueries(t *testing.T) {
 	}
 	for _, filter := range []repository.Filter{
 		{Page: -1}, {Page: 100001}, {Limit: -1}, {Limit: 101},
-		{HospitalID: "invalid"}, {Query: strings.Repeat("a", 191)},
+		{HospitalID: "invalid"}, {DepartmentID: "invalid"}, {Query: strings.Repeat("a", 191)},
+		{BookingMode: "unknown"}, {AvailableOn: "2020-01-01"},
 	} {
 		repo := &fakeRepository{}
 		if _, err := NewService(repo).ListDoctors(context.Background(), filter); err == nil || repo.calls != 0 {
 			t.Fatalf("invalid filter %#v must fail before querying", filter)
 		}
+	}
+}
+
+func TestRecommendDoctorsNormalizesMobileFilters(t *testing.T) {
+	repo := &fakeRepository{}
+	tomorrow := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	_, err := NewService(repo).RecommendDoctors(context.Background(), repository.Filter{
+		DepartmentCode: " poli-mata ", DepartmentID: " 22222222-2222-4222-8222-222222222222 ",
+		City: " Jakarta ", AvailableOn: tomorrow, BookingMode: " fixed_slot ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repo.filter.Recommended || repo.filter.Limit != 10 || repo.filter.DepartmentCode != "POLI-MATA" ||
+		repo.filter.City != "Jakarta" || repo.filter.BookingMode != "FIXED_SLOT" {
+		t.Fatalf("recommendation filter = %#v", repo.filter)
 	}
 }

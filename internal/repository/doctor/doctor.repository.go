@@ -14,11 +14,17 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type Filter struct {
-	Query      string
-	Specialty  string
-	HospitalID string
-	Page       int
-	Limit      int
+	Query          string
+	Specialty      string
+	HospitalID     string
+	DepartmentCode string
+	DepartmentID   string
+	City           string
+	AvailableOn    string
+	BookingMode    string
+	Recommended    bool
+	Page           int
+	Limit          int
 }
 
 const publicDoctorColumns = `
@@ -62,16 +68,50 @@ func filterQuery(filter Filter) (string, []any) {
 		where += ` AND LOWER(profile.specialty) = LOWER(?)`
 		args = append(args, filter.Specialty)
 	}
-	if filter.HospitalID != "" {
+	if filter.HospitalID != "" || filter.DepartmentCode != "" || filter.DepartmentID != "" || filter.City != "" || filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended {
 		where += ` AND EXISTS (
 			SELECT 1 FROM doctor_hospital_affiliations affiliation
 			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 			JOIN hospital_departments department ON department.id = affiliation.department_id
-			WHERE affiliation.doctor_id = doctor.id AND affiliation.hospital_id = ?
+			WHERE affiliation.doctor_id = doctor.id
 			  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL AND hospital.is_active = TRUE
 			  AND hospital.deleted_at IS NULL AND department.is_active = TRUE
-		)`
-		args = append(args, filter.HospitalID)
+		`
+		if filter.HospitalID != "" {
+			where += " AND affiliation.hospital_id = ?"
+			args = append(args, filter.HospitalID)
+		}
+		if filter.DepartmentCode != "" {
+			where += " AND LOWER(department.code) = LOWER(?)"
+			args = append(args, filter.DepartmentCode)
+		}
+		if filter.DepartmentID != "" {
+			where += " AND department.id = ?"
+			args = append(args, filter.DepartmentID)
+		}
+		if filter.City != "" {
+			where += " AND LOWER(hospital.city) = LOWER(?)"
+			args = append(args, filter.City)
+		}
+		if filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended {
+			where += ` AND EXISTS (
+				SELECT 1 FROM doctor_hospital_schedules schedule
+				WHERE schedule.affiliation_id = affiliation.id AND schedule.is_active = TRUE
+				  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP)`
+			if filter.AvailableOn != "" {
+				where += ` AND (
+					schedule.schedule_date = ?::date
+					OR (schedule.schedule_date IS NULL AND schedule.day_of_week = EXTRACT(DOW FROM ?::date)::integer)
+				) AND ((?::date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP`
+				args = append(args, filter.AvailableOn, filter.AvailableOn, filter.AvailableOn)
+			}
+			if filter.BookingMode != "" {
+				where += " AND schedule.booking_mode = ?"
+				args = append(args, filter.BookingMode)
+			}
+			where += ")"
+		}
+		where += ")"
 	}
 	return where, args
 }
@@ -82,7 +122,24 @@ func (r *Repository) ListDoctors(ctx context.Context, filter Filter) (*response.
 	if err := r.db.WithContext(ctx).Raw(`SELECT COUNT(*) `+where, args...).Scan(&out.Total).Error; err != nil {
 		return nil, err
 	}
-	query := `SELECT ` + publicDoctorColumns + where + ` ORDER BY LOWER(doctor.first_name), LOWER(doctor.last_name), doctor.id LIMIT ? OFFSET ?`
+	order := "LOWER(doctor.first_name), LOWER(doctor.last_name), doctor.id"
+	if filter.Recommended {
+		order = `(
+			SELECT COALESCE(AVG(review.rating)::double precision, 0)
+			FROM doctor_hospital_affiliations ranked_affiliation
+			JOIN hospitals ranked_hospital ON ranked_hospital.id = ranked_affiliation.hospital_id
+			LEFT JOIN hospital_reviews review ON review.hospital_id = ranked_hospital.id AND review.deleted_at IS NULL
+			WHERE ranked_affiliation.doctor_id = doctor.id AND ranked_affiliation.status = 'ACTIVE'
+			  AND ranked_affiliation.deleted_at IS NULL AND ranked_hospital.is_active = TRUE AND ranked_hospital.deleted_at IS NULL
+		) DESC, (
+			SELECT COUNT(*) FROM doctor_hospital_affiliations ranked_affiliation
+			JOIN doctor_hospital_schedules ranked_schedule ON ranked_schedule.affiliation_id = ranked_affiliation.id
+			WHERE ranked_affiliation.doctor_id = doctor.id AND ranked_affiliation.status = 'ACTIVE'
+			  AND ranked_affiliation.deleted_at IS NULL AND ranked_schedule.is_active = TRUE
+			  AND (ranked_schedule.schedule_date IS NULL OR ((ranked_schedule.schedule_date + ranked_schedule.end_time) AT TIME ZONE ranked_schedule.timezone) > CURRENT_TIMESTAMP)
+		) DESC, LOWER(doctor.first_name), LOWER(doctor.last_name), doctor.id`
+	}
+	query := `SELECT ` + publicDoctorColumns + where + ` ORDER BY ` + order + ` LIMIT ? OFFSET ?`
 	args = append(args, filter.Limit, (filter.Page-1)*filter.Limit)
 	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&out.Items).Error; err != nil {
 		return nil, err

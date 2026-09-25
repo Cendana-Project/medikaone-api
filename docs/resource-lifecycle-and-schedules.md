@@ -28,12 +28,15 @@ diterbitkan sesudah pembaruan menggunakan format baru yang memuat ID tersebut.
 
 | Method / path | Perilaku |
 | --- | --- |
-| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
+| `GET /v1/departments` | Katalog pilihan department aktif; query `q`, `hospital_id`, `limit`, `offset`. Gunakan `code` sebagai `department_code`. |
+| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
 | `GET /v1/doctors/:doctor_id` | Detail dokter dan afiliasi/jadwal aktif. Path menerima UUID atau MedikaOne ID dokter. |
 | `GET /v1/hospitals` | Daftar rumah sakit aktif; query `search`, `city`, `limit` (1-100, default 20), `offset` (0-100000, default 0). |
 | `GET /v1/hospitals/:hospital_id` | Detail rumah sakit berdasarkan UUID. `facilities` adalah JSON, bukan base64. |
+| `GET /v1/recommendations/doctors` | Pasien terautentikasi; dokter dengan afiliasi dan jadwal aktif, diurutkan berdasarkan rating rumah sakit, jumlah jadwal, lalu nama. |
+| `GET /v1/recommendations/hospitals` | Pasien terautentikasi; rumah sakit dengan dokter dan jadwal aktif, default diurutkan berdasarkan rating. |
 
-Keempat endpoint publik dapat dipakai Website maupun Mobile. Direktori dokter
+Endpoint direktori publik dapat dipakai Website maupun Mobile. Direktori dokter
 menampilkan identitas profesional, tanpa email, telepon pribadi, NIK, atau DOB.
 Resource nonaktif/diarsipkan tidak muncul di direktori.
 
@@ -72,6 +75,9 @@ PATCH invitation menggunakan JSON dengan field opsional `department_id`,
 `room_id`/`message` string kosong mengosongkan nilai; `schedules: []` menghapus
 seluruh jadwal usulan. Dokter penerima, rumah sakit pengirim, dan berkas kontrak
 tidak diganti melalui PATCH. Undangan tanpa jadwal awal tetap diperbolehkan.
+`department_id` wajib dipilih dari list department rumah sakit; nilai kosong atau
+placement dari rumah sakit lain menghasilkan HTTP 404
+`HOSPITAL_PLACEMENT_NOT_FOUND`.
 Undangan diarsipkan hilang dari daftar/detail, dan endpoint URL kontraknya tidak
 lagi tersedia. Undangan ACCEPTED tetap dipertahankan; hentikan afiliasi dokter
 melalui endpoint delete afiliasi bila ingin mengakhiri penempatannya.

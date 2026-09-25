@@ -207,6 +207,10 @@ func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy st
 	if _, err := uuid.Parse(req.DoctorID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
+	req.DepartmentID = strings.TrimSpace(req.DepartmentID)
+	if req.DepartmentID == "" {
+		return nil, constant.ErrHospitalPlacementNotFound
+	}
 	if _, err := uuid.Parse(req.DepartmentID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
