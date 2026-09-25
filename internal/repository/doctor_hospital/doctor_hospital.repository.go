@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/scheduleconflict"
 )
 
 var (
@@ -295,35 +297,71 @@ func (r *Repository) RoomMatchesDepartment(ctx context.Context, hospitalID, depa
 }
 
 func (r *Repository) HasActiveScheduleConflict(ctx context.Context, doctorID string, schedules []Schedule) (bool, error) {
-	return hasActiveScheduleConflict(r.db.WithContext(ctx), doctorID, schedules)
+	return hasActiveScheduleConflict(r.db.WithContext(ctx), doctorID, schedules, time.Now().UTC())
 }
 
-func hasActiveScheduleConflict(db *gorm.DB, doctorID string, schedules []Schedule) (bool, error) {
-	for _, proposed := range schedules {
-		var conflict bool
-		if err := db.Raw(`
-			SELECT EXISTS(
-				SELECT 1
-				FROM doctor_hospital_affiliations affiliation
-				JOIN doctor_hospital_schedules existing
-				  ON existing.affiliation_id = affiliation.id
-				 AND existing.is_active = TRUE
-				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
-				WHERE affiliation.doctor_id = ?
-				  AND affiliation.status = 'ACTIVE'
-				  AND existing.day_of_week = ?
-				  AND (existing.schedule_date IS NULL OR CAST(? AS date) IS NULL OR existing.schedule_date = CAST(? AS date))
-				  AND existing.start_time < ?::time
-				  AND existing.end_time > ?::time
-			)`, doctorID, proposed.DayOfWeek, proposed.ScheduleDate, proposed.ScheduleDate, proposed.EndTime, proposed.StartTime).
-			Scan(&conflict).Error; err != nil {
-			return false, err
-		}
-		if conflict {
-			return true, nil
-		}
+func hasActiveScheduleConflict(db *gorm.DB, doctorID string, schedules []Schedule, now time.Time) (bool, error) {
+	proposed := conflictSchedules(schedules)
+	if conflict, err := scheduleconflict.AnyOverlap(proposed, now); err != nil || conflict {
+		return conflict, err
 	}
-	return false, nil
+	var active []scheduleconflict.Schedule
+	if err := db.Raw(`
+		SELECT existing.day_of_week, existing.schedule_date::text AS schedule_date,
+		       TO_CHAR(existing.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(existing.end_time, 'HH24:MI') AS end_time, existing.timezone
+		FROM doctor_hospital_affiliations affiliation
+		JOIN doctor_hospital_schedules existing ON existing.affiliation_id = affiliation.id
+		WHERE affiliation.doctor_id = ? AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND existing.is_active = TRUE
+		  AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > ?)`,
+		doctorID, now).Scan(&active).Error; err != nil {
+		return false, err
+	}
+	return scheduleconflict.AnyConflict(proposed, active, now)
+}
+
+func conflictSchedules(schedules []Schedule) []scheduleconflict.Schedule {
+	result := make([]scheduleconflict.Schedule, 0, len(schedules))
+	for _, schedule := range schedules {
+		timezone := schedule.Timezone
+		if timezone == "" {
+			timezone = "Asia/Jakarta"
+		}
+		result = append(result, scheduleconflict.Schedule{
+			DayOfWeek: schedule.DayOfWeek, ScheduleDate: schedule.ScheduleDate,
+			StartTime: schedule.StartTime, EndTime: schedule.EndTime, Timezone: timezone,
+		})
+	}
+	return result
+}
+
+func invitationScheduleConflict(db *gorm.DB, doctorID, invitationID string, now time.Time) (bool, error) {
+	var proposed []scheduleconflict.Schedule
+	if err := db.Raw(`
+		SELECT day_of_week, schedule_date::text AS schedule_date,
+		       TO_CHAR(start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone
+		FROM doctor_hospital_invitation_schedules WHERE invitation_id = ?`, invitationID).Scan(&proposed).Error; err != nil {
+		return false, err
+	}
+	if conflict, err := scheduleconflict.AnyOverlap(proposed, now); err != nil || conflict {
+		return conflict, err
+	}
+	var active []scheduleconflict.Schedule
+	if err := db.Raw(`
+		SELECT existing.day_of_week, existing.schedule_date::text AS schedule_date,
+		       TO_CHAR(existing.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(existing.end_time, 'HH24:MI') AS end_time, existing.timezone
+		FROM doctor_hospital_affiliations affiliation
+		JOIN doctor_hospital_schedules existing ON existing.affiliation_id = affiliation.id
+		WHERE affiliation.doctor_id = ? AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND existing.is_active = TRUE
+		  AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > ?)`,
+		doctorID, now).Scan(&active).Error; err != nil {
+		return false, err
+	}
+	return scheduleconflict.AnyConflict(proposed, active, now)
 }
 
 func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitationInput) (*response.DoctorHospitalInvitation, error) {
@@ -346,7 +384,7 @@ func (r *Repository) CreateInvitation(ctx context.Context, input CreateInvitatio
 			return err
 		}
 		if len(input.Schedules) > 0 {
-			conflict, err := hasActiveScheduleConflict(tx, input.DoctorID, input.Schedules)
+			conflict, err := hasActiveScheduleConflict(tx, input.DoctorID, input.Schedules, input.Now)
 			if err != nil {
 				return err
 			}
@@ -576,7 +614,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 	if err := expirePendingInvitations(r.db.WithContext(ctx), "", doctorID, now); err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockInvitationHospital(tx, invitationID, "", doctorID); err != nil {
 			return err
 		}
@@ -605,22 +643,8 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 			return err
 		}
 
-		var conflict bool
-		if err := tx.Raw(`
-			SELECT EXISTS(
-				SELECT 1
-				FROM doctor_hospital_invitation_schedules proposed
-				JOIN doctor_hospital_affiliations affiliation
-				  ON affiliation.doctor_id = ? AND affiliation.status = 'ACTIVE'
-				JOIN doctor_hospital_schedules existing
-				  ON existing.affiliation_id = affiliation.id AND existing.is_active = TRUE
-				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
-				WHERE proposed.invitation_id = ?
-				  AND proposed.day_of_week = existing.day_of_week
-				  AND (proposed.schedule_date IS NULL OR existing.schedule_date IS NULL OR proposed.schedule_date = existing.schedule_date)
-				  AND proposed.start_time < existing.end_time
-				  AND proposed.end_time > existing.start_time
-			)`, doctorID, invitationID).Scan(&conflict).Error; err != nil {
+		conflict, err := invitationScheduleConflict(tx, doctorID, invitationID, now)
+		if err != nil {
 			return err
 		}
 		if conflict {
@@ -696,6 +720,7 @@ func (r *Repository) AcceptInvitation(ctx context.Context, invitationID, doctorI
 			        'Undangan dokter diterima', 'Dokter menerima undangan rumah sakit.', ?::jsonb, ?)`,
 			uuid.NewString(), invitation.InvitedBy, string(data), now).Error
 	})
+	return mapScheduleConflictWriteError(err)
 }
 
 func (r *Repository) RejectInvitation(ctx context.Context, invitationID, doctorID string, message *string, now time.Time) error {
@@ -1001,7 +1026,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 }
 
 func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string, now time.Time) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var affiliationIDs []string
 		if err := tx.Table("doctor_hospital_affiliations").Where("hospital_id = ? AND doctor_id = ? AND deleted_at IS NULL", hospitalID, doctorID).Order("id").Pluck("id", &affiliationIDs).Error; err != nil {
 			return err
@@ -1021,6 +1046,9 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 			return ErrAffiliationNotFound
 		}
 		if status == entity.DoctorHospitalAffiliationActive {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))", doctorID).Error; err != nil {
+				return err
+			}
 			for _, affiliation := range affiliations {
 				if err := lockActivePlacement(tx, hospitalID, affiliation.DepartmentID, affiliation.RoomID); err != nil {
 					return err
@@ -1028,6 +1056,21 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 			}
 			if err := lockAndValidateHospitalWorkerDOB(tx, doctorID, now); err != nil {
 				return err
+			}
+			var reactivatingIDs []string
+			for _, affiliation := range affiliations {
+				if affiliation.Status != entity.DoctorHospitalAffiliationActive {
+					reactivatingIDs = append(reactivatingIDs, affiliation.ID)
+				}
+			}
+			if len(reactivatingIDs) > 0 {
+				conflict, err := affiliationReactivationConflict(tx, doctorID, reactivatingIDs, now)
+				if err != nil {
+					return err
+				}
+				if conflict {
+					return ErrScheduleConflict
+				}
 			}
 		}
 		if err := tx.Model(&entity.DoctorHospitalAffiliation{}).
@@ -1102,6 +1145,50 @@ func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, do
 			        'Status dokter diperbarui', 'Status keanggotaan rumah sakit Anda telah diperbarui.', ?::jsonb, ?)`,
 			uuid.NewString(), doctorID, string(data), now).Error
 	})
+	return mapScheduleConflictWriteError(err)
+}
+
+func mapScheduleConflictWriteError(err error) error {
+	if err == nil || errors.Is(err, ErrScheduleConflict) {
+		return err
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23P01" && postgresError.ConstraintName == "doctor_schedule_no_overlap" {
+		return fmt.Errorf("%w: %w", ErrScheduleConflict, err)
+	}
+	return err
+}
+
+func affiliationReactivationConflict(tx *gorm.DB, doctorID string, affiliationIDs []string, now time.Time) (bool, error) {
+	var proposed []scheduleconflict.Schedule
+	if err := tx.Raw(`
+		SELECT schedule.day_of_week, schedule.schedule_date::text AS schedule_date,
+		       TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(schedule.end_time, 'HH24:MI') AS end_time, schedule.timezone
+		FROM doctor_hospital_schedules schedule
+		WHERE schedule.affiliation_id IN ? AND schedule.is_active = TRUE
+		  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > ?)`,
+		affiliationIDs, now).Scan(&proposed).Error; err != nil {
+		return false, err
+	}
+	if conflict, err := scheduleconflict.AnyOverlap(proposed, now); err != nil || conflict {
+		return conflict, err
+	}
+	var active []scheduleconflict.Schedule
+	if err := tx.Raw(`
+		SELECT schedule.day_of_week, schedule.schedule_date::text AS schedule_date,
+		       TO_CHAR(schedule.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(schedule.end_time, 'HH24:MI') AS end_time, schedule.timezone
+		FROM doctor_hospital_affiliations affiliation
+		JOIN doctor_hospital_schedules schedule ON schedule.affiliation_id = affiliation.id
+		WHERE affiliation.doctor_id = ? AND affiliation.id NOT IN ?
+		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND schedule.is_active = TRUE
+		  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > ?)`,
+		doctorID, affiliationIDs, now).Scan(&active).Error; err != nil {
+		return false, err
+	}
+	return scheduleconflict.AnyConflict(proposed, active, now)
 }
 
 func lockAndValidateHospitalWorkerDOB(tx *gorm.DB, userID string, now time.Time) error {

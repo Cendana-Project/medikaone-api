@@ -254,7 +254,7 @@ func (r *Repository) UpdateInvitation(ctx context.Context, input UpdateInvitatio
 			return ErrInvitationExists
 		}
 		if input.Schedules != nil {
-			conflict, err := hasActiveScheduleConflict(tx, row.DoctorID, *input.Schedules)
+			conflict, err := hasActiveScheduleConflict(tx, row.DoctorID, *input.Schedules, input.Now)
 			if err != nil {
 				return err
 			}

@@ -10,10 +10,12 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	"github.com/Cendana-Project/medikaone-api/internal/scheduleconflict"
 )
 
 var (
@@ -1335,25 +1337,8 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 			return ErrInvalidScheduleChangeState
 		}
 
-		var scheduleConflict bool
-		if err := tx.Raw(`
-			SELECT EXISTS(
-				SELECT 1
-				FROM doctor_schedule_change_items proposed
-				JOIN doctor_hospital_affiliations other_affiliation
-				  ON other_affiliation.doctor_id = ?
-				 AND (? = 'ADD' OR other_affiliation.id <> ?)
-				 AND other_affiliation.status = 'ACTIVE'
-				JOIN doctor_hospital_schedules existing
-				  ON existing.affiliation_id = other_affiliation.id
-				 AND existing.is_active = TRUE
-				 AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > CURRENT_TIMESTAMP)
-				WHERE proposed.change_request_id = ?
-				  AND proposed.day_of_week = existing.day_of_week
-				  AND (proposed.schedule_date IS NULL OR existing.schedule_date IS NULL OR proposed.schedule_date = existing.schedule_date)
-				  AND proposed.start_time < existing.end_time
-				  AND proposed.end_time > existing.start_time
-			)`, current.DoctorID, current.Operation, current.AffiliationID, changeID).Scan(&scheduleConflict).Error; err != nil {
+		scheduleConflict, err := approvedScheduleConflict(tx, current.DoctorID, current.AffiliationID, changeID, current.Operation, now)
+		if err != nil {
 			return err
 		}
 		if scheduleConflict {
@@ -1395,12 +1380,56 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 		return notifyScheduleCounterpart(tx, current.AffiliationID, actorParty, "SCHEDULE_CHANGE_APPROVED", "Perubahan jadwal disetujui", approvalBody, changeID, now)
 	})
 	if err != nil {
-		return err
+		return mapScheduleConflictWriteError(err)
 	}
 	if expired {
 		return ErrInvalidScheduleChangeState
 	}
 	return nil
+}
+
+func mapScheduleConflictWriteError(err error) error {
+	if err == nil || errors.Is(err, ErrDoctorScheduleConflict) {
+		return err
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23P01" && postgresError.ConstraintName == "doctor_schedule_no_overlap" {
+		return fmt.Errorf("%w: %w", ErrDoctorScheduleConflict, err)
+	}
+	return err
+}
+
+func approvedScheduleConflict(tx *gorm.DB, doctorID, affiliationID, changeID, operation string, now time.Time) (bool, error) {
+	if operation == "REMOVE" {
+		return false, nil
+	}
+	var proposed []scheduleconflict.Schedule
+	if err := tx.Raw(`
+		SELECT day_of_week, schedule_date::text AS schedule_date,
+		       TO_CHAR(start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone
+		FROM doctor_schedule_change_items WHERE change_request_id = ?`, changeID).Scan(&proposed).Error; err != nil {
+		return false, err
+	}
+	if conflict, err := scheduleconflict.AnyOverlap(proposed, now); err != nil || conflict {
+		return conflict, err
+	}
+	var active []scheduleconflict.Schedule
+	if err := tx.Raw(`
+		SELECT existing.day_of_week, existing.schedule_date::text AS schedule_date,
+		       TO_CHAR(existing.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(existing.end_time, 'HH24:MI') AS end_time, existing.timezone
+		FROM doctor_hospital_affiliations affiliation
+		JOIN doctor_hospital_schedules existing ON existing.affiliation_id = affiliation.id
+		WHERE affiliation.doctor_id = ?
+		  AND (? = 'ADD' OR affiliation.id <> ?)
+		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND existing.is_active = TRUE
+		  AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > ?)`,
+		doctorID, operation, affiliationID, now).Scan(&active).Error; err != nil {
+		return false, err
+	}
+	return scheduleconflict.AnyConflict(proposed, active, now)
 }
 
 func insertAppointmentEvent(tx *gorm.DB, appointmentID string, actorID any, eventType string, from *string, to string, reason *string, now time.Time) error {

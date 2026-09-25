@@ -58,6 +58,131 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		t.Fatalf("own approval=%v", err)
 	}
 	approve(initial.ID)
+	var dstRecurringConflict bool
+	if err := sqlDB.QueryRow(`SELECT public.medikaone_schedule_windows_overlap(
+		1, NULL, '08:00'::time, '09:00'::time, 'America/New_York',
+		3, NULL, '18:00'::time, '19:00'::time, 'Europe/London')`).Scan(&dstRecurringConflict); err != nil {
+		t.Fatal(err)
+	}
+	if !dstRecurringConflict {
+		t.Fatal("database guard must fail closed for recurring schedules across DST timezones")
+	}
+
+	// The same doctor can belong to another hospital whose local clock uses a
+	// different fixed offset. Monday 09:00 WITA is Monday 08:00 WIB, so the
+	// approval must fail even though the raw wall-clock values do not overlap.
+	secondHospitalID := scalarString(t, sqlDB, `SELECT id::text FROM hospitals WHERE code = 'HSP-MO-002'`)
+	secondDepartmentID := scalarString(t, sqlDB, `SELECT department.id::text FROM hospital_departments department
+		JOIN hospitals hospital ON hospital.id = department.hospital_id
+		WHERE hospital.code = 'HSP-MO-002' AND department.code = 'POLI-UMUM'`)
+	registrationRepo := doctorhospitalrepo.NewRepository(db)
+	conflicts, err := registrationRepo.HasActiveScheduleConflict(ctx, doctorID, []doctorhospitalrepo.Schedule{{
+		DayOfWeek: 1, StartTime: "09:00", EndTime: "10:00", Timezone: "Asia/Makassar",
+	}})
+	if err != nil || !conflicts {
+		t.Fatalf("invitation preflight missed WIB/WITA conflict: conflict=%v err=%v", conflicts, err)
+	}
+	secondMataDepartmentID := scalarString(t, sqlDB, `SELECT department.id::text FROM hospital_departments department
+		JOIN hospitals hospital ON hospital.id = department.hospital_id
+		WHERE hospital.code = 'HSP-MO-002' AND department.code = 'POLI-MATA'`)
+	conflictingInvitationID := uuid.NewString()
+	if _, err := sqlDB.Exec(`INSERT INTO doctor_hospital_invitations
+		(id,hospital_id,doctor_id,department_id,invited_by,status,expires_at,created_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,'PENDING',$6,$7,$7)`, conflictingInvitationID, secondHospitalID, doctorID, secondMataDepartmentID, adminID, now.Add(24*time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.Exec(`INSERT INTO doctor_hospital_invitation_schedules
+		(invitation_id,day_of_week,start_time,end_time,timezone,booking_mode,slot_duration_minutes,capacity,created_at)
+		VALUES ($1,1,'10:00','11:00','Asia/Jayapura','FIXED_SLOT',30,1,$2)`, conflictingInvitationID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrationRepo.AcceptInvitation(ctx, conflictingInvitationID, doctorID, now); !errors.Is(err, doctorhospitalrepo.ErrScheduleConflict) {
+		t.Fatalf("invitation acceptance missed WIB/WIT conflict: %v", err)
+	}
+	secondInvitationID, secondAffiliationID := uuid.NewString(), uuid.NewString()
+	if _, err := sqlDB.Exec(`INSERT INTO doctor_hospital_invitations
+		(id,hospital_id,doctor_id,department_id,invited_by,status,expires_at,responded_at,created_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,'ACCEPTED',$6,$7,$7,$7)`, secondInvitationID, secondHospitalID, doctorID, secondDepartmentID, adminID, now.Add(24*time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.Exec(`INSERT INTO doctor_hospital_affiliations
+		(id,hospital_id,doctor_id,department_id,invitation_id,status,joined_at,created_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$6,$6)`, secondAffiliationID, secondHospitalID, doctorID, secondDepartmentID, secondInvitationID, now); err != nil {
+		t.Fatal(err)
+	}
+	proposeSecondHospital := func(startTime, endTime string) *response.ScheduleChangeRequest {
+		t.Helper()
+		row, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
+			AffiliationID: secondAffiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: secondHospitalID,
+			Operation: "ADD", Now: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
+			Schedules: []appointmentrepo.ScheduleItem{{DayOfWeek: 1, StartTime: startTime, EndTime: endTime,
+				Timezone: "Asia/Makassar", BookingMode: "FIXED_SLOT", SlotDurationMinutes: 30, Capacity: 1}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	crossTimezoneConflict := proposeSecondHospital("09:00", "10:00")
+	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
+		t.Fatalf("WIB/WITA cross-hospital conflict=%v", err)
+	}
+	rejectionReason := "same absolute practice time"
+	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "REJECTED", &rejectionReason, now); err != nil {
+		t.Fatal(err)
+	}
+	adjacentTimezoneSchedule := proposeSecondHospital("10:00", "11:00")
+	if err := repo.ReviewScheduleChange(ctx, adjacentTimezoneSchedule.ID, doctorID, "DOCTOR", "APPROVED", nil, now); err != nil {
+		t.Fatalf("adjacent WIB/WITA schedule rejected: %v", err)
+	}
+	if err := registrationRepo.UpdateAffiliationStatus(ctx, secondHospitalID, doctorID, "SUSPENDED", adminID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.Exec(`UPDATE doctor_hospital_schedules SET start_time='09:00', end_time='10:00'
+		WHERE affiliation_id=$1 AND is_active=TRUE`, secondAffiliationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrationRepo.UpdateAffiliationStatus(ctx, secondHospitalID, doctorID, "ACTIVE", adminID, now); !errors.Is(err, doctorhospitalrepo.ErrScheduleConflict) {
+		t.Fatalf("affiliation reactivation bypassed WIB/WITA conflict: %v", err)
+	}
+	if _, err := sqlDB.Exec(`UPDATE doctor_hospital_schedules SET start_time='10:00', end_time='11:00'
+		WHERE affiliation_id=$1 AND is_active=TRUE`, secondAffiliationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrationRepo.UpdateAffiliationStatus(ctx, secondHospitalID, doctorID, "ACTIVE", adminID, now); err != nil {
+		t.Fatalf("safe affiliation reactivation rejected: %v", err)
+	}
+	_, directConflictErr := sqlDB.Exec(`UPDATE doctor_hospital_schedules SET start_time='09:00', end_time='10:00'
+		WHERE affiliation_id=$1 AND is_active=TRUE`, secondAffiliationID)
+	var sqlState interface{ SQLState() string }
+	if !errors.As(directConflictErr, &sqlState) || sqlState.SQLState() != "23P01" {
+		t.Fatalf("database trigger allowed direct cross-hospital conflict: %v", directConflictErr)
+	}
+	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM doctor_hospital_schedules
+		WHERE affiliation_id=$1 AND start_time='10:00' AND end_time='11:00' AND is_active=TRUE`, secondAffiliationID); got != 1 {
+		t.Fatal("failed direct schedule update changed the active schedule")
+	}
+	if err := registrationRepo.UpdateAffiliationStatus(ctx, secondHospitalID, doctorID, "SUSPENDED", adminID, now); err != nil {
+		t.Fatal(err)
+	}
+	overlappingInactiveScheduleID := uuid.NewString()
+	if _, err := sqlDB.Exec(`INSERT INTO doctor_hospital_schedules
+		(id, affiliation_id, day_of_week, start_time, end_time, timezone, booking_mode, slot_duration_minutes, capacity, is_active, created_at, updated_at)
+		VALUES ($1, $2, 1, '10:30', '11:30', 'Asia/Makassar', 'FIXED_SLOT', 30, 1, TRUE, $3, $3)`,
+		overlappingInactiveScheduleID, secondAffiliationID, now); err != nil {
+		t.Fatal(err)
+	}
+	_, directReactivationErr := sqlDB.Exec(`UPDATE doctor_hospital_affiliations SET status='ACTIVE', updated_at=$2 WHERE id=$1`, secondAffiliationID, now)
+	if !errors.As(directReactivationErr, &sqlState) || sqlState.SQLState() != "23P01" {
+		t.Fatalf("database trigger allowed reactivation with internally overlapping schedules: %v", directReactivationErr)
+	}
+	if _, err := sqlDB.Exec(`DELETE FROM doctor_hospital_schedules WHERE id=$1`, overlappingInactiveScheduleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrationRepo.UpdateAffiliationStatus(ctx, secondHospitalID, doctorID, "ACTIVE", adminID, now); err != nil {
+		t.Fatalf("cleaned affiliation could not be reactivated: %v", err)
+	}
+
 	future := now.AddDate(0, 0, 8)
 	for future.Weekday() != time.Monday {
 		future = future.AddDate(0, 0, 1)
@@ -151,7 +276,7 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		VALUES ($1,$2,1,$3::date,'15:00','16:00','Asia/Jakarta','FIXED_SLOT',30,1,TRUE,$4,$4)`, uuid.NewString(), affiliationID, past.Format("2006-01-02"), now); err != nil {
 		t.Fatal(err)
 	}
-	conflicts, err := doctorhospitalrepo.NewRepository(db).HasActiveScheduleConflict(ctx, doctorID, []doctorhospitalrepo.Schedule{{DayOfWeek: 1, StartTime: "15:00", EndTime: "16:00"}})
+	conflicts, err = doctorhospitalrepo.NewRepository(db).HasActiveScheduleConflict(ctx, doctorID, []doctorhospitalrepo.Schedule{{DayOfWeek: 1, StartTime: "15:00", EndTime: "16:00"}})
 	if err != nil || conflicts {
 		t.Fatalf("expired one-off blocks future recurring practice: %v %v", conflicts, err)
 	}

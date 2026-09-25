@@ -1,8 +1,17 @@
 # Direktori, lifecycle resource, dan jadwal dokter
 
-Migration terbaru: `20260913110000_specific_schedules.sql`. Jalankan seluruh
+Migration terbaru: `20260926100000_schedule_conflict_guard.sql`. Jalankan seluruh
 migration pending melalui command migration terpisah sebelum deploy API.
 Koleksi Bruno berada pada repository terpisah `Cendana-Project/bruno-medikaone`.
+
+Konflik jadwal diperiksa memakai interval absolut untuk seluruh afiliasi aktif
+dokter, termasuk rumah sakit lain. WIB, WITA, dan WIT dibandingkan sebagai UTC;
+misalnya Senin 08:00 Asia/Jakarta bertabrakan dengan Senin 09:00 Asia/Makassar
+pada durasi yang sama. Jadwal sekali memakai offset IANA pada tanggalnya. Jadwal
+rutin yang menggunakan dua timezone berbeda dengan perubahan offset/DST ditolak
+secara konservatif. Pemeriksaan diulang dalam transaksi yang dikunci per dokter
+saat invite diterima, perubahan jadwal disetujui, dan afiliasi diaktifkan kembali.
+Trigger database menolak insert/update aktif yang mencoba melewati jalur API.
 
 ## Identitas dokter dan direktori publik
 
