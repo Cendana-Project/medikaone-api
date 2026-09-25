@@ -21,6 +21,23 @@ func closedWeek() []request.HospitalOpeningDay {
 	}
 	return days
 }
+
+func TestDepartmentDirectoryQueryValidation(t *testing.T) {
+	query := request.DepartmentDirectoryQuery{Search: "  Mata  ", Category: " medical_specialist "}
+	if err := validateDepartmentDirectoryQuery(&query); err != nil {
+		t.Fatal(err)
+	}
+	if query.Search != "Mata" || query.Category != "MEDICAL_SPECIALIST" || query.Limit != 100 {
+		t.Fatalf("normalized department query = %#v", query)
+	}
+	for _, invalid := range []request.DepartmentDirectoryQuery{
+		{HospitalID: "invalid"}, {Category: "UNKNOWN"}, {Limit: 101}, {Offset: -1}, {Search: strings.Repeat("x", 121)},
+	} {
+		if err := validateDepartmentDirectoryQuery(&invalid); err == nil {
+			t.Fatalf("invalid department query accepted: %#v", invalid)
+		}
+	}
+}
 func TestHospitalHoursAcrossMidnightAndWeekBoundary(t *testing.T) {
 	days := closedWeek()
 	days[6] = request.HospitalOpeningDay{DayOfWeek: 6, Periods: []request.HospitalOpeningPeriod{{Open: "22:00", Close: "02:00"}}}

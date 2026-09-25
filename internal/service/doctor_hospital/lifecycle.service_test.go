@@ -20,6 +20,7 @@ type lifecycleFake struct {
 	input      repository.UpdateInvitationInput
 	hospitalID string
 	resourceID string
+	masterID   string
 	err        error
 }
 
@@ -33,9 +34,9 @@ func (f *lifecycleFake) DeleteDepartment(_ context.Context, hospitalID, departme
 	return f.err
 }
 
-func (f *lifecycleFake) UpdateDepartment(_ context.Context, hospitalID, departmentID string, fields map[string]any) (*entity.HospitalDepartment, error) {
-	f.hospitalID, f.resourceID = hospitalID, departmentID
-	return &entity.HospitalDepartment{ID: departmentID, HospitalID: hospitalID, Name: fields["name"].(string)}, f.err
+func (f *lifecycleFake) UpdateDepartment(_ context.Context, hospitalID, departmentID, masterDepartmentID string, _ time.Time) (*entity.HospitalDepartment, error) {
+	f.hospitalID, f.resourceID, f.masterID = hospitalID, departmentID, masterDepartmentID
+	return &entity.HospitalDepartment{ID: departmentID, HospitalID: hospitalID, MasterDepartmentID: &masterDepartmentID}, f.err
 }
 
 func TestUpdateInvitationPreservesOmittedFieldsAndClearsExplicitSchedules(t *testing.T) {
@@ -86,9 +87,16 @@ func TestDepartmentMutationScopesTenantAndMapsConflict(t *testing.T) {
 		t.Fatal("resource mutation lost tenant scope")
 	}
 	repo.err = repository.ErrPlacementNotFound
-	name := "Renamed"
-	if _, err := svc.UpdateDepartment(context.Background(), hospitalID, departmentID, request.UpdateHospitalDepartmentRequest{Name: &name}); !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
+	masterID := uuid.NewString()
+	if _, err := svc.UpdateDepartment(context.Background(), hospitalID, departmentID, request.UpdateHospitalDepartmentRequest{MasterDepartmentID: &masterID}); !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
 		t.Fatalf("wrong tenant placement must return not found: %v", err)
+	}
+	if repo.masterID != masterID {
+		t.Fatal("department update did not use the selected master")
+	}
+	repo.err = repository.ErrMasterDepartmentNotFound
+	if _, err := svc.UpdateDepartment(context.Background(), hospitalID, departmentID, request.UpdateHospitalDepartmentRequest{MasterDepartmentID: &masterID}); !errors.Is(err, constant.ErrMasterDepartmentNotFound) {
+		t.Fatalf("missing master department must return not found: %v", err)
 	}
 	if err := svc.DeleteDepartment(context.Background(), "invalid", departmentID); !errors.Is(err, constant.ErrInvalidUUIDFormat) {
 		t.Fatal("invalid tenant accepted")

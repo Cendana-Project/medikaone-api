@@ -24,6 +24,8 @@ type sampleUserSeed struct {
 	Address   string
 	SIPNumber string
 	Specialty string
+	HeightCM  int
+	WeightKG  int
 }
 
 func sampleUserSeeds() []sampleUserSeed {
@@ -60,6 +62,8 @@ func sampleUserSeeds() []sampleUserSeed {
 			NIK:       genNIK("1101", i),
 			DOB:       "1990-01-01",
 			Address:   "Jl. Contoh No. 123, Jakarta",
+			HeightCM:  []int{160, 172, 165}[i-1],
+			WeightKG:  []int{55, 70, 60}[i-1],
 		})
 	}
 
@@ -71,7 +75,7 @@ func sampleUserSeeds() []sampleUserSeed {
 			Password:  "Password123",
 			RoleSlug:  constant.RoleDoctor,
 			SIPNumber: fmt.Sprintf("SIP-DEMO-DOCTOR-%03d", i),
-			Specialty: "Umum",
+			Specialty: []string{"Umum", "Mata", "Paru"}[i-1],
 			Phone:     fmt.Sprintf("081210000%03d", i),
 			Gender:    []string{"L", "P"}[i%2],
 			NIK:       genNIK("1201", i),
@@ -156,6 +160,15 @@ func SeedSampleUsers(db *gorm.DB) error {
 				SET sip_number = EXCLUDED.sip_number, specialty = EXCLUDED.specialty, updated_at = NOW()`,
 				created.ID, user.SIPNumber, user.Specialty).Error; err != nil {
 				return fmt.Errorf("seed doctor profile for %s: %w", user.Email, err)
+			}
+		}
+		if user.RoleSlug == constant.RolePatient {
+			// Initialize a profile without overwriting measurements or history
+			// entered while exercising the patient workflow on a later run.
+			if err := db.Exec(`INSERT INTO patient_profiles (user_id, height_cm, weight_kg, created_at, updated_at)
+				VALUES (?, ?, ?, NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING`,
+				created.ID, user.HeightCM, user.WeightKG).Error; err != nil {
+				return fmt.Errorf("seed patient profile for %s: %w", user.Email, err)
 			}
 		}
 	}

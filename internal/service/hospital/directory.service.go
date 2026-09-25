@@ -51,6 +51,28 @@ func (s *Service) ListDirectory(ctx context.Context, q request.HospitalDirectory
 	}
 	return rows, nil
 }
+
+func (s *Service) RecommendHospitals(ctx context.Context, q request.HospitalDirectoryQuery) ([]response.Hospital, error) {
+	q.Recommended = true
+	if q.Limit == 0 {
+		q.Limit = 10
+	}
+	if strings.TrimSpace(q.Sort) == "" {
+		q.Sort = "rating"
+	}
+	return s.ListDirectory(ctx, q)
+}
+
+func (s *Service) ListDepartmentOptions(ctx context.Context, q request.DepartmentDirectoryQuery) ([]response.DepartmentOption, error) {
+	if err := validateDepartmentDirectoryQuery(&q); err != nil {
+		return nil, err
+	}
+	rows, err := s.hospitalRepo.ListDepartmentOptions(ctx, q)
+	if err != nil {
+		return nil, constant.ErrInternalServerError
+	}
+	return rows, nil
+}
 func (s *Service) GetDirectory(ctx context.Context, id string, latitude, longitude *float64) (*response.Hospital, error) {
 	if _, err := uuid.Parse(id); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat

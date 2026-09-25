@@ -1,17 +1,27 @@
 package request
 
 type HospitalDirectoryQuery struct {
-	Search       string   `form:"search"`
-	City         string   `form:"city"`
-	Department   string   `form:"department"`
-	DepartmentID string   `form:"department_id"`
-	Latitude     *float64 `form:"latitude"`
-	Longitude    *float64 `form:"longitude"`
-	RadiusKM     *float64 `form:"radius_km"`
-	MinRating    *float64 `form:"min_rating"`
-	Sort         string   `form:"sort"`
-	Limit        int      `form:"limit"`
-	Offset       int      `form:"offset"`
+	Search         string   `form:"search"`
+	City           string   `form:"city"`
+	Department     string   `form:"department"`
+	DepartmentCode string   `form:"department_code"`
+	DepartmentID   string   `form:"department_id"`
+	Latitude       *float64 `form:"latitude"`
+	Longitude      *float64 `form:"longitude"`
+	RadiusKM       *float64 `form:"radius_km"`
+	MinRating      *float64 `form:"min_rating"`
+	Sort           string   `form:"sort"`
+	Limit          int      `form:"limit"`
+	Offset         int      `form:"offset"`
+	Recommended    bool     `form:"-"`
+}
+
+type DepartmentDirectoryQuery struct {
+	Search     string `form:"q"`
+	Category   string `form:"category"`
+	HospitalID string `form:"hospital_id"`
+	Limit      int    `form:"limit"`
+	Offset     int    `form:"offset"`
 }
 
 type HospitalOpeningPeriod struct {

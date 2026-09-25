@@ -41,6 +41,9 @@ func (r *Repository) ListDirectory(ctx context.Context, q request.HospitalDirect
 		p := likePattern(q.Department)
 		query = query.Where(`EXISTS(SELECT 1 FROM hospital_departments d WHERE d.hospital_id=directory.id AND d.is_active AND (LOWER(d.name) LIKE ? OR LOWER(d.code) LIKE ?))`, p, p)
 	}
+	if q.DepartmentCode != "" {
+		query = query.Where(`EXISTS(SELECT 1 FROM hospital_departments d WHERE d.hospital_id=directory.id AND d.is_active AND LOWER(d.code)=LOWER(?))`, q.DepartmentCode)
+	}
 	if q.DepartmentID != "" {
 		query = query.Where(`EXISTS(SELECT 1 FROM hospital_departments d WHERE d.hospital_id=directory.id AND d.is_active AND d.id=?)`, q.DepartmentID)
 	}
@@ -49,6 +52,17 @@ func (r *Repository) ListDirectory(ctx context.Context, q request.HospitalDirect
 	}
 	if q.RadiusKM != nil {
 		query = query.Where("distance_km <= ?", *q.RadiusKM)
+	}
+	if q.Recommended {
+		query = query.Where(`EXISTS(
+			SELECT 1 FROM doctor_hospital_affiliations affiliation
+			JOIN users doctor ON doctor.id = affiliation.doctor_id
+			JOIN hospital_departments department ON department.id = affiliation.department_id
+			JOIN doctor_hospital_schedules schedule ON schedule.affiliation_id = affiliation.id
+			WHERE affiliation.hospital_id = directory.id AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+			  AND doctor.status = 'active' AND doctor.deleted_at IS NULL AND department.is_active = TRUE AND schedule.is_active = TRUE
+			  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP)
+		)`)
 	}
 	switch q.Sort {
 	case "distance":
@@ -62,6 +76,38 @@ func (r *Repository) ListDirectory(ctx context.Context, q request.HospitalDirect
 	err := query.Limit(q.Limit).Offset(q.Offset).Scan(&rows).Error
 	return rows, err
 }
+
+func (r *Repository) ListDepartmentOptions(ctx context.Context, q request.DepartmentDirectoryQuery) ([]response.DepartmentOption, error) {
+	query := r.db.WithContext(ctx).Table("master_departments AS master").
+		Select(`master.id, master.code, master.name, master.category,
+			COUNT(DISTINCT hospital.id) AS hospital_count,
+			COUNT(DISTINCT affiliated_doctor.id) AS doctor_count`).
+		Joins(`LEFT JOIN hospital_departments department
+			ON department.master_department_id = master.id AND department.is_active = TRUE`).
+		Joins(`LEFT JOIN hospitals hospital
+			ON hospital.id = department.hospital_id AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL`).
+		Joins(`LEFT JOIN doctor_hospital_affiliations affiliation
+			ON affiliation.department_id = department.id AND hospital.id IS NOT NULL
+			AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL`).
+		Joins(`LEFT JOIN users affiliated_doctor
+			ON affiliated_doctor.id = affiliation.doctor_id AND affiliated_doctor.status = 'active' AND affiliated_doctor.deleted_at IS NULL`).
+		Where("master.is_active = TRUE")
+	if q.Search != "" {
+		pattern := likePattern(q.Search)
+		query = query.Where("LOWER(master.code) LIKE ? OR LOWER(master.name) LIKE ?", pattern, pattern)
+	}
+	if q.Category != "" {
+		query = query.Where("master.category = ?", q.Category)
+	}
+	if q.HospitalID != "" {
+		query = query.Where("department.hospital_id = ?", q.HospitalID)
+	}
+	rows := make([]response.DepartmentOption, 0)
+	err := query.Group("master.id, master.code, master.name, master.category, master.sort_order").
+		Order("master.sort_order ASC, master.name ASC, master.id ASC").
+		Limit(q.Limit).Offset(q.Offset).Scan(&rows).Error
+	return rows, err
+}
 func (r *Repository) GetDirectory(ctx context.Context, id string, latitude, longitude *float64) (*response.Hospital, error) {
 	var row response.Hospital
 	if err := r.directoryQuery(ctx, latitude, longitude).Where("id=?", id).Take(&row).Error; err != nil {
@@ -71,7 +117,7 @@ func (r *Repository) GetDirectory(ctx context.Context, id string, latitude, long
 }
 func (r *Repository) DirectoryDepartments(ctx context.Context, ids []string) ([]response.HospitalDepartmentSummary, error) {
 	rows := make([]response.HospitalDepartmentSummary, 0)
-	err := r.db.WithContext(ctx).Table("hospital_departments").Select("id,hospital_id,code,name").Where("hospital_id IN ? AND is_active=TRUE", ids).Order("name ASC, id ASC").Scan(&rows).Error
+	err := r.db.WithContext(ctx).Table("hospital_departments").Select("id,hospital_id,master_department_id,code,name").Where("hospital_id IN ? AND is_active=TRUE", ids).Order("name ASC, id ASC").Scan(&rows).Error
 	return rows, err
 }
 func (r *Repository) DirectoryImages(ctx context.Context, ids []string, coverOnly bool) ([]response.HospitalImage, error) {

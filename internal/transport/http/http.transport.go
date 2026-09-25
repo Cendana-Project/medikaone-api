@@ -107,6 +107,7 @@ func (t *Transport) InitRoute() {
 	v1 := t.router.Group("/v1")
 	v1.GET("/doctors", t.doctorController.ListDoctors)
 	v1.GET("/doctors/:doctor_id", t.doctorController.GetDoctor)
+	v1.GET("/departments", t.hospitalController.ListDepartmentOptions)
 	v1.GET("/hospitals", t.hospitalController.ListHospitals)
 	v1.GET("/hospitals/:hospital_id", t.hospitalController.GetHospital)
 	v1.GET("/hospitals/:hospital_id/images", t.hospitalController.ListImages)
@@ -157,6 +158,14 @@ func (t *Transport) InitRoute() {
 		protected.DELETE("/profile/photo", t.userController.DeleteProfilePhoto)
 
 		protected.POST("/auth/choose-role", t.authController.ChooseRole)
+		protected.GET("/recommendations/doctors",
+			transportmw.RequirePatient(t.roleRepo),
+			t.doctorController.RecommendDoctors,
+		)
+		protected.GET("/recommendations/hospitals",
+			transportmw.RequirePatient(t.roleRepo),
+			t.hospitalController.RecommendHospitals,
+		)
 
 		protected.PUT("/profile/patient",
 			userCtrl.LegacyProfileDeprecation(),

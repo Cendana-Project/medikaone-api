@@ -53,6 +53,7 @@ const resetAllDataSQL = `
 			('public', 'doctor_hospital_invitations'),
 			('public', 'hospital_rooms'),
 			('public', 'hospital_departments'),
+			('public', 'master_departments'),
 			('public', 'hospital_user_roles'),
 			('public', 'user_hospitals'),
 			('public', 'doctor_profiles'),
@@ -133,8 +134,14 @@ func seedAll(tx *gorm.DB) error {
 	if err := seedEnvironmentSuperadmin(tx); err != nil {
 		return err
 	}
+	if err := SeedMasterDepartments(tx); err != nil {
+		return fmt.Errorf("seed master departments: %w", err)
+	}
 	if err := SeedHospitals(tx); err != nil {
 		return fmt.Errorf("seed hospitals: %w", err)
+	}
+	if err := SeedDepartments(tx); err != nil {
+		return fmt.Errorf("seed departments and rooms: %w", err)
 	}
 	if err := SeedUserHospitals(tx); err != nil {
 		return fmt.Errorf("seed user hospitals: %w", err)

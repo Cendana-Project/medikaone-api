@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -39,7 +40,7 @@ type Repository interface {
 	GetDoctorMedikaOneID(context.Context, string) (string, error)
 	SearchEligibleDoctors(context.Context, string, int) ([]response.DoctorSearchResult, error)
 	FindEligibleDoctorByID(context.Context, string) (*response.DoctorSearchResult, error)
-	CreateDepartment(context.Context, string, string, string, time.Time) (*entity.HospitalDepartment, error)
+	CreateDepartment(context.Context, string, string, time.Time) (*entity.HospitalDepartment, error)
 	ListDepartments(context.Context, string) ([]entity.HospitalDepartment, error)
 	CreateRoom(context.Context, string, string, string, string, time.Time) (*entity.HospitalRoom, error)
 	ListRooms(context.Context, string, string) ([]entity.HospitalRoom, error)
@@ -52,7 +53,7 @@ type Repository interface {
 	GetInvitationForDoctor(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetInvitationForHospital(context.Context, string, string, time.Time) (*response.DoctorHospitalInvitation, error)
 	AcceptInvitation(context.Context, string, string, time.Time) error
-	RejectInvitation(context.Context, string, string, time.Time) error
+	RejectInvitation(context.Context, string, string, *string, time.Time) error
 	CancelInvitation(context.Context, string, string, string, time.Time) error
 	ResendInvitation(context.Context, string, string, string, time.Time, time.Time) (*response.DoctorHospitalInvitation, error)
 	GetContractForDoctor(context.Context, string, string, string) (*repository.ContractDocument, error)
@@ -123,23 +124,20 @@ func (s *Service) CreateDepartment(ctx context.Context, hospitalID string, req r
 	if _, err := uuid.Parse(hospitalID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	name := strings.TrimSpace(req.Name)
-	if code == "" {
-		return nil, constant.NewFieldRequiredError("code")
+	masterDepartmentID := strings.TrimSpace(req.MasterDepartmentID)
+	if masterDepartmentID == "" {
+		return nil, constant.NewFieldRequiredError("master_department_id")
 	}
-	if name == "" {
-		return nil, constant.NewFieldRequiredError("name")
+	parsedMasterID, err := uuid.Parse(masterDepartmentID)
+	if err != nil {
+		return nil, constant.ErrInvalidUUIDFormat
 	}
-	if len(code) > 40 {
-		return nil, constant.NewInvalidFieldLengthError("code", "at most 40 characters long", "memiliki maksimal 40 karakter")
-	}
-	if len(name) > 120 {
-		return nil, constant.NewInvalidFieldLengthError("name", "at most 120 characters long", "memiliki maksimal 120 karakter")
-	}
-	department, err := s.repo.CreateDepartment(ctx, hospitalID, code, name, s.now())
+	department, err := s.repo.CreateDepartment(ctx, hospitalID, parsedMasterID.String(), s.now())
 	if errors.Is(err, repository.ErrPlacementNotFound) {
 		return nil, constant.ErrHospitalPlacementNotFound
+	}
+	if errors.Is(err, repository.ErrMasterDepartmentNotFound) {
+		return nil, constant.ErrMasterDepartmentNotFound
 	}
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return nil, constant.ErrDepartmentAlreadyExists
@@ -205,6 +203,10 @@ func (s *Service) ListRooms(ctx context.Context, hospitalID, departmentID string
 func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy string, req request.CreateDoctorHospitalInvitationRequest, file UploadedFile) (*response.DoctorHospitalInvitation, error) {
 	if _, err := uuid.Parse(req.DoctorID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
+	}
+	req.DepartmentID = strings.TrimSpace(req.DepartmentID)
+	if req.DepartmentID == "" {
+		return nil, constant.ErrHospitalPlacementNotFound
 	}
 	if _, err := uuid.Parse(req.DepartmentID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
@@ -372,11 +374,21 @@ func (s *Service) AcceptInvitation(ctx context.Context, doctorID, invitationID s
 	return s.repo.GetInvitationForDoctor(ctx, doctorID, invitationID, s.now())
 }
 
-func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string) error {
+func (s *Service) RejectInvitation(ctx context.Context, doctorID, invitationID string, req request.RejectDoctorHospitalInvitationRequest) error {
 	if _, err := uuid.Parse(invitationID); err != nil {
 		return constant.ErrInvalidUUIDFormat
 	}
-	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, s.now()))
+	if req.Message != nil {
+		message := strings.TrimSpace(*req.Message)
+		if utf8.RuneCountInString(message) > 1000 {
+			return constant.NewInvalidFieldLengthError("message", "at most 1000 characters long", "memiliki maksimal 1000 karakter")
+		}
+		req.Message = nil
+		if message != "" {
+			req.Message = &message
+		}
+	}
+	return mapRepositoryError(s.repo.RejectInvitation(ctx, invitationID, doctorID, req.Message, s.now()))
 }
 
 func (s *Service) CancelInvitation(ctx context.Context, hospitalID, invitationID, actorID string) error {
@@ -640,6 +652,8 @@ func mapRepositoryError(err error) error {
 		return constant.ErrInvalidDoctorInvitationState
 	case errors.Is(err, repository.ErrPlacementNotFound):
 		return constant.ErrHospitalPlacementNotFound
+	case errors.Is(err, repository.ErrMasterDepartmentNotFound):
+		return constant.ErrMasterDepartmentNotFound
 	case errors.Is(err, repository.ErrScheduleConflict):
 		return constant.ErrDoctorScheduleConflict
 	case errors.Is(err, repository.ErrAffiliationNotFound):

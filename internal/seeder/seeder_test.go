@@ -17,6 +17,25 @@ func TestSeedDefinitionsAreComplete(t *testing.T) {
 	}
 }
 
+func TestMasterDepartmentDefinitionsMatchMigration(t *testing.T) {
+	definitions := masterDepartmentSeeds()
+	if len(definitions) != 45 {
+		t.Fatalf("master department count = %d, want 45", len(definitions))
+	}
+	path := filepath.Join("..", "..", "migration", "db", "20260926120000_department_master.sql")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(contents)
+	for _, definition := range definitions {
+		row := "('" + definition.Code + "', '" + strings.ReplaceAll(definition.Name, "'", "''") + "', '" + definition.Category + "', "
+		if strings.Count(sql, row) != 1 {
+			t.Errorf("master department %s is not represented exactly once in migration", definition.Code)
+		}
+	}
+}
+
 func TestDemoUserEmailsAreUnique(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, email := range demoUserEmails() {

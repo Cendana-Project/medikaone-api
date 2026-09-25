@@ -37,8 +37,22 @@ type fakeRepository struct {
 	acceptedInvitation  string
 	acceptErr           error
 	rejectedInvitation  string
+	rejectionMessage    *string
 	updatedStatus       string
 	updateStatusErr     error
+	createdMasterID     string
+	createDepartmentErr error
+}
+
+func (f *fakeRepository) CreateDepartment(_ context.Context, hospitalID, masterDepartmentID string, now time.Time) (*entity.HospitalDepartment, error) {
+	f.departmentHospital, f.createdMasterID = hospitalID, masterDepartmentID
+	if f.createDepartmentErr != nil {
+		return nil, f.createDepartmentErr
+	}
+	return &entity.HospitalDepartment{
+		ID: uuid.NewString(), HospitalID: hospitalID, MasterDepartmentID: &masterDepartmentID,
+		Code: "POLI-UMUM", Name: "Poli Umum", IsActive: true, CreatedAt: now, UpdatedAt: now,
+	}, nil
 }
 
 func (f *fakeRepository) SearchEligibleDoctors(_ context.Context, identity string, limit int) ([]response.DoctorSearchResult, error) {
@@ -104,9 +118,42 @@ func (f *fakeRepository) UpdateAffiliationStatus(_ context.Context, _, _, status
 	return f.updateStatusErr
 }
 
-func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, _ time.Time) error {
+func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, message *string, _ time.Time) error {
 	f.rejectedInvitation = invitationID
+	f.rejectionMessage = message
 	return nil
+}
+
+func TestCreateDepartmentRequiresActiveMasterSelection(t *testing.T) {
+	hospitalID, masterID := uuid.NewString(), uuid.NewString()
+	repo := &fakeRepository{}
+	service := NewService(repo, nil, nil, 0, time.Minute)
+	created, err := service.CreateDepartment(context.Background(), hospitalID, request.CreateHospitalDepartmentRequest{MasterDepartmentID: masterID})
+	if err != nil || created == nil || repo.departmentHospital != hospitalID || repo.createdMasterID != masterID || created.MasterDepartmentID == nil || *created.MasterDepartmentID != masterID {
+		t.Fatalf("master department selection was not preserved: created=%#v repo=%#v err=%v", created, repo, err)
+	}
+	repo.createDepartmentErr = repository.ErrMasterDepartmentNotFound
+	if _, err := service.CreateDepartment(context.Background(), hospitalID, request.CreateHospitalDepartmentRequest{MasterDepartmentID: uuid.NewString()}); !errors.Is(err, constant.ErrMasterDepartmentNotFound) {
+		t.Fatalf("inactive master error = %v", err)
+	}
+	if _, err := service.CreateDepartment(context.Background(), hospitalID, request.CreateHospitalDepartmentRequest{}); err == nil {
+		t.Fatal("blank master department was accepted")
+	}
+}
+
+func TestCreateInvitationMapsBlankDepartmentToPlacementNotFound(t *testing.T) {
+	service := NewService(&fakeRepository{}, nil, nil, 10*1024*1024, 5*time.Minute)
+	_, err := service.CreateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), request.CreateDoctorHospitalInvitationRequest{
+		DoctorID: uuid.NewString(), DepartmentID: "   ",
+	}, UploadedFile{})
+	if !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
+		t.Fatalf("blank department error = %v", err)
+	}
+	blank := "   "
+	_, err = service.UpdateInvitation(context.Background(), uuid.NewString(), uuid.NewString(), uuid.NewString(), request.UpdateDoctorHospitalInvitationRequest{DepartmentID: &blank})
+	if !errors.Is(err, constant.ErrHospitalPlacementNotFound) {
+		t.Fatalf("blank updated department error = %v", err)
+	}
 }
 
 type fakeStorage struct {
@@ -330,7 +377,7 @@ func TestInvitationResponseRequiresNoPayloadOrSignedContract(t *testing.T) {
 	}
 
 	repo.invitation.Status = "PENDING"
-	if err := service.RejectInvitation(context.Background(), doctorID, invitationID); err != nil {
+	if err := service.RejectInvitation(context.Background(), doctorID, invitationID, request.RejectDoctorHospitalInvitationRequest{}); err != nil {
 		t.Fatalf("reject without payload failed: %v", err)
 	}
 	if repo.rejectedInvitation != invitationID {

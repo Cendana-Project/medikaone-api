@@ -1,62 +1,134 @@
 package seeder
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	"gorm.io/gorm"
 )
 
 type hospitalSeed struct {
-	SeedKey     string
-	Code        string
-	Name        string
-	Address     string
-	City        string
-	Province    string
-	Country     string
-	Latitude    *float64
-	Longitude   *float64
-	Phone       string
-	Description string
+	SeedKey         string
+	Code            string
+	Name            string
+	Address         string
+	City            string
+	Province        string
+	Country         string
+	Latitude        *float64
+	Longitude       *float64
+	Phone           string
+	Description     string
+	Email           string
+	Website         string
+	EstablishedYear int
+	Timezone        string
+	Facilities      []response.HospitalFacility
+	OpeningHours    []request.HospitalOpeningDay
+	Departments     []departmentSeed
+}
+
+func hospitalSeeds() []hospitalSeed {
+	lat1, lon1 := -6.200000, 106.816666 // Jakarta
+	lat2, lon2 := -6.914744, 107.609810 // Bandung
+
+	return []hospitalSeed{
+		{
+			SeedKey:         "medikaone:hospital:general-jakarta",
+			Code:            "HSP-MO-001",
+			Name:            "MedikaOne General Hospital",
+			Address:         "Jl. Kesehatan No. 1",
+			City:            "Jakarta",
+			Province:        "DKI Jakarta",
+			Country:         "Indonesia",
+			Latitude:        &lat1,
+			Longitude:       &lon1,
+			Phone:           "+62211234567",
+			Description:     "Rumah sakit demo MedikaOne dengan pelayanan umum, mata, dan paru. Layanan rumah sakit tersedia 24 jam; jadwal konsultasi mengikuti jadwal praktik setiap dokter.",
+			Email:           "jakarta@medikaone.example",
+			Website:         "https://jakarta.medikaone.example",
+			EstablishedYear: 2010,
+			Timezone:        "Asia/Jakarta",
+			Facilities: []response.HospitalFacility{
+				{Code: "cafeteria", Name: "Kafetaria", Icon: "utensils"},
+				{Code: "parking", Name: "Parkir Mobil dan Motor", Icon: "car"},
+				{Code: "prayer_room", Name: "Mushola", Icon: "prayer_room"},
+				{Code: "laboratory", Name: "Laboratorium", Icon: "flask"},
+				{Code: "toilet", Name: "Toilet", Icon: "toilet"},
+			},
+			OpeningHours: demoHospitalHours(true),
+			Departments: []departmentSeed{
+				{Code: "POLI-UMUM", Name: "Poli Umum", RoomCode: "UMUM-01", RoomName: "Ruang Pemeriksaan Umum"},
+				{Code: "POLI-MATA", Name: "Poli Mata", RoomCode: "MATA-01", RoomName: "Ruang Pemeriksaan Mata"},
+				{Code: "POLI-PARU", Name: "Poli Paru", RoomCode: "PARU-01", RoomName: "Ruang Pemeriksaan Paru"},
+			},
+		},
+		{
+			SeedKey:         "medikaone:hospital:clinic-bandung",
+			Code:            "HSP-MO-002",
+			Name:            "MedikaOne Clinic Bandung",
+			Address:         "Jl. Sehat No. 2",
+			City:            "Bandung",
+			Province:        "Jawa Barat",
+			Country:         "Indonesia",
+			Latitude:        &lat2,
+			Longitude:       &lon2,
+			Phone:           "+622287654321",
+			Description:     "Klinik demo MedikaOne Bandung menyediakan konsultasi umum dan pemeriksaan mata. Buka Senin sampai Sabtu sesuai jam operasional klinik.",
+			Email:           "bandung@medikaone.example",
+			Website:         "https://bandung.medikaone.example",
+			EstablishedYear: 2018,
+			Timezone:        "Asia/Jakarta",
+			Facilities: []response.HospitalFacility{
+				{Code: "parking", Name: "Parkir Mobil dan Motor", Icon: "car"},
+				{Code: "prayer_room", Name: "Mushola", Icon: "prayer_room"},
+				{Code: "toilet", Name: "Toilet", Icon: "toilet"},
+			},
+			OpeningHours: demoHospitalHours(false),
+			Departments: []departmentSeed{
+				{Code: "POLI-UMUM", Name: "Poli Umum", RoomCode: "UMUM-01", RoomName: "Ruang Pemeriksaan Umum"},
+				{Code: "POLI-MATA", Name: "Poli Mata", RoomCode: "MATA-01", RoomName: "Ruang Pemeriksaan Mata"},
+			},
+		},
+	}
+}
+
+func demoHospitalHours(alwaysOpen bool) []request.HospitalOpeningDay {
+	hours := make([]request.HospitalOpeningDay, 7)
+	for day := range hours {
+		hours[day] = request.HospitalOpeningDay{DayOfWeek: day, Periods: []request.HospitalOpeningPeriod{}}
+		switch {
+		case alwaysOpen:
+			hours[day].Is24Hours = true
+		case day == 0:
+			hours[day].IsClosed = true
+		default:
+			closeTime := "20:00"
+			if day == 6 {
+				closeTime = "14:00"
+			}
+			hours[day].Periods = []request.HospitalOpeningPeriod{{Open: "08:00", Close: closeTime}}
+		}
+	}
+	return hours
 }
 
 func SeedHospitals(db *gorm.DB) error {
 	now := time.Now()
 
-	lat1, lon1 := -6.200000, 106.816666 // Jakarta
-	lat2, lon2 := -6.914744, 107.609810 // Bandung
-
-	items := []hospitalSeed{
-		{
-			SeedKey:     "medikaone:hospital:general-jakarta",
-			Code:        "HSP-MO-001",
-			Name:        "MedikaOne General Hospital",
-			Address:     "Jl. Kesehatan No. 1",
-			City:        "Jakarta",
-			Province:    "DKI Jakarta",
-			Country:     "Indonesia",
-			Latitude:    &lat1,
-			Longitude:   &lon1,
-			Phone:       "+62211234567",
-			Description: "Rumah sakit umum MedikaOne",
-		},
-		{
-			SeedKey:     "medikaone:hospital:clinic-bandung",
-			Code:        "HSP-MO-002",
-			Name:        "MedikaOne Clinic Bandung",
-			Address:     "Jl. Sehat No. 2",
-			City:        "Bandung",
-			Province:    "Jawa Barat",
-			Country:     "Indonesia",
-			Latitude:    &lat2,
-			Longitude:   &lon2,
-			Phone:       "+622287654321",
-			Description: "Klinik MedikaOne Bandung",
-		},
-	}
-
-	for _, h := range items {
+	for _, h := range hospitalSeeds() {
+		facilities, err := json.Marshal(h.Facilities)
+		if err != nil {
+			return fmt.Errorf("encode facilities for %s: %w", h.Code, err)
+		}
+		hours, err := json.Marshal(h.OpeningHours)
+		if err != nil {
+			return fmt.Errorf("encode opening hours for %s: %w", h.Code, err)
+		}
 		// Fixture ownership is tracked by an internal immutable seed key. Never
 		// adopt a row merely because it currently owns the canonical code.
 		updated := db.Exec(`
@@ -72,12 +144,14 @@ func SeedHospitals(db *gorm.DB) error {
 				longitude = ?,
 				phone = ?,
 				description = ?,
+				email = ?, website = ?, established_year = ?, timezone = ?,
+				facilities = ?::jsonb, opening_hours = ?::jsonb,
 				is_active = TRUE,
 				updated_at = ?,
 				deleted_at = NULL
 			WHERE seed_key = ?
 		`, h.SeedKey, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude,
-			h.Phone, h.Description, now, h.SeedKey)
+			h.Phone, h.Description, h.Email, h.Website, h.EstablishedYear, h.Timezone, string(facilities), string(hours), now, h.SeedKey)
 		if updated.Error != nil {
 			return fmt.Errorf("restore hospital %s: %w", h.Code, updated.Error)
 		}
@@ -86,9 +160,11 @@ func SeedHospitals(db *gorm.DB) error {
 		}
 
 		if err := db.Exec(`
-			INSERT INTO hospitals (id, seed_key, code, name, address, city, province, country, latitude, longitude, phone, description, is_active, created_at, updated_at)
-			VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?)
-		`, h.SeedKey, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude, h.Phone, h.Description, now, now).Error; err != nil {
+			INSERT INTO hospitals (id, seed_key, code, name, address, city, province, country, latitude, longitude, phone, description,
+				email, website, established_year, timezone, facilities, opening_hours, is_active, created_at, updated_at)
+			VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, true, ?, ?)
+		`, h.SeedKey, h.Code, h.Name, h.Address, h.City, h.Province, h.Country, h.Latitude, h.Longitude, h.Phone, h.Description,
+			h.Email, h.Website, h.EstablishedYear, h.Timezone, string(facilities), string(hours), now, now).Error; err != nil {
 			return fmt.Errorf("upsert hospital %s: %w", h.Code, err)
 		}
 	}
@@ -96,5 +172,9 @@ func SeedHospitals(db *gorm.DB) error {
 }
 
 func demoHospitalCodes() []string {
-	return []string{"hsp-mo-001", "hsp-mo-002"}
+	codes := make([]string, 0, len(hospitalSeeds()))
+	for _, hospital := range hospitalSeeds() {
+		codes = append(codes, strings.ToLower(hospital.Code))
+	}
+	return codes
 }

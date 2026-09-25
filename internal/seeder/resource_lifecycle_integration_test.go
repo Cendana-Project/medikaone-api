@@ -45,19 +45,36 @@ func testResourceLifecycleIntegration(t *testing.T, db *gorm.DB) {
 			t.Fatalf("public hospital: %#v %v", public, err)
 		}
 		repo := doctorrepo.NewRepository(tx)
-		department, err := repo.CreateDepartment(ctx, hospital.ID, "GENERAL", "General", now)
+		var generalMasterID, specialistMasterID, replacementMasterID string
+		if err := tx.Raw(`SELECT id::text FROM master_departments WHERE code = 'POLI-UMUM'`).Scan(&generalMasterID).Error; err != nil || generalMasterID == "" {
+			t.Fatal("missing general master department")
+		}
+		if err := tx.Raw(`SELECT id::text FROM master_departments WHERE code = 'POLI-MATA'`).Scan(&specialistMasterID).Error; err != nil || specialistMasterID == "" {
+			t.Fatal("missing specialist master department")
+		}
+		if err := tx.Raw(`SELECT id::text FROM master_departments WHERE code = 'POLI-PARU'`).Scan(&replacementMasterID).Error; err != nil || replacementMasterID == "" {
+			t.Fatal("missing replacement master department")
+		}
+		department, err := repo.CreateDepartment(ctx, hospital.ID, generalMasterID, now)
 		if err != nil {
 			t.Fatal(err)
 		}
-		newDepartment, err := repo.CreateDepartment(ctx, hospital.ID, "SPECIAL", "Special", now)
+		if department.MasterDepartmentID == nil || *department.MasterDepartmentID != generalMasterID || department.Code != "POLI-UMUM" || department.Name != "Poli Umum" {
+			t.Fatalf("department did not derive the selected master: %#v", department)
+		}
+		newDepartment, err := repo.CreateDepartment(ctx, hospital.ID, specialistMasterID, now)
 		if err != nil {
 			t.Fatal(err)
+		}
+		newDepartment, err = repo.UpdateDepartment(ctx, hospital.ID, newDepartment.ID, replacementMasterID, now)
+		if err != nil || newDepartment.MasterDepartmentID == nil || *newDepartment.MasterDepartmentID != replacementMasterID || newDepartment.Code != "POLI-PARU" || newDepartment.Name != "Poli Pulmonologi dan Kedokteran Respirasi" {
+			t.Fatalf("department master update was not derived correctly: %#v err=%v", newDepartment, err)
 		}
 		room, err := repo.CreateRoom(ctx, hospital.ID, department.ID, "ROOM1", "Room One", now)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := repo.UpdateDepartment(ctx, uuid.NewString(), department.ID, map[string]any{"name": "wrong tenant"}); !errors.Is(err, doctorrepo.ErrPlacementNotFound) {
+		if _, err := repo.UpdateDepartment(ctx, uuid.NewString(), department.ID, specialistMasterID, now); !errors.Is(err, doctorrepo.ErrPlacementNotFound) {
 			t.Fatalf("cross-tenant department mutation: %v", err)
 		}
 		specificDay := now.Add(72 * time.Hour)
@@ -91,6 +108,9 @@ func testResourceLifecycleIntegration(t *testing.T, db *gorm.DB) {
 		updated, err := repo.UpdateInvitation(ctx, doctorrepo.UpdateInvitationInput{HospitalID: hospital.ID, InvitationID: invitationID, ActorID: actorID, DepartmentID: &newDepartment.ID, RoomID: &clearRoom, Message: &message, Schedules: &schedules, Now: now})
 		if err != nil || updated.DepartmentID != newDepartment.ID || updated.RoomID != nil || len(updated.Schedules) != 1 || updated.Schedules[0].ScheduleDate != nil {
 			t.Fatalf("update invitation: %#v %v", updated, err)
+		}
+		if _, err := repo.UpdateDepartment(ctx, hospital.ID, newDepartment.ID, specialistMasterID, now); !errors.Is(err, doctorrepo.ErrResourceInUse) {
+			t.Fatalf("referenced department master was mutable: %v", err)
 		}
 		var auditedDate string
 		if err := tx.Raw(`SELECT metadata->'previous_terms'->'schedules'->0->>'schedule_date' FROM doctor_hospital_invitation_events WHERE invitation_id = ? AND event_type = 'UPDATED'`, invitationID).Scan(&auditedDate).Error; err != nil || auditedDate != specificDate {

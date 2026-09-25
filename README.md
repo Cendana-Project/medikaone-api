@@ -2,9 +2,15 @@
 
 Backend monolitik MedikaOne berbasis Go, Gin, PostgreSQL, Redis, dan SMTP. PostgreSQL menyimpan data utama dan relasi tenant rumah sakit; Redis wajib tersedia untuk challenge PIN, rate limit, rotasi refresh token, session version, dan blacklist access token.
 
+Panduan lengkap untuk coding agent tersedia di [`AGENTS.md`](AGENTS.md). Dokumen
+tersebut merangkum arsitektur, invariant domain, workflow perubahan API,
+migration/seeder, testing, keamanan secret, dan sinkronisasi repo Bruno.
+
 Kontrak direktori dokter/rumah sakit, MedikaOne ID dokter, update/delete resource,
 dan jadwal sekali atau array hari dijelaskan di
 [panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md).
+Katalog pilihan poli Indonesia dan kontrak `master_department_id` dijelaskan di
+[panduan master department](docs/department-master.md).
 
 ## Menjalankan secara lokal
 
@@ -163,6 +169,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     public.consultation_note_revisions, public.hospital_medications,
     public.hospital_images, public.hospital_reviews,
     public.prescriptions TO medikaone_app;
+GRANT SELECT ON TABLE public.master_departments TO medikaone_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
     public.doctor_hospital_invitation_schedules, public.encounter_diagnoses,
     public.prescription_revisions TO medikaone_app;
@@ -445,6 +452,19 @@ Role fixture disusun berdasarkan scope berikut:
 
 Seeder merekonsiliasi role fixture tenant secara idempotent dan membersihkan membership/role `HSP-MO-001` yang keliru dari fixture global-only. Login hospital untuk user non-super mewajibkan membership serta sedikitnya satu role tenant aktif; global `SUPER_ADMIN` menjadi satu-satunya pengecualian.
 
+Data demo direktori mengikuti schema hospital terbaru:
+
+| Hospital | Jam operasional (`Asia/Jakarta`) | Departemen dan ruangan |
+| --- | --- | --- |
+| `HSP-MO-001` Jakarta | 24 jam setiap hari | Poli Umum (`UMUM-01`), Poli Mata (`MATA-01`), Poli Paru (`PARU-01`) |
+| `HSP-MO-002` Bandung | Senin–Jumat 08:00–20:00, Sabtu 08:00–14:00, Minggu tutup | Poli Umum (`UMUM-01`), Poli Mata (`MATA-01`) |
+
+Keduanya dilengkapi deskripsi, alamat/koordinat, telepon, email/website demo berdomain `.example`, tahun berdiri, fasilitas `{code,name,icon}`, dan `opening_hours` tujuh hari. Kode departemen adalah `POLI-UMUM`, `POLI-MATA`, dan `POLI-PARU`. ID departemen/ruangan tetap sama saat seed diulang; nama dan status aktif fixture dipulihkan. Row lain dengan kode/nama yang sama membuat transaksi gagal, bukan diambil alih. Data departemen/ruangan lain tetap dipertahankan.
+
+Dokter `001`, `002`, dan `003` memiliki spesialisasi Umum, Mata, dan Paru, SIP berbeda, serta `medikaone_id` yang dibuat database dan dipertahankan saat rerun. Pasien memiliki profil awal tinggi/berat badan; rerun mempertahankan pengukuran, alergi, dan riwayat yang kemudian diisi lewat aplikasi.
+
+Seeder ini hanya membutuhkan database. Galeri diisi melalui Upload Hospital Image; rating berasal dari review kunjungan selesai. Undangan, kontrak, afiliasi, dan jadwal diisi melalui alur registrasi dokter di Bruno dengan PDF kontrak yang benar-benar tersedia. Seeder tidak membuat referensi Storage dummy. Setelah dokter menerima undangan, gunakan contoh jadwal `FIXED_SLOT`, `SESSION_QUEUE`, atau Create Specific Schedule; `day_of_week` jadwal dokter berupa array, sedangkan hari pada `opening_hours` hospital berupa integer.
+
 Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
 Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command menolak DSN non-loopback/fallback agar label environment yang salah tidak memasang akun demo pada database remote:
@@ -452,6 +472,15 @@ Seed idempotent biasa hanya untuk `ENV=development` atau `ENV=test`, dan command
 ```bash
 make seed
 ```
+
+Di PowerShell tanpa `make`, setelah konfigurasi menunjuk database lokal dengan `ENV=development` atau `ENV=test`:
+
+```powershell
+go run . migrate --action up
+go run . seed
+```
+
+Perubahan kode seeder tidak otomatis menambah data ke Supabase production. Gunakan migration untuk schema production; akun demo tetap dibatasi oleh guard environment/target database di atas.
 
 Reset seluruh staging menghapus seluruh data aplikasi, menjalankan migration `Up`, lalu seed ulang:
 
@@ -506,7 +535,7 @@ CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integrat
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Server memerlukan migration terbaru `20260919090000_hospital_directory.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Kontrak profil hospital, galeri, review terverifikasi, jam operasional, dan pencarian jarak ada di [panduan direktori hospital](docs/hospital-directory.md). Buat bucket private `hospital-images` sebelum memakai upload foto.
+- Server memerlukan seluruh migration sampai `20260926100000_schedule_conflict_guard.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Migration terakhir memasang perlindungan database untuk bentrok jadwal dokter lintas rumah sakit dan timezone. Kontrak profil hospital, galeri, review terverifikasi, jam operasional, dan pencarian jarak ada di [panduan direktori hospital](docs/hospital-directory.md). Buat bucket private `hospital-images` sebelum memakai upload foto.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.
 - Jalankan `make migrate-up` secara terpisah dari mesin/operator tepercaya, CI job terisolasi, atau mekanisme deployment terpisah. Proses tersebut saja yang menerima `DATABASE_ADMIN_DSN` direct atau Supabase Session Pooler dan Redis staging. Jangan menggabungkan migration dengan start command memakai `&&`: restart/scale web tidak boleh otomatis memperoleh kredensial owner atau menjalankan DDL. Render mendokumentasikan [alur deploy](https://render.com/docs/deploys); untuk paket gratis yang tidak menyediakan pre-deploy command, jalankan migration manual sebelum deploy web.

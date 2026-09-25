@@ -35,6 +35,7 @@ func TestLifecycleRoutesRegisterAndRetainGuards(t *testing.T) {
 	}{
 		{stdhttp.MethodGet, "/v1/doctors", "", false},
 		{stdhttp.MethodGet, "/v1/doctors/:doctor_id", "", false},
+		{stdhttp.MethodGet, "/v1/departments", "", false},
 		{stdhttp.MethodGet, "/v1/hospitals", "", false},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id", "", false},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/images", "", false},
@@ -62,6 +63,8 @@ func TestLifecycleRoutesRegisterAndRetainGuards(t *testing.T) {
 		{stdhttp.MethodDelete, "/v1/hospitals/:hospital_id/schedules/:schedule_id", "RequireHospitalPermissions", true},
 		{stdhttp.MethodDelete, "/v1/notifications/:notification_id", "AuthRequired", false},
 		{stdhttp.MethodDelete, "/v1/account", "AuthRequired", false},
+		{stdhttp.MethodGet, "/v1/recommendations/doctors", "requirePatient", false},
+		{stdhttp.MethodGet, "/v1/recommendations/hospitals", "requirePatient", false},
 	}
 	for _, test := range cases {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {

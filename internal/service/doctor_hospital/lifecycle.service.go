@@ -17,7 +17,7 @@ import (
 )
 
 type LifecycleRepository interface {
-	UpdateDepartment(context.Context, string, string, map[string]any) (*entity.HospitalDepartment, error)
+	UpdateDepartment(context.Context, string, string, string, time.Time) (*entity.HospitalDepartment, error)
 	DeleteDepartment(context.Context, string, string, time.Time) error
 	UpdateRoom(context.Context, string, string, *string, map[string]any) (*entity.HospitalRoom, error)
 	DeleteRoom(context.Context, string, string, time.Time) error
@@ -70,20 +70,23 @@ func (s *Service) UpdateDepartment(ctx context.Context, hospitalID, departmentID
 	if err := validateResourceIDs(hospitalID, departmentID); err != nil {
 		return nil, err
 	}
-	if req.Code == nil && req.Name == nil {
-		return nil, constant.NewFieldRequiredError("code or name")
+	if req.MasterDepartmentID == nil || strings.TrimSpace(*req.MasterDepartmentID) == "" {
+		return nil, constant.NewFieldRequiredError("master_department_id")
 	}
-	fields, err := placementUpdateFields(req.Code, req.Name, s.now())
-	if err != nil {
+	masterDepartmentID := strings.TrimSpace(*req.MasterDepartmentID)
+	if err := validateResourceIDs(masterDepartmentID); err != nil {
 		return nil, err
 	}
 	repo, err := s.lifecycleRepository()
 	if err != nil {
 		return nil, err
 	}
-	row, err := repo.UpdateDepartment(ctx, hospitalID, departmentID, fields)
+	row, err := repo.UpdateDepartment(ctx, hospitalID, departmentID, masterDepartmentID, s.now())
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return nil, constant.ErrDepartmentAlreadyExists
+	}
+	if errors.Is(err, repository.ErrMasterDepartmentNotFound) {
+		return nil, constant.ErrMasterDepartmentNotFound
 	}
 	return row, mapLifecycleError(err)
 }
@@ -104,9 +107,14 @@ func (s *Service) UpdateRoom(ctx context.Context, hospitalID, roomID string, req
 		return nil, err
 	}
 	if req.DepartmentID != nil {
-		if err := validateResourceIDs(*req.DepartmentID); err != nil {
+		value := strings.TrimSpace(*req.DepartmentID)
+		if value == "" {
+			return nil, constant.ErrHospitalPlacementNotFound
+		}
+		if err := validateResourceIDs(value); err != nil {
 			return nil, err
 		}
+		req.DepartmentID = &value
 	}
 	if req.Code == nil && req.Name == nil && req.DepartmentID == nil {
 		return nil, constant.NewFieldRequiredError("department_id, code or name")
@@ -145,9 +153,14 @@ func (s *Service) UpdateInvitation(ctx context.Context, hospitalID, invitationID
 		return nil, constant.NewFieldRequiredError("at least one update field")
 	}
 	if req.DepartmentID != nil {
-		if err := validateResourceIDs(*req.DepartmentID); err != nil {
+		value := strings.TrimSpace(*req.DepartmentID)
+		if value == "" {
+			return nil, constant.ErrHospitalPlacementNotFound
+		}
+		if err := validateResourceIDs(value); err != nil {
 			return nil, err
 		}
+		req.DepartmentID = &value
 	}
 	if req.RoomID != nil {
 		value := strings.TrimSpace(*req.RoomID)

@@ -1,8 +1,17 @@
 # Direktori, lifecycle resource, dan jadwal dokter
 
-Migration terbaru: `20260913110000_specific_schedules.sql`. Jalankan seluruh
+Migration terbaru: `20260926100000_schedule_conflict_guard.sql`. Jalankan seluruh
 migration pending melalui command migration terpisah sebelum deploy API.
 Koleksi Bruno berada pada repository terpisah `Cendana-Project/bruno-medikaone`.
+
+Konflik jadwal diperiksa memakai interval absolut untuk seluruh afiliasi aktif
+dokter, termasuk rumah sakit lain. WIB, WITA, dan WIT dibandingkan sebagai UTC;
+misalnya Senin 08:00 Asia/Jakarta bertabrakan dengan Senin 09:00 Asia/Makassar
+pada durasi yang sama. Jadwal sekali memakai offset IANA pada tanggalnya. Jadwal
+rutin yang menggunakan dua timezone berbeda dengan perubahan offset/DST ditolak
+secara konservatif. Pemeriksaan diulang dalam transaksi yang dikunci per dokter
+saat invite diterima, perubahan jadwal disetujui, dan afiliasi diaktifkan kembali.
+Trigger database menolak insert/update aktif yang mencoba melewati jalur API.
 
 ## Identitas dokter dan direktori publik
 
@@ -19,12 +28,15 @@ diterbitkan sesudah pembaruan menggunakan format baru yang memuat ID tersebut.
 
 | Method / path | Perilaku |
 | --- | --- |
-| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
+| `GET /v1/departments` | Master pilihan department/poli Indonesia; query `q`, `category`, `hospital_id`, `limit`, `offset`. Gunakan `id` untuk create/update department rumah sakit dan `code` sebagai filter `department_code`. |
+| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
 | `GET /v1/doctors/:doctor_id` | Detail dokter dan afiliasi/jadwal aktif. Path menerima UUID atau MedikaOne ID dokter. |
 | `GET /v1/hospitals` | Daftar rumah sakit aktif; query `search`, `city`, `limit` (1-100, default 20), `offset` (0-100000, default 0). |
 | `GET /v1/hospitals/:hospital_id` | Detail rumah sakit berdasarkan UUID. `facilities` adalah JSON, bukan base64. |
+| `GET /v1/recommendations/doctors` | Pasien terautentikasi; dokter dengan afiliasi dan jadwal aktif, diurutkan berdasarkan rating rumah sakit, jumlah jadwal, lalu nama. |
+| `GET /v1/recommendations/hospitals` | Pasien terautentikasi; rumah sakit dengan dokter dan jadwal aktif, default diurutkan berdasarkan rating. |
 
-Keempat endpoint publik dapat dipakai Website maupun Mobile. Direktori dokter
+Endpoint direktori publik dapat dipakai Website maupun Mobile. Direktori dokter
 menampilkan identitas profesional, tanpa email, telepon pribadi, NIK, atau DOB.
 Resource nonaktif/diarsipkan tidak muncul di direktori.
 
@@ -34,7 +46,7 @@ Resource nonaktif/diarsipkan tidak muncul di direktori.
 | --- | --- |
 | `PATCH /v1/hospitals/:hospital_id` | ADMIN tenant atau SUPER_ADMIN; mengubah field rumah sakit yang diberikan. |
 | `DELETE /v1/hospitals/:hospital_id` | SUPER_ADMIN; soft-delete rumah sakit, menonaktifkan resource operasional. Ditolak jika ada appointment aktif. |
-| `PATCH /v1/hospitals/:hospital_id/departments/:department_id` | ADMIN tenant/SUPER_ADMIN; field `code`, `name`. |
+| `PATCH /v1/hospitals/:hospital_id/departments/:department_id` | ADMIN tenant/SUPER_ADMIN; pilih `master_department_id`. Perubahan ditolak bila department sudah mempunyai riwayat. |
 | `DELETE /v1/hospitals/:hospital_id/departments/:department_id` | ADMIN tenant/SUPER_ADMIN; nonaktifkan department jika tidak sedang digunakan. |
 | `PATCH /v1/hospitals/:hospital_id/rooms/:room_id` | ADMIN tenant/SUPER_ADMIN; field `department_id`, `code`, `name`. Perpindahan department ditolak bila merusak referensi riwayat. |
 | `DELETE /v1/hospitals/:hospital_id/rooms/:room_id` | ADMIN tenant/SUPER_ADMIN; nonaktifkan room jika tidak sedang digunakan. |
@@ -58,11 +70,19 @@ undangan PENDING yang belum kedaluwarsa untuk dokter aktif, atau appointment
 aktif. Afiliasi yang dihapus hilang dari daftar dan seluruh jadwalnya dinonaktifkan;
 undangan baru dapat dibuat kembali untuk penempatan yang sama.
 
+Create department hanya menerima `master_department_id` hasil
+`GET /v1/departments`; kode dan nama diturunkan oleh backend. Daftar lengkap dan
+pemisahan antara ID master dengan `department_id` milik rumah sakit dijelaskan di
+[`department-master.md`](department-master.md).
+
 PATCH invitation menggunakan JSON dengan field opsional `department_id`,
 `room_id`, `message`, `schedules`. Field yang tidak dikirim dipertahankan.
 `room_id`/`message` string kosong mengosongkan nilai; `schedules: []` menghapus
 seluruh jadwal usulan. Dokter penerima, rumah sakit pengirim, dan berkas kontrak
 tidak diganti melalui PATCH. Undangan tanpa jadwal awal tetap diperbolehkan.
+`department_id` wajib dipilih dari list department rumah sakit; nilai kosong atau
+placement dari rumah sakit lain menghasilkan HTTP 404
+`HOSPITAL_PLACEMENT_NOT_FOUND`.
 Undangan diarsipkan hilang dari daftar/detail, dan endpoint URL kontraknya tidak
 lagi tersedia. Undangan ACCEPTED tetap dipertahankan; hentikan afiliasi dokter
 melalui endpoint delete afiliasi bila ingin mengakhiri penempatannya.

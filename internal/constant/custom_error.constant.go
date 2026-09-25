@@ -550,6 +550,11 @@ var (
 		"Department already exists", "A department with the same code already exists in this hospital.",
 		"Departemen sudah tersedia", "Departemen dengan kode yang sama sudah tersedia di rumah sakit ini.",
 	)
+	ErrMasterDepartmentNotFound = apiError(
+		"MASTER_DEPARTMENT_NOT_FOUND", http.StatusNotFound,
+		"Master department not found", "The selected master department does not exist or is inactive.",
+		"Master departemen tidak ditemukan", "Master departemen yang dipilih tidak tersedia atau sudah tidak aktif.",
+	)
 	ErrRoomAlreadyExists = apiError(
 		"ROOM_ALREADY_EXISTS", http.StatusConflict,
 		"Room already exists", "A room with the same code already exists in this hospital department.",
@@ -936,7 +941,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrDoctorNotEligible, ErrDoctorNotFound, ErrResourceInUse, ErrLastAdministrator,
 		ErrDoctorInvitationNotFound, ErrDoctorInvitationExists, ErrDoctorInvitationExpired,
 		ErrInvalidDoctorInvitationState, ErrHospitalPlacementNotFound,
-		ErrDepartmentAlreadyExists, ErrRoomAlreadyExists, ErrDoctorScheduleConflict,
+		ErrDepartmentAlreadyExists, ErrMasterDepartmentNotFound, ErrRoomAlreadyExists, ErrDoctorScheduleConflict,
 		ErrInvalidContractPDF, ErrStorageUnavailable, ErrAffiliationNotFound,
 		ErrNotificationNotFound, ErrScheduleNotFound, ErrScheduleChangeNotFound,
 		ErrScheduleChangeExists, ErrScheduleChangeOwnApproval,

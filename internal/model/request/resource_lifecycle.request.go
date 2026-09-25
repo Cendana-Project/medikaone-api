@@ -24,8 +24,7 @@ type UpdateHospitalRequest struct {
 }
 
 type UpdateHospitalDepartmentRequest struct {
-	Code *string `json:"code" validate:"omitempty,min=1,max=40"`
-	Name *string `json:"name" validate:"omitempty,min=1,max=120"`
+	MasterDepartmentID *string `json:"master_department_id" validate:"required,uuid"`
 }
 
 type UpdateHospitalRoomRequest struct {
@@ -35,7 +34,7 @@ type UpdateHospitalRoomRequest struct {
 }
 
 type UpdateDoctorHospitalInvitationRequest struct {
-	DepartmentID *string                            `json:"department_id" validate:"omitempty,uuid"`
+	DepartmentID *string                            `json:"department_id"`
 	RoomID       *string                            `json:"room_id"`
 	Message      *string                            `json:"message" validate:"omitempty,max=1000"`
 	Schedules    *[]DoctorInvitationScheduleRequest `json:"schedules"`

@@ -138,3 +138,25 @@ func TestDoctorSIPMigrationEnforcesNormalizedUniquenessSafely(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleConflictGuardMigrationFailsClosed(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("db", "20260926100000_schedule_conflict_guard.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"medikaone_schedule_windows_overlap",
+		"trg_doctor_schedule_no_overlap",
+		"trg_affiliation_reactivation_no_schedule_overlap",
+		"pg_advisory_xact_lock",
+		"doctor_schedule_no_overlap",
+		"existing active doctor schedules overlap",
+		"SECURITY DEFINER",
+		"REVOKE ALL ON FUNCTION",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("schedule conflict guard migration is missing %q", required)
+		}
+	}
+}

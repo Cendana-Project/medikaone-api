@@ -38,10 +38,20 @@ type Hospital struct {
 }
 
 type HospitalDepartmentSummary struct {
-	ID         string `json:"id"`
-	HospitalID string `json:"-"`
-	Code       string `json:"code"`
-	Name       string `json:"name"`
+	ID                 string  `json:"id"`
+	HospitalID         string  `json:"-"`
+	MasterDepartmentID *string `json:"master_department_id"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+}
+
+type DepartmentOption struct {
+	ID            string `json:"id"`
+	Code          string `json:"code"`
+	Name          string `json:"name"`
+	Category      string `json:"category"`
+	HospitalCount int64  `json:"hospital_count"`
+	DoctorCount   int64  `json:"doctor_count"`
 }
 type HospitalFacility struct {
 	Code string `json:"code"`
