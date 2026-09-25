@@ -25,6 +25,7 @@ var (
 	ErrInvitationExpired         = errors.New("doctor hospital invitation expired")
 	ErrInvalidInvitationState    = errors.New("invalid doctor hospital invitation state")
 	ErrPlacementNotFound         = errors.New("department or room not found")
+	ErrMasterDepartmentNotFound  = errors.New("master department not found or inactive")
 	ErrScheduleConflict          = errors.New("doctor schedule conflicts with an active affiliation")
 	ErrAffiliationNotFound       = errors.New("doctor hospital affiliation not found")
 	ErrNotificationNotFound      = errors.New("notification not found")
@@ -215,11 +216,20 @@ func normalizePhoneIdentity(value string) string {
 	return digits.String()
 }
 
-func (r *Repository) CreateDepartment(ctx context.Context, hospitalID, code, name string, now time.Time) (*entity.HospitalDepartment, error) {
-	department := &entity.HospitalDepartment{
-		ID: uuid.NewString(), HospitalID: hospitalID, Code: code, Name: name,
-		IsActive: true, CreatedAt: now, UpdatedAt: now,
+func activeMasterDepartment(tx *gorm.DB, masterDepartmentID string) (*entity.MasterDepartment, error) {
+	var master entity.MasterDepartment
+	if err := tx.Raw(`SELECT id, code, name, category, sort_order, is_active, created_at, updated_at
+		FROM master_departments WHERE id = ? AND is_active = TRUE FOR SHARE`, masterDepartmentID).Scan(&master).Error; err != nil {
+		return nil, err
 	}
+	if master.ID == "" {
+		return nil, ErrMasterDepartmentNotFound
+	}
+	return &master, nil
+}
+
+func (r *Repository) CreateDepartment(ctx context.Context, hospitalID, masterDepartmentID string, now time.Time) (*entity.HospitalDepartment, error) {
+	department := &entity.HospitalDepartment{}
 	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var id string
 		if err := tx.Raw(`SELECT id FROM hospitals WHERE id = ? AND is_active = TRUE AND deleted_at IS NULL FOR SHARE`, hospitalID).Scan(&id).Error; err != nil {
@@ -227,6 +237,14 @@ func (r *Repository) CreateDepartment(ctx context.Context, hospitalID, code, nam
 		}
 		if id == "" {
 			return ErrPlacementNotFound
+		}
+		master, err := activeMasterDepartment(tx, masterDepartmentID)
+		if err != nil {
+			return err
+		}
+		department = &entity.HospitalDepartment{
+			ID: uuid.NewString(), HospitalID: hospitalID, MasterDepartmentID: &master.ID,
+			Code: master.Code, Name: master.Name, IsActive: true, CreatedAt: now, UpdatedAt: now,
 		}
 		return tx.Create(department).Error
 	}); err != nil {

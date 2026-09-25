@@ -40,7 +40,7 @@ type Repository interface {
 	GetDoctorMedikaOneID(context.Context, string) (string, error)
 	SearchEligibleDoctors(context.Context, string, int) ([]response.DoctorSearchResult, error)
 	FindEligibleDoctorByID(context.Context, string) (*response.DoctorSearchResult, error)
-	CreateDepartment(context.Context, string, string, string, time.Time) (*entity.HospitalDepartment, error)
+	CreateDepartment(context.Context, string, string, time.Time) (*entity.HospitalDepartment, error)
 	ListDepartments(context.Context, string) ([]entity.HospitalDepartment, error)
 	CreateRoom(context.Context, string, string, string, string, time.Time) (*entity.HospitalRoom, error)
 	ListRooms(context.Context, string, string) ([]entity.HospitalRoom, error)
@@ -124,23 +124,20 @@ func (s *Service) CreateDepartment(ctx context.Context, hospitalID string, req r
 	if _, err := uuid.Parse(hospitalID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	name := strings.TrimSpace(req.Name)
-	if code == "" {
-		return nil, constant.NewFieldRequiredError("code")
+	masterDepartmentID := strings.TrimSpace(req.MasterDepartmentID)
+	if masterDepartmentID == "" {
+		return nil, constant.NewFieldRequiredError("master_department_id")
 	}
-	if name == "" {
-		return nil, constant.NewFieldRequiredError("name")
+	parsedMasterID, err := uuid.Parse(masterDepartmentID)
+	if err != nil {
+		return nil, constant.ErrInvalidUUIDFormat
 	}
-	if len(code) > 40 {
-		return nil, constant.NewInvalidFieldLengthError("code", "at most 40 characters long", "memiliki maksimal 40 karakter")
-	}
-	if len(name) > 120 {
-		return nil, constant.NewInvalidFieldLengthError("name", "at most 120 characters long", "memiliki maksimal 120 karakter")
-	}
-	department, err := s.repo.CreateDepartment(ctx, hospitalID, code, name, s.now())
+	department, err := s.repo.CreateDepartment(ctx, hospitalID, parsedMasterID.String(), s.now())
 	if errors.Is(err, repository.ErrPlacementNotFound) {
 		return nil, constant.ErrHospitalPlacementNotFound
+	}
+	if errors.Is(err, repository.ErrMasterDepartmentNotFound) {
+		return nil, constant.ErrMasterDepartmentNotFound
 	}
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return nil, constant.ErrDepartmentAlreadyExists
@@ -655,6 +652,8 @@ func mapRepositoryError(err error) error {
 		return constant.ErrInvalidDoctorInvitationState
 	case errors.Is(err, repository.ErrPlacementNotFound):
 		return constant.ErrHospitalPlacementNotFound
+	case errors.Is(err, repository.ErrMasterDepartmentNotFound):
+		return constant.ErrMasterDepartmentNotFound
 	case errors.Is(err, repository.ErrScheduleConflict):
 		return constant.ErrDoctorScheduleConflict
 	case errors.Is(err, repository.ErrAffiliationNotFound):

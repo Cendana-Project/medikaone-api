@@ -134,9 +134,14 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		t.Fatal(err)
 	}
 	departmentID, invitationID, affiliationID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	masterDepartmentID := uuid.NewString()
 	now := time.Now().UTC()
-	if err := tx.Exec(`INSERT INTO hospital_departments (id, hospital_id, code, name, created_at, updated_at)
-		VALUES (?, ?, 'IT-DIRECTORY', 'Directory Department', ?, ?)`, departmentID, hospitalID, now, now).Error; err != nil {
+	if err := tx.Exec(`INSERT INTO master_departments (id, code, name, category, sort_order, created_at, updated_at)
+		VALUES (?, 'IT-DIRECTORY', 'Directory Department', 'GENERAL', 900, ?, ?)`, masterDepartmentID, now, now).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec(`INSERT INTO hospital_departments (id, hospital_id, master_department_id, code, name, created_at, updated_at)
+		VALUES (?, ?, ?, 'IT-DIRECTORY', 'Directory Department', ?, ?)`, departmentID, hospitalID, masterDepartmentID, now, now).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO doctor_hospital_invitations (id, hospital_id, doctor_id, department_id, invited_by, status, expires_at, responded_at, created_at, updated_at)
@@ -178,7 +183,7 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 	}
 	hospitalDirectory := hospitalrepo.NewRepository(tx)
 	options, err := hospitalDirectory.ListDepartmentOptions(ctx, request.DepartmentDirectoryQuery{Search: "Directory", Limit: 100})
-	if err != nil || len(options) != 1 || options[0].Code != "IT-DIRECTORY" || options[0].HospitalCount != 1 || options[0].DoctorCount != 1 {
+	if err != nil || len(options) != 1 || options[0].ID != masterDepartmentID || options[0].Code != "IT-DIRECTORY" || options[0].Category != "GENERAL" || options[0].HospitalCount != 1 || options[0].DoctorCount != 1 {
 		t.Fatalf("public department options = %#v, %v", options, err)
 	}
 	recommendedHospitals, err := hospitalDirectory.ListDirectory(ctx, request.HospitalDirectoryQuery{

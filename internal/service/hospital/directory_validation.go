@@ -64,6 +64,7 @@ func validateDirectoryQuery(q *request.HospitalDirectoryQuery) error {
 
 func validateDepartmentDirectoryQuery(q *request.DepartmentDirectoryQuery) error {
 	q.Search = strings.TrimSpace(q.Search)
+	q.Category = strings.ToUpper(strings.TrimSpace(q.Category))
 	q.HospitalID = strings.TrimSpace(q.HospitalID)
 	if q.Limit == 0 {
 		q.Limit = 100
@@ -73,6 +74,10 @@ func validateDepartmentDirectoryQuery(q *request.DepartmentDirectoryQuery) error
 	}
 	if utf8.RuneCountInString(q.Search) > 120 {
 		return invalidDirectory("q", "at most 120 characters")
+	}
+	if q.Category != "" && q.Category != "GENERAL" && q.Category != "MEDICAL_SPECIALIST" &&
+		q.Category != "SURGICAL_SPECIALIST" && q.Category != "DENTAL" && q.Category != "SUPPORT_SPECIALIST" {
+		return invalidDirectory("category", "GENERAL, MEDICAL_SPECIALIST, SURGICAL_SPECIALIST, DENTAL, or SUPPORT_SPECIALIST")
 	}
 	if q.HospitalID != "" {
 		id, err := uuid.Parse(q.HospitalID)

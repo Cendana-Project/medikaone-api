@@ -18,6 +18,7 @@ type HospitalDirectoryQuery struct {
 
 type DepartmentDirectoryQuery struct {
 	Search     string `form:"q"`
+	Category   string `form:"category"`
 	HospitalID string `form:"hospital_id"`
 	Limit      int    `form:"limit"`
 	Offset     int    `form:"offset"`

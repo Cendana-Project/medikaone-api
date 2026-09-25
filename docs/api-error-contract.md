@@ -118,6 +118,14 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 | `MEDICATION_CATALOG_NOT_FOUND` | Muat ulang katalog aktif rumah sakit. |
 | `MEDICATION_CATALOG_DUPLICATE` | Gunakan kode katalog yang berbeda. |
 
+## Kode master department/poli
+
+| Kode | Tindakan client |
+| --- | --- |
+| `MASTER_DEPARTMENT_NOT_FOUND` | Muat ulang `GET /v1/departments` lalu minta admin memilih master poli aktif. |
+| `DEPARTMENT_ALREADY_EXISTS` | Gunakan department rumah sakit yang sudah ada; jangan membuat master yang sama dua kali. |
+| `HOSPITAL_PLACEMENT_NOT_FOUND` | Muat ulang department/room milik rumah sakit sebelum membuat invitation atau placement. |
+
 Pesan sukses didefinisikan di `internal/constant/message.constant.go`. Error
 statis didefinisikan di `internal/constant/custom_error.constant.go` dan
 dirender hanya melalui `internal/util/error.go`.

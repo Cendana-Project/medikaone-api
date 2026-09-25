@@ -82,13 +82,35 @@ func lockInvitationHospital(tx *gorm.DB, invitationID, hospitalID, doctorID stri
 	return nil
 }
 
-func (r *Repository) UpdateDepartment(ctx context.Context, hospitalID, departmentID string, fields map[string]any) (*entity.HospitalDepartment, error) {
+func (r *Repository) UpdateDepartment(ctx context.Context, hospitalID, departmentID, masterDepartmentID string, now time.Time) (*entity.HospitalDepartment, error) {
 	var row entity.HospitalDepartment
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		master, err := activeMasterDepartment(tx, masterDepartmentID)
+		if err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND hospital_id = ? AND is_active = TRUE", departmentID, hospitalID).First(&row).Error; err != nil {
 			return placementError(err)
 		}
-		if err := tx.Model(&row).Updates(fields).Error; err != nil {
+		if row.MasterDepartmentID == nil || *row.MasterDepartmentID != master.ID {
+			var referenced bool
+			if err := tx.Raw(`SELECT EXISTS(
+				SELECT 1 FROM doctor_hospital_invitations WHERE hospital_id = ? AND department_id = ?
+				UNION ALL SELECT 1 FROM doctor_hospital_affiliations WHERE hospital_id = ? AND department_id = ?
+				UNION ALL SELECT 1 FROM appointments WHERE hospital_id = ? AND department_id = ?
+			)`, hospitalID, departmentID, hospitalID, departmentID, hospitalID, departmentID).Scan(&referenced).Error; err != nil {
+				return err
+			}
+			if referenced {
+				return ErrResourceInUse
+			}
+		}
+		if err := tx.Model(&row).Updates(map[string]any{
+			"master_department_id": master.ID,
+			"code":                 master.Code,
+			"name":                 master.Name,
+			"updated_at":           now,
+		}).Error; err != nil {
 			return err
 		}
 		return tx.Where("id = ? AND hospital_id = ?", departmentID, hospitalID).First(&row).Error

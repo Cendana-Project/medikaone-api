@@ -153,8 +153,10 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 - Department dan room yang dipilih pada undangan harus berasal dari rumah sakit
   pada route tersebut. Department kosong/tidak valid untuk placement harus
   menghasilkan `HOSPITAL_PLACEMENT_NOT_FOUND`.
-- `GET /v1/departments` adalah katalog pilihan department publik yang diagregasi
-  berdasarkan code. Untuk membuat undangan, client tetap memakai UUID hasil
+- `GET /v1/departments` adalah katalog pilihan department publik dari
+  `master_departments`. Create/update department rumah sakit wajib memilih
+  `master_department_id`; kode dan nama diturunkan oleh backend. Untuk membuat
+  undangan, client tetap memakai UUID placement hasil
   `GET /v1/hospitals/{hospital_id}/departments`.
 - `GET /v1/doctor/hospital-invitations` adalah list dan harus mendukung banyak
   undangan. Jangan mereduksinya menjadi object tunggal.
@@ -357,5 +359,6 @@ yang tidak terkait.
 - Migration aktif: `migration/db/`
 - Aturan lifecycle/jadwal: `docs/resource-lifecycle-and-schedules.md`
 - Direktori/rekomendasi: `docs/hospital-directory.md`
+- Master department/poli: `docs/department-master.md`
 - Migrasi Supabase: `docs/supabase-migration.md`
 - Contoh request/response: `bruno/bruno-medikaone/`

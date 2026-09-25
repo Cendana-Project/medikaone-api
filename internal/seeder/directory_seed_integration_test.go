@@ -61,10 +61,14 @@ func testDirectorySeedsIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	for _, item := range []struct {
 		table string
 		want  int
-	}{{"hospital_departments", 5}, {"hospital_rooms", 5}, {"patient_profiles", 3}} {
+	}{{"master_departments", 45}, {"hospital_departments", 5}, {"hospital_rooms", 5}, {"patient_profiles", 3}} {
 		if got := scalarInt(t, sqlDB, "SELECT COUNT(*) FROM "+item.table); got != item.want {
 			t.Fatalf("%s count=%d want=%d", item.table, got, item.want)
 		}
+	}
+	masterOptions, err := service.ListDepartmentOptions(ctx, request.DepartmentDirectoryQuery{Search: "Bedah Toraks", Limit: 100})
+	if err != nil || len(masterOptions) != 1 || masterOptions[0].Code != "POLI-BTKV" || masterOptions[0].HospitalCount != 0 || masterOptions[0].DoctorCount != 0 {
+		t.Fatalf("unused master department must remain selectable: %#v err=%v", masterOptions, err)
 	}
 
 	var departmentID, roomID string
@@ -104,7 +108,7 @@ func testDirectorySeedsIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	if err := tx.Exec(`DELETE FROM hospital_rooms WHERE department_id = ?`, departmentID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.Exec(`UPDATE hospital_departments SET id = gen_random_uuid(), name = 'Unowned department' WHERE id = ?`, departmentID).Error; err != nil {
+	if err := tx.Exec(`UPDATE hospital_departments SET id = gen_random_uuid(), master_department_id = NULL, name = 'Unowned department' WHERE id = ?`, departmentID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Transaction(SeedDepartments); !isUniqueViolation(err) {

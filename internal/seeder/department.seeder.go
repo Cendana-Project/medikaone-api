@@ -25,12 +25,19 @@ func SeedDepartments(db *gorm.DB) error {
 			return fmt.Errorf("parse fixture hospital ID: %w", err)
 		}
 		for _, department := range hospital.Departments {
+			var masterDepartmentID string
+			if err := db.Raw(`SELECT id::text FROM master_departments WHERE code = ? AND is_active = TRUE`, department.Code).Scan(&masterDepartmentID).Error; err != nil {
+				return fmt.Errorf("find master department %s: %w", department.Code, err)
+			}
+			if masterDepartmentID == "" {
+				return fmt.Errorf("master department %s is missing or inactive", department.Code)
+			}
 			departmentID := uuid.NewSHA1(hospitalID, []byte("medikaone:department:"+department.Code))
-			result := db.Exec(`INSERT INTO hospital_departments (id, hospital_id, code, name)
-				VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE
-				SET code = EXCLUDED.code, name = EXCLUDED.name, is_active = TRUE, updated_at = NOW()
+			result := db.Exec(`INSERT INTO hospital_departments (id, hospital_id, master_department_id, code, name)
+				VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE
+				SET master_department_id = EXCLUDED.master_department_id, code = EXCLUDED.code, name = EXCLUDED.name, is_active = TRUE, updated_at = NOW()
 				WHERE hospital_departments.hospital_id = EXCLUDED.hospital_id`,
-				departmentID, hospitalID, department.Code, department.Name)
+				departmentID, hospitalID, masterDepartmentID, department.Code, department.Name)
 			if result.Error != nil {
 				return fmt.Errorf("seed department %s/%s: %w", hospital.Code, department.Code, result.Error)
 			}

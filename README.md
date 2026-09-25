@@ -9,6 +9,8 @@ migration/seeder, testing, keamanan secret, dan sinkronisasi repo Bruno.
 Kontrak direktori dokter/rumah sakit, MedikaOne ID dokter, update/delete resource,
 dan jadwal sekali atau array hari dijelaskan di
 [panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md).
+Katalog pilihan poli Indonesia dan kontrak `master_department_id` dijelaskan di
+[panduan master department](docs/department-master.md).
 
 ## Menjalankan secara lokal
 
@@ -167,6 +169,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     public.consultation_note_revisions, public.hospital_medications,
     public.hospital_images, public.hospital_reviews,
     public.prescriptions TO medikaone_app;
+GRANT SELECT ON TABLE public.master_departments TO medikaone_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
     public.doctor_hospital_invitation_schedules, public.encounter_diagnoses,
     public.prescription_revisions TO medikaone_app;

@@ -1,8 +1,7 @@
 package request
 
 type CreateHospitalDepartmentRequest struct {
-	Code string `json:"code" validate:"required,max=40"`
-	Name string `json:"name" validate:"required,max=120"`
+	MasterDepartmentID string `json:"master_department_id" validate:"required,uuid"`
 }
 
 type CreateHospitalRoomRequest struct {

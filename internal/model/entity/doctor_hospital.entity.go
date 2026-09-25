@@ -14,13 +14,25 @@ const (
 )
 
 type HospitalDepartment struct {
-	ID         string    `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	HospitalID string    `json:"hospital_id" gorm:"type:uuid;not null;index"`
-	Code       string    `json:"code" gorm:"type:varchar(40);not null"`
-	Name       string    `json:"name" gorm:"type:varchar(120);not null"`
-	IsActive   bool      `json:"is_active" gorm:"not null;default:true"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                 string    `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	HospitalID         string    `json:"hospital_id" gorm:"type:uuid;not null;index"`
+	MasterDepartmentID *string   `json:"master_department_id" gorm:"type:uuid;index"`
+	Code               string    `json:"code" gorm:"type:varchar(40);not null"`
+	Name               string    `json:"name" gorm:"type:varchar(120);not null"`
+	IsActive           bool      `json:"is_active" gorm:"not null;default:true"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type MasterDepartment struct {
+	ID        string    `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	Code      string    `json:"code" gorm:"type:varchar(40);not null;uniqueIndex"`
+	Name      string    `json:"name" gorm:"type:varchar(120);not null"`
+	Category  string    `json:"category" gorm:"type:varchar(32);not null"`
+	SortOrder int       `json:"sort_order" gorm:"not null"`
+	IsActive  bool      `json:"is_active" gorm:"not null;default:true"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type HospitalRoom struct {

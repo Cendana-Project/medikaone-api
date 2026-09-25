@@ -34,7 +34,11 @@ func testInvitationRejectionIntegration(t *testing.T, db *gorm.DB) {
 			t.Fatal(err)
 		}
 		repo := doctorrepo.NewRepository(tx)
-		department, err := repo.CreateDepartment(ctx, hospitalID, "REJECT-TEST", "Rejection test", now)
+		var masterDepartmentID string
+		if err := tx.Raw(`SELECT id::text FROM master_departments WHERE code = 'POLI-ANAK'`).Scan(&masterDepartmentID).Error; err != nil || masterDepartmentID == "" {
+			t.Fatal("missing child master department")
+		}
+		department, err := repo.CreateDepartment(ctx, hospitalID, masterDepartmentID, now)
 		if err != nil {
 			t.Fatal(err)
 		}

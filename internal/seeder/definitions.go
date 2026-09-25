@@ -11,6 +11,37 @@ import (
 // touching external services. Destructive staging reset commands call this
 // before clearing data so a missing definition cannot leave staging empty.
 func ValidateDefinitions() error {
+	masterCodes := make(map[string]struct{}, len(masterDepartmentSeeds()))
+	masterSortOrders := make(map[int]struct{}, len(masterDepartmentSeeds()))
+	masterCategories := map[string]struct{}{
+		"GENERAL": {}, "MEDICAL_SPECIALIST": {}, "SURGICAL_SPECIALIST": {},
+		"DENTAL": {}, "SUPPORT_SPECIALIST": {},
+	}
+	for _, master := range masterDepartmentSeeds() {
+		code := strings.ToUpper(strings.TrimSpace(master.Code))
+		if code == "" || code != master.Code || len(code) > 40 || strings.TrimSpace(master.Name) == "" || len(master.Name) > 120 || master.SortOrder < 1 {
+			return fmt.Errorf("invalid master department definition: %#v", master)
+		}
+		if _, valid := masterCategories[master.Category]; !valid {
+			return fmt.Errorf("invalid master department category %s for %s", master.Category, code)
+		}
+		if _, duplicate := masterCodes[code]; duplicate {
+			return fmt.Errorf("duplicate master department code: %s", code)
+		}
+		if _, duplicate := masterSortOrders[master.SortOrder]; duplicate {
+			return fmt.Errorf("duplicate master department sort order: %d", master.SortOrder)
+		}
+		masterCodes[code] = struct{}{}
+		masterSortOrders[master.SortOrder] = struct{}{}
+	}
+	for _, hospital := range hospitalSeeds() {
+		for _, department := range hospital.Departments {
+			if _, exists := masterCodes[strings.ToUpper(department.Code)]; !exists {
+				return fmt.Errorf("hospital fixture %s references undefined master department: %s", hospital.Code, department.Code)
+			}
+		}
+	}
+
 	roles := make(map[string]struct{}, len(roleSeeds()))
 	for _, role := range roleSeeds() {
 		slug := strings.TrimSpace(role.Slug)
