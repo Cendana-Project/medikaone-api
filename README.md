@@ -2,6 +2,10 @@
 
 Backend monolitik MedikaOne berbasis Go, Gin, PostgreSQL, Redis, dan SMTP. PostgreSQL menyimpan data utama dan relasi tenant rumah sakit; Redis wajib tersedia untuk challenge PIN, rate limit, rotasi refresh token, session version, dan blacklist access token.
 
+Panduan lengkap untuk coding agent tersedia di [`AGENTS.md`](AGENTS.md). Dokumen
+tersebut merangkum arsitektur, invariant domain, workflow perubahan API,
+migration/seeder, testing, keamanan secret, dan sinkronisasi repo Bruno.
+
 Kontrak direktori dokter/rumah sakit, MedikaOne ID dokter, update/delete resource,
 dan jadwal sekali atau array hari dijelaskan di
 [panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md).
