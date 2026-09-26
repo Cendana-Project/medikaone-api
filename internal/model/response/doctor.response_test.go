@@ -33,6 +33,33 @@ func TestPublicDoctorJSONContainsOnlyProfessionalFields(t *testing.T) {
 	}
 }
 
+func TestAffiliationDetailGroupsHospitalAndOmitsOfferMessage(t *testing.T) {
+	detail := DoctorHospitalAffiliationDetail{
+		HospitalDoctor: HospitalDoctor{AffiliationID: "affiliation-id"},
+		Hospital:       &HospitalInformation{ID: "hospital-id", Name: "RS MedikaOne", Facilities: json.RawMessage("[]"), OpeningHours: json.RawMessage("[]")},
+		Invitation:     AffiliationInvitation{ID: "invitation-id", ContractFilename: "contract.pdf"},
+	}
+	data, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	hospital, ok := payload["hospital"].(map[string]any)
+	if !ok || hospital["id"] != "hospital-id" {
+		t.Fatalf("hospital must be one populated object: %s", data)
+	}
+	invitation, ok := payload["invitation"].(map[string]any)
+	if !ok || invitation["id"] != "invitation-id" {
+		t.Fatalf("invitation summary missing: %s", data)
+	}
+	if _, exists := invitation["message"]; exists {
+		t.Fatalf("affiliation offer must not expose invitation message: %s", data)
+	}
+}
+
 func TestDoctorResponsesPreservePublicIdentityColumnMapping(t *testing.T) {
 	// Explicit aliases are required: GORM's default for MedikaOne is medika_one.
 	for _, value := range []any{

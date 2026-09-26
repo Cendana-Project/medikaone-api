@@ -60,6 +60,8 @@ type Repository interface {
 	GetContractForHospital(context.Context, string, string, string) (*repository.ContractDocument, error)
 	ListHospitalDoctors(context.Context, string, string) ([]response.HospitalDoctor, error)
 	ListDoctorAffiliations(context.Context, string, string) ([]response.HospitalDoctor, error)
+	GetAffiliationForDoctor(context.Context, string, string) (*response.DoctorHospitalAffiliationDetail, error)
+	GetAffiliationForHospital(context.Context, string, string) (*response.DoctorHospitalAffiliationDetail, error)
 	UpdateAffiliationStatus(context.Context, string, string, string, string, time.Time) error
 	ListNotifications(context.Context, string, bool) ([]response.Notification, error)
 	MarkNotificationRead(context.Context, string, string, time.Time) error
@@ -476,6 +478,28 @@ func (s *Service) ListDoctorAffiliations(ctx context.Context, doctorID, status s
 		return nil, constant.ErrInternalServerError
 	}
 	return rows, nil
+}
+
+func (s *Service) GetDoctorAffiliation(ctx context.Context, doctorID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	if _, err := uuid.Parse(affiliationID); err != nil {
+		return nil, constant.ErrInvalidUUIDFormat
+	}
+	row, err := s.repo.GetAffiliationForDoctor(ctx, doctorID, affiliationID)
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return row, nil
+}
+
+func (s *Service) GetHospitalAffiliation(ctx context.Context, hospitalID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	if _, err := uuid.Parse(affiliationID); err != nil {
+		return nil, constant.ErrInvalidUUIDFormat
+	}
+	row, err := s.repo.GetAffiliationForHospital(ctx, hospitalID, affiliationID)
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return row, nil
 }
 
 func (s *Service) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string) (*response.DoctorAffiliationStatus, error) {

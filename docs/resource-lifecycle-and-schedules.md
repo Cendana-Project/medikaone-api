@@ -52,6 +52,8 @@ Resource nonaktif/diarsipkan tidak muncul di direktori.
 | `DELETE /v1/hospitals/:hospital_id/rooms/:room_id` | ADMIN tenant/SUPER_ADMIN; nonaktifkan room jika tidak sedang digunakan. |
 | `PATCH /v1/hospitals/:hospital_id/doctor-invitations/:invitation_id` | ADMIN tenant/SUPER_ADMIN; ubah undangan PENDING yang belum kedaluwarsa. |
 | `DELETE /v1/hospitals/:hospital_id/doctor-invitations/:invitation_id` | ADMIN tenant/SUPER_ADMIN; arsipkan undangan non-ACCEPTED. Kontrak dan audit dipertahankan. |
+| `GET /v1/doctor/hospital-affiliations/:affiliation_id` | Dokter mengambil detail satu afiliasi miliknya. |
+| `GET /v1/hospitals/:hospital_id/doctor-affiliations/:affiliation_id` | ADMIN tenant/SUPER_ADMIN mengambil detail satu afiliasi dalam rumah sakitnya. |
 | `DELETE /v1/hospitals/:hospital_id/doctors/:doctor_id` | ADMIN tenant/SUPER_ADMIN; arsipkan afiliasi dokter di rumah sakit ini, tidak menghapus akun atau afiliasi rumah sakit lain. Ditolak bila ada appointment aktif. |
 | `DELETE /v1/notifications/:notification_id` | Akun terautentikasi; arsipkan notifikasi milik sendiri. |
 | `DELETE /v1/account` | Akun terautentikasi; JSON `current_password` wajib. Soft-delete akun dan cabut semua sesi. |
@@ -86,6 +88,14 @@ placement dari rumah sakit lain menghasilkan HTTP 404
 Undangan diarsipkan hilang dari daftar/detail, dan endpoint URL kontraknya tidak
 lagi tersedia. Undangan ACCEPTED tetap dipertahankan; hentikan afiliasi dokter
 melalui endpoint delete afiliasi bila ingin mengakhiri penempatannya.
+
+Detail invitation dokter dan rumah sakit mempertahankan field identitas lama
+dan menambahkan `hospital` sebagai satu object berisi identitas, alamat, kontak,
+deskripsi, fasilitas, jam operasional, timezone, dan rating rumah sakit. Detail
+afiliasi memakai bentuk afiliasi yang sama dengan list, ditambah object
+`hospital` dan object `invitation` untuk penawaran asal serta nama kontraknya.
+Object `invitation` pada detail afiliasi sengaja tidak memuat `message`; pesan
+penawaran hanya tersedia melalui detail invitation.
 
 DELETE tidak menghapus rekam medis, resep yang sudah diterbitkan, atau provenance
 kontrak. Kode `RESOURCE_IN_USE` (409) berarti appointment atau resource aktif

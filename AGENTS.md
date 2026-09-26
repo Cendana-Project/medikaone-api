@@ -160,6 +160,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   `GET /v1/hospitals/{hospital_id}/departments`.
 - `GET /v1/doctor/hospital-invitations` adalah list dan harus mendukung banyak
   undangan. Jangan mereduksinya menjadi object tunggal.
+- Detail invitation memuat `hospital` sebagai satu object informasi rumah sakit.
+  Detail afiliasi dokter maupun tenant juga memuat object `hospital` serta
+  ringkasan `invitation` asal kontrak tanpa menyalin message penawaran.
 - Undangan dapat dibuat tanpa jadwal awal. Accept harus memeriksa konflik lagi
   sebelum membuat afiliasi aktif.
 - PATCH invitation hanya berlaku untuk invitation `PENDING` yang belum

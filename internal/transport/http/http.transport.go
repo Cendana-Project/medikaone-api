@@ -216,6 +216,10 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
 			t.doctorHospitalController.ListDoctorAffiliations,
 		)
+		protected.GET("/doctor/hospital-affiliations/:affiliation_id",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
+			t.doctorHospitalController.GetDoctorAffiliation,
+		)
 
 		protected.GET("/notifications", t.doctorHospitalController.ListNotifications)
 		protected.PATCH("/notifications/:notification_id/read", t.doctorHospitalController.MarkNotificationRead)
@@ -493,6 +497,10 @@ func (t *Transport) InitRoute() {
 		tenant.GET("/hospitals/:hospital_id/doctors",
 			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
 			t.doctorHospitalController.ListHospitalDoctors,
+		)
+		tenant.GET("/hospitals/:hospital_id/doctor-affiliations/:affiliation_id",
+			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			t.doctorHospitalController.GetHospitalAffiliation,
 		)
 		tenant.PATCH("/hospitals/:hospital_id/doctors/:doctor_id/status",
 			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),

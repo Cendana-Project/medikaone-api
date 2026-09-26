@@ -130,6 +130,16 @@ func (ctl *Controller) ListDoctorAffiliations(c *gin.Context) {
 	respond(c, constant.MsgDoctorAffiliationsListed, http.StatusOK, result, err)
 }
 
+func (ctl *Controller) GetDoctorAffiliation(c *gin.Context) {
+	result, err := ctl.service.GetDoctorAffiliation(c.Request.Context(), util.GetUserID(c), c.Param("affiliation_id"))
+	respond(c, constant.MsgDoctorAffiliationRetrieved, http.StatusOK, result, err)
+}
+
+func (ctl *Controller) GetHospitalAffiliation(c *gin.Context) {
+	result, err := ctl.service.GetHospitalAffiliation(c.Request.Context(), hospitalID(c), c.Param("affiliation_id"))
+	respond(c, constant.MsgHospitalDoctorAffiliationRetrieved, http.StatusOK, result, err)
+}
+
 func (ctl *Controller) UpdateAffiliationStatus(c *gin.Context) {
 	var req request.UpdateDoctorHospitalAffiliationStatusRequest
 	if err := util.BindAndValidate(c, &req); err != nil {

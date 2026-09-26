@@ -3,6 +3,7 @@ package seeder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -149,6 +150,13 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		VALUES (?, ?, ?, ?, ?, 'ACCEPTED', ?, ?, ?, ?)`, invitationID, hospitalID, doctorID, departmentID, adminID, now.Add(24*time.Hour), now, now, now).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := tx.Exec(`INSERT INTO doctor_hospital_contracts
+		(id, invitation_id, original_filename, original_mime_type, original_bucket, original_object_path,
+		 original_file_size, original_sha256, created_at, updated_at)
+		VALUES (?, ?, 'integration-contract.pdf', 'application/pdf', 'doctor-contracts', 'integration/contract.pdf',
+		 1, repeat('a', 64), ?, ?)`, uuid.NewString(), invitationID, now, now).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Exec(`INSERT INTO doctor_hospital_affiliations (id, hospital_id, doctor_id, department_id, invitation_id, status, joined_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`, affiliationID, hospitalID, doctorID, departmentID, invitationID, now, now, now).Error; err != nil {
 		t.Fatal(err)
@@ -205,6 +213,26 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 	}
 	if doctors[0].PendingScheduleChanges == nil || len(doctors[0].PendingScheduleChanges) != 0 {
 		t.Fatalf("affiliation without proposal returned pending changes: %#v", doctors[0].PendingScheduleChanges)
+	}
+	doctorAffiliationDetail, err := hospitalRepo.GetAffiliationForDoctor(ctx, doctorID, affiliationID)
+	if err != nil || doctorAffiliationDetail.Hospital == nil || doctorAffiliationDetail.Hospital.ID != hospitalID ||
+		doctorAffiliationDetail.Invitation.ID != invitationID || doctorAffiliationDetail.Invitation.ContractFilename != "integration-contract.pdf" ||
+		len(doctorAffiliationDetail.Schedules) != 2 || doctorAffiliationDetail.PendingScheduleChanges == nil {
+		t.Fatalf("doctor affiliation detail = %#v, %v", doctorAffiliationDetail, err)
+	}
+	hospitalAffiliationDetail, err := hospitalRepo.GetAffiliationForHospital(ctx, hospitalID, affiliationID)
+	if err != nil || hospitalAffiliationDetail.Hospital == nil || hospitalAffiliationDetail.Hospital.Name == "" || hospitalAffiliationDetail.DoctorMedikaOneID != publicID {
+		t.Fatalf("hospital affiliation detail = %#v, %v", hospitalAffiliationDetail, err)
+	}
+	if _, err := hospitalRepo.GetAffiliationForDoctor(ctx, uuid.NewString(), affiliationID); !errors.Is(err, doctorhospitalrepo.ErrAffiliationNotFound) {
+		t.Fatalf("cross-doctor affiliation detail = %v", err)
+	}
+	if _, err := hospitalRepo.GetAffiliationForHospital(ctx, uuid.NewString(), affiliationID); !errors.Is(err, doctorhospitalrepo.ErrAffiliationNotFound) {
+		t.Fatalf("cross-hospital affiliation detail = %v", err)
+	}
+	invitationDetail, err := hospitalRepo.GetInvitationForDoctor(ctx, doctorID, invitationID, now)
+	if err != nil || invitationDetail.Hospital == nil || invitationDetail.Hospital.ID != hospitalID || invitationDetail.Hospital.Name == "" {
+		t.Fatalf("invitation hospital detail = %#v, %v", invitationDetail, err)
 	}
 	if err := tx.SavePoint("pending_affiliation_schedule").Error; err != nil {
 		t.Fatal(err)
