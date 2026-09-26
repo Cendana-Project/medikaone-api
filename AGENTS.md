@@ -160,6 +160,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   `GET /v1/hospitals/{hospital_id}/departments`.
 - `GET /v1/doctor/hospital-invitations` adalah list dan harus mendukung banyak
   undangan. Jangan mereduksinya menjadi object tunggal.
+- Detail invitation memuat `hospital` sebagai satu object informasi rumah sakit.
+  Detail afiliasi dokter maupun tenant juga memuat object `hospital` serta
+  ringkasan `invitation` asal kontrak tanpa menyalin message penawaran.
 - Undangan dapat dibuat tanpa jadwal awal. Accept harus memeriksa konflik lagi
   sebelum membuat afiliasi aktif.
 - PATCH invitation hanya berlaku untuk invitation `PENDING` yang belum
@@ -192,6 +195,11 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 - Schedule change rutin adalah operasi `REPLACE`: setelah approval, seluruh
   jadwal aktif untuk `affiliation_id` itu diganti snapshot baru. Afiliasi rumah
   sakit lain tidak ikut diganti.
+- List afiliasi mempertahankan jadwal aktif pada `schedules` dan mengekspos
+  seluruh proposal yang masih menunggu pada `pending_schedule_changes`. Maksimal
+  satu operasi `REPLACE` rutin boleh pending per afiliasi, sedangkan beberapa
+  operasi `ADD` specific schedule boleh pending bersamaan. Proposal tidak boleh
+  diperlakukan sebagai jadwal bookable sebelum approval pihak lawan.
 - Specific schedule adalah `ADD`; delete schedule adalah `REMOVE`. Keduanya
   memakai approval pihak lawan dan tidak mengganti seluruh snapshot.
 

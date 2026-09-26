@@ -55,7 +55,9 @@ const (
 	MsgDoctorInvitationResent             MessageCode = "DOCTOR_INVITATION_RESENT"
 	MsgHospitalDoctorContractURLRetrieved MessageCode = "HOSPITAL_DOCTOR_CONTRACT_URL_RETRIEVED"
 	MsgHospitalDoctorsListed              MessageCode = "HOSPITAL_DOCTORS_LISTED"
+	MsgHospitalDoctorAffiliationRetrieved MessageCode = "HOSPITAL_DOCTOR_AFFILIATION_RETRIEVED"
 	MsgDoctorAffiliationsListed           MessageCode = "DOCTOR_AFFILIATIONS_LISTED"
+	MsgDoctorAffiliationRetrieved         MessageCode = "DOCTOR_AFFILIATION_RETRIEVED"
 	MsgDoctorAffiliationStatusUpdated     MessageCode = "DOCTOR_AFFILIATION_STATUS_UPDATED"
 	MsgDoctorInvitationsListed            MessageCode = "DOCTOR_INVITATIONS_LISTED"
 	MsgDoctorInvitationRetrieved          MessageCode = "DOCTOR_INVITATION_RETRIEVED"
@@ -206,7 +208,9 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgDoctorInvitationResent:                successDetail("Doctor invitation resent", "Undangan dokter berhasil dikirim ulang"),
 	MsgHospitalDoctorContractURLRetrieved:    successDetail("Hospital doctor contract URL retrieved", "URL kontrak dokter untuk rumah sakit berhasil diambil"),
 	MsgHospitalDoctorsListed:                 successDetail("Hospital doctors retrieved", "Daftar dokter rumah sakit berhasil diambil"),
+	MsgHospitalDoctorAffiliationRetrieved:    successDetail("Hospital doctor affiliation retrieved", "Afiliasi dokter rumah sakit berhasil diambil"),
 	MsgDoctorAffiliationsListed:              successDetail("Doctor affiliations retrieved", "Daftar afiliasi dokter berhasil diambil"),
+	MsgDoctorAffiliationRetrieved:            successDetail("Doctor affiliation retrieved", "Afiliasi dokter berhasil diambil"),
 	MsgDoctorAffiliationStatusUpdated:        successDetail("Doctor affiliation status updated", "Status afiliasi dokter berhasil diperbarui"),
 	MsgDoctorInvitationsListed:               successDetail("Doctor invitations retrieved", "Daftar undangan dokter berhasil diambil"),
 	MsgDoctorInvitationRetrieved:             successDetail("Doctor invitation retrieved", "Undangan dokter berhasil diambil"),

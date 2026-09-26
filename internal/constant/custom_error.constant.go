@@ -599,8 +599,8 @@ var (
 	)
 	ErrScheduleChangeExists = apiError(
 		"SCHEDULE_CHANGE_ALREADY_PENDING", http.StatusConflict,
-		"Schedule change already pending", "A schedule change is already awaiting review for this affiliation.",
-		"Perubahan jadwal masih menunggu", "Perubahan jadwal untuk afiliasi ini masih menunggu persetujuan.",
+		"Matching schedule change already pending", "A recurring replacement or removal for the same target is already awaiting review.",
+		"Perubahan jadwal yang sama masih menunggu", "Penggantian jadwal rutin atau penghapusan target yang sama masih menunggu persetujuan.",
 	)
 	ErrScheduleChangeOwnApproval = apiError(
 		"SCHEDULE_CHANGE_COUNTERPART_REVIEW_REQUIRED", http.StatusForbidden,

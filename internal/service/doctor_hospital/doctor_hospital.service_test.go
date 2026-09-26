@@ -42,6 +42,10 @@ type fakeRepository struct {
 	updateStatusErr     error
 	createdMasterID     string
 	createDepartmentErr error
+	affiliation         *response.DoctorHospitalAffiliationDetail
+	affiliationErr      error
+	affiliationOwner    string
+	affiliationID       string
 }
 
 func (f *fakeRepository) CreateDepartment(_ context.Context, hospitalID, masterDepartmentID string, now time.Time) (*entity.HospitalDepartment, error) {
@@ -118,6 +122,16 @@ func (f *fakeRepository) UpdateAffiliationStatus(_ context.Context, _, _, status
 	return f.updateStatusErr
 }
 
+func (f *fakeRepository) GetAffiliationForDoctor(_ context.Context, doctorID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	f.affiliationOwner, f.affiliationID = doctorID, affiliationID
+	return f.affiliation, f.affiliationErr
+}
+
+func (f *fakeRepository) GetAffiliationForHospital(_ context.Context, hospitalID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	f.affiliationOwner, f.affiliationID = hospitalID, affiliationID
+	return f.affiliation, f.affiliationErr
+}
+
 func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, message *string, _ time.Time) error {
 	f.rejectedInvitation = invitationID
 	f.rejectionMessage = message
@@ -138,6 +152,27 @@ func TestCreateDepartmentRequiresActiveMasterSelection(t *testing.T) {
 	}
 	if _, err := service.CreateDepartment(context.Background(), hospitalID, request.CreateHospitalDepartmentRequest{}); err == nil {
 		t.Fatal("blank master department was accepted")
+	}
+}
+
+func TestAffiliationDetailsRemainOwnerScoped(t *testing.T) {
+	doctorID, hospitalID, affiliationID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	detail := &response.DoctorHospitalAffiliationDetail{HospitalDoctor: response.HospitalDoctor{AffiliationID: affiliationID}}
+	repo := &fakeRepository{affiliation: detail}
+	service := NewService(repo, nil, nil, 0, time.Minute)
+
+	if row, err := service.GetDoctorAffiliation(context.Background(), doctorID, affiliationID); err != nil || row != detail || repo.affiliationOwner != doctorID || repo.affiliationID != affiliationID {
+		t.Fatalf("doctor affiliation scope: row=%#v repo=%#v err=%v", row, repo, err)
+	}
+	if row, err := service.GetHospitalAffiliation(context.Background(), hospitalID, affiliationID); err != nil || row != detail || repo.affiliationOwner != hospitalID || repo.affiliationID != affiliationID {
+		t.Fatalf("hospital affiliation scope: row=%#v repo=%#v err=%v", row, repo, err)
+	}
+	if _, err := service.GetDoctorAffiliation(context.Background(), doctorID, "not-a-uuid"); !errors.Is(err, constant.ErrInvalidUUIDFormat) {
+		t.Fatalf("invalid affiliation ID = %v", err)
+	}
+	repo.affiliationErr = repository.ErrAffiliationNotFound
+	if _, err := service.GetHospitalAffiliation(context.Background(), hospitalID, affiliationID); !errors.Is(err, constant.ErrAffiliationNotFound) {
+		t.Fatalf("hidden affiliation error = %v", err)
 	}
 }
 

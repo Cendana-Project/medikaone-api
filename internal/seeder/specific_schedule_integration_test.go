@@ -58,6 +58,36 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		t.Fatalf("own approval=%v", err)
 	}
 	approve(initial.ID)
+	future := now.AddDate(0, 0, 8)
+	for future.Weekday() != time.Monday {
+		future = future.AddDate(0, 0, 1)
+	}
+	date, nextDate := future.Format("2006-01-02"), future.AddDate(0, 0, 7).Format("2006-01-02")
+	pendingRoutine := propose("REPLACE", []appointmentrepo.ScheduleItem{recurring}, nil)
+	if _, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
+		AffiliationID: affiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: hospitalID,
+		Operation: "REPLACE", Schedules: []appointmentrepo.ScheduleItem{recurring}, Now: now,
+		ExpiresAt: now.Add(7 * 24 * time.Hour),
+	}); !errors.Is(err, appointmentrepo.ErrScheduleChangeExists) {
+		t.Fatalf("second pending recurring replacement=%v", err)
+	}
+	pendingSpecific := recurring
+	pendingSpecific.ScheduleDate = &date
+	pendingSpecific.StartTime = "13:00"
+	pendingSpecific.EndTime = "14:00"
+	pendingSpecificFirst := propose("ADD", []appointmentrepo.ScheduleItem{pendingSpecific}, nil)
+	pendingSpecificNext := pendingSpecific
+	pendingSpecificNext.ScheduleDate = &nextDate
+	pendingSpecificSecond := propose("ADD", []appointmentrepo.ScheduleItem{pendingSpecificNext}, nil)
+	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM doctor_schedule_change_requests WHERE affiliation_id=$1 AND status='PENDING'`, affiliationID); got != 3 {
+		t.Fatalf("one recurring plus multiple specific proposals = %d", got)
+	}
+	rejectionReason := "integration cleanup"
+	for _, changeID := range []string{pendingRoutine.ID, pendingSpecificFirst.ID, pendingSpecificSecond.ID} {
+		if err := repo.ReviewScheduleChange(ctx, changeID, doctorID, "DOCTOR", "REJECTED", &rejectionReason, now); err != nil {
+			t.Fatalf("reject pending proposal %s: %v", changeID, err)
+		}
+	}
 	var dstRecurringConflict bool
 	if err := sqlDB.QueryRow(`SELECT public.medikaone_schedule_windows_overlap(
 		1, NULL, '08:00'::time, '09:00'::time, 'America/New_York',
@@ -127,7 +157,7 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
 		t.Fatalf("WIB/WITA cross-hospital conflict=%v", err)
 	}
-	rejectionReason := "same absolute practice time"
+	rejectionReason = "same absolute practice time"
 	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "REJECTED", &rejectionReason, now); err != nil {
 		t.Fatal(err)
 	}
@@ -183,11 +213,6 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		t.Fatalf("cleaned affiliation could not be reactivated: %v", err)
 	}
 
-	future := now.AddDate(0, 0, 8)
-	for future.Weekday() != time.Monday {
-		future = future.AddDate(0, 0, 1)
-	}
-	date, nextDate := future.Format("2006-01-02"), future.AddDate(0, 0, 7).Format("2006-01-02")
 	specific := recurring
 	specific.ScheduleDate = &date
 	specific.StartTime = "13:00"

@@ -588,7 +588,45 @@ func (r *Repository) getInvitation(ctx context.Context, where string, args ...an
 	if err := r.attachInvitationSchedules(ctx, rows); err != nil {
 		return nil, err
 	}
+	hospital, err := r.getHospitalInformation(ctx, out.HospitalID)
+	if err != nil {
+		if errors.Is(err, ErrAffiliationNotFound) {
+			return nil, ErrInvitationNotFound
+		}
+		return nil, err
+	}
+	rows[0].Hospital = hospital
 	return &rows[0], nil
+}
+
+func (r *Repository) getHospitalInformation(ctx context.Context, hospitalID string) (*response.HospitalInformation, error) {
+	var hospital response.HospitalInformation
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT hospital.id, hospital.code, hospital.name, hospital.address, hospital.city,
+		       hospital.province, hospital.country, hospital.latitude, hospital.longitude,
+		       hospital.phone, hospital.email, hospital.website, hospital.description,
+		       hospital.facilities, hospital.established_year, hospital.timezone,
+		       hospital.opening_hours, hospital.is_active, hospital.created_at, hospital.updated_at,
+		       ratings.rating_average, COALESCE(ratings.rating_count, 0) AS rating_count
+		FROM hospitals hospital
+		LEFT JOIN (
+			SELECT hospital_id, AVG(rating)::double precision AS rating_average, COUNT(*) AS rating_count
+			FROM hospital_reviews WHERE deleted_at IS NULL GROUP BY hospital_id
+		) ratings ON ratings.hospital_id = hospital.id
+		WHERE hospital.id = ? AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+		LIMIT 1`, hospitalID).Scan(&hospital).Error; err != nil {
+		return nil, err
+	}
+	if hospital.ID == "" {
+		return nil, ErrAffiliationNotFound
+	}
+	if len(hospital.Facilities) == 0 || string(hospital.Facilities) == "null" {
+		hospital.Facilities = json.RawMessage("[]")
+	}
+	if len(hospital.OpeningHours) == 0 || string(hospital.OpeningHours) == "null" {
+		hospital.OpeningHours = json.RawMessage("[]")
+	}
+	return &hospital, nil
 }
 
 const invitationSelect = `
@@ -988,6 +1026,72 @@ func (r *Repository) ListDoctorAffiliations(ctx context.Context, doctorID, statu
 	return r.listAffiliations(ctx, "", doctorID, status)
 }
 
+func (r *Repository) GetAffiliationForDoctor(ctx context.Context, doctorID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	return r.getAffiliationDetail(ctx, "affiliation.doctor_id = ? AND affiliation.id = ?", doctorID, affiliationID)
+}
+
+func (r *Repository) GetAffiliationForHospital(ctx context.Context, hospitalID, affiliationID string) (*response.DoctorHospitalAffiliationDetail, error) {
+	return r.getAffiliationDetail(ctx, "affiliation.hospital_id = ? AND affiliation.id = ?", hospitalID, affiliationID)
+}
+
+func (r *Repository) getAffiliationDetail(ctx context.Context, ownerWhere string, args ...any) (*response.DoctorHospitalAffiliationDetail, error) {
+	var out response.DoctorHospitalAffiliationDetail
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT affiliation.id AS affiliation_id, affiliation.hospital_id,
+		       hospital.name AS hospital_name,
+		       affiliation.doctor_id, profile.medikaone_id AS doctor_medikaone_id,
+		       doctor.email, doctor.first_name, doctor.last_name,
+		       COALESCE(profile.sip_number, '') AS sip_number,
+		       COALESCE(profile.specialty, '') AS specialty,
+		       affiliation.department_id, department.name AS department,
+		       affiliation.room_id, room.name AS room,
+		       affiliation.status, affiliation.joined_at,
+		       invitation.id AS invitation_id, invitation.status AS invitation_status,
+		       invitation.created_at AS invitation_created_at,
+		       invitation.responded_at AS invitation_responded_at,
+		       contract.original_filename AS invitation_contract_filename,
+		       contract.signed_filename AS invitation_signed_contract_name
+		FROM doctor_hospital_affiliations affiliation
+		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+		JOIN users doctor ON doctor.id = affiliation.doctor_id
+		JOIN doctor_profiles profile ON profile.user_id = affiliation.doctor_id
+		JOIN hospital_departments department ON department.id = affiliation.department_id
+		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
+		JOIN doctor_hospital_invitations invitation ON invitation.id = affiliation.invitation_id
+		JOIN doctor_hospital_contracts contract ON contract.invitation_id = invitation.id
+		WHERE `+ownerWhere+`
+		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL
+		  AND doctor.status = 'active' AND doctor.deleted_at IS NULL
+		  AND affiliation.deleted_at IS NULL AND department.is_active = TRUE
+		  AND (affiliation.room_id IS NULL OR room.is_active = TRUE)
+		LIMIT 1`, args...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	if out.AffiliationID == "" {
+		return nil, ErrAffiliationNotFound
+	}
+	rows := []response.HospitalDoctor{out.HospitalDoctor}
+	if err := r.attachAffiliationSchedules(ctx, rows); err != nil {
+		return nil, err
+	}
+	if err := r.attachPendingScheduleChanges(ctx, rows); err != nil {
+		return nil, err
+	}
+	out.HospitalDoctor = rows[0]
+	hospital, err := r.getHospitalInformation(ctx, out.HospitalID)
+	if err != nil {
+		return nil, err
+	}
+	out.Hospital = hospital
+	out.Invitation = response.AffiliationInvitation{
+		ID: out.InvitationID, Status: out.InvitationStatus,
+		ContractFilename:       out.InvitationContractFilename,
+		SignedContractFilename: out.InvitationSignedContractName,
+		CreatedAt:              out.InvitationCreatedAt, RespondedAt: out.InvitationRespondedAt,
+	}
+	return &out, nil
+}
+
 func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID, status string) ([]response.HospitalDoctor, error) {
 	args := []any{}
 	where := `hospital.is_active = TRUE AND hospital.deleted_at IS NULL
@@ -1027,8 +1131,18 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 		LIMIT 100`, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
+	if err := r.attachAffiliationSchedules(ctx, rows); err != nil {
+		return nil, err
+	}
+	if err := r.attachPendingScheduleChanges(ctx, rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) attachAffiliationSchedules(ctx context.Context, rows []response.HospitalDoctor) error {
 	for i := range rows {
-		var schedules []response.DoctorHospitalSchedule
+		schedules := make([]response.DoctorHospitalSchedule, 0)
 		if err := r.db.WithContext(ctx).Raw(`
 			SELECT id, day_of_week, schedule_date::text AS schedule_date, TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone,
@@ -1036,11 +1150,92 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 			FROM doctor_hospital_schedules
 			WHERE affiliation_id = ? AND is_active = TRUE
 			ORDER BY day_of_week, start_time`, rows[i].AffiliationID).Scan(&schedules).Error; err != nil {
-			return nil, err
+			return err
+		}
+		for j := range schedules {
+			schedules[j].Status = entity.DoctorHospitalAffiliationActive
 		}
 		rows[i].Schedules = schedules
 	}
-	return rows, nil
+	return nil
+}
+
+func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliations []response.HospitalDoctor) error {
+	if len(affiliations) == 0 {
+		return nil
+	}
+
+	affiliationIDs := make([]string, 0, len(affiliations))
+	affiliationIndex := make(map[string]int, len(affiliations))
+	for i := range affiliations {
+		affiliations[i].PendingScheduleChanges = []response.PendingScheduleChange{}
+		affiliationIDs = append(affiliationIDs, affiliations[i].AffiliationID)
+		affiliationIndex[affiliations[i].AffiliationID] = i
+	}
+
+	changes := make([]response.PendingScheduleChange, 0)
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT id, affiliation_id, operation, target_schedule_id, requested_by,
+		       requested_by_party, status, reason, expires_at, created_at, updated_at
+		FROM doctor_schedule_change_requests
+		WHERE affiliation_id IN ? AND status = 'PENDING'
+		ORDER BY affiliation_id, created_at DESC, id DESC`, affiliationIDs).Scan(&changes).Error; err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+
+	changeIDs := make([]string, 0, len(changes))
+	changeIndex := make(map[string]int, len(changes))
+	for i := range changes {
+		changes[i].Schedules = []response.DoctorHospitalSchedule{}
+		changeIDs = append(changeIDs, changes[i].ID)
+		changeIndex[changes[i].ID] = i
+	}
+
+	type pendingScheduleItem struct {
+		ChangeRequestID     string
+		ID                  string
+		DayOfWeek           int
+		ScheduleDate        *string
+		StartTime           string
+		EndTime             string
+		Timezone            string
+		BookingMode         string
+		SlotDurationMinutes int
+		Capacity            int
+	}
+	items := make([]pendingScheduleItem, 0)
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT change_request_id, id, day_of_week, schedule_date::text AS schedule_date,
+		       TO_CHAR(start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(end_time, 'HH24:MI') AS end_time,
+		       timezone, booking_mode, slot_duration_minutes, capacity
+		FROM doctor_schedule_change_items
+		WHERE change_request_id IN ?
+		ORDER BY change_request_id, schedule_date, day_of_week, start_time, id`, changeIDs).Scan(&items).Error; err != nil {
+		return err
+	}
+	for _, item := range items {
+		i, ok := changeIndex[item.ChangeRequestID]
+		if !ok {
+			continue
+		}
+		changes[i].Schedules = append(changes[i].Schedules, response.DoctorHospitalSchedule{
+			ID: item.ID, Status: entity.ScheduleChangePending, DayOfWeek: item.DayOfWeek,
+			ScheduleDate: item.ScheduleDate, StartTime: item.StartTime, EndTime: item.EndTime,
+			Timezone: item.Timezone, BookingMode: item.BookingMode,
+			SlotDurationMinutes: item.SlotDurationMinutes, Capacity: item.Capacity,
+		})
+	}
+
+	for i := range changes {
+		if affiliation, ok := affiliationIndex[changes[i].AffiliationID]; ok {
+			affiliations[affiliation].PendingScheduleChanges = append(affiliations[affiliation].PendingScheduleChanges, changes[i])
+		}
+	}
+	return nil
 }
 
 func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string, now time.Time) error {
