@@ -155,12 +155,19 @@ ADD mempertahankan jadwal lain, sedangkan REMOVE hanya menonaktifkan target.
 Persetujuan tetap memeriksa konflik dokter lintas rumah sakit, tanggal, serta
 appointment aktif. Schedule lama dipertahankan untuk referensi riwayat.
 
+Setiap afiliasi hanya boleh mempunyai satu proposal rutin `REPLACE` yang
+`PENDING`. Specific schedule memakai `ADD`, sehingga beberapa tanggal specific
+boleh diajukan dan menunggu persetujuan secara bersamaan, termasuk ketika satu
+proposal rutin masih pending. `REMOVE` juga dapat pending untuk beberapa target
+berbeda, tetapi target schedule yang sama tidak dapat diajukan dua kali.
+
 `GET /v1/doctor/hospital-affiliations` dan
 `GET /v1/hospitals/:hospital_id/doctors` selalu memisahkan keadaan saat ini dari
 proposal. `schedules` hanya berisi row jadwal yang masih aktif dan setiap item
 memiliki `status: ACTIVE`; jadwal dapat dibooking hanya ketika afiliasi dan
-resource terkait juga aktif. Jika ada proposal, `pending_schedule_change` berisi
-metadata `PENDING` beserta snapshot jadwal usulan. Selama proposal menunggu,
+resource terkait juga aktif. `pending_schedule_changes` selalu berupa array dan
+berisi seluruh proposal `PENDING` beserta snapshot jadwal usulan; hasil kosong
+adalah `[]`. Selama proposal menunggu,
 jadwal aktif tidak berubah. Setelah approval `REPLACE`, proposal hilang dan
 `schedules` berisi snapshot baru dengan ID jadwal aktif yang baru. Untuk `ADD`,
 jadwal usulan ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.

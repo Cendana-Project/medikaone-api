@@ -12,6 +12,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	appointmentrepo "github.com/Cendana-Project/medikaone-api/internal/repository/appointment"
 	doctorrepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor"
 	doctorhospitalrepo "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
@@ -202,8 +203,8 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 			t.Fatalf("active affiliation schedule missing ACTIVE status: %#v", schedule)
 		}
 	}
-	if doctors[0].PendingScheduleChange != nil {
-		t.Fatalf("affiliation without proposal returned pending change: %#v", doctors[0].PendingScheduleChange)
+	if doctors[0].PendingScheduleChanges == nil || len(doctors[0].PendingScheduleChanges) != 0 {
+		t.Fatalf("affiliation without proposal returned pending changes: %#v", doctors[0].PendingScheduleChanges)
 	}
 	if err := tx.SavePoint("pending_affiliation_schedule").Error; err != nil {
 		t.Fatal(err)
@@ -221,24 +222,51 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		changeItemID, changeID, now).Error; err != nil {
 		t.Fatal(err)
 	}
+	pendingSpecificIDs := []string{uuid.NewString(), uuid.NewString()}
+	pendingSpecificItemIDs := []string{uuid.NewString(), uuid.NewString()}
+	pendingSpecificDates := []time.Time{now.AddDate(0, 0, 30), now.AddDate(0, 0, 31)}
+	for i := range pendingSpecificIDs {
+		if err := tx.Exec(`INSERT INTO doctor_schedule_change_requests
+			(id, affiliation_id, requested_by, requested_by_party, status, reason, expires_at, created_at, updated_at, operation)
+			VALUES (?, ?, ?, 'DOCTOR', 'PENDING', 'Integration pending specific schedule', ?, ?, ?, 'ADD')`,
+			pendingSpecificIDs[i], affiliationID, doctorID, now.Add(7*24*time.Hour), now.Add(time.Duration(i+1)*time.Second), now.Add(time.Duration(i+1)*time.Second)).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Exec(`INSERT INTO doctor_schedule_change_items
+			(id, change_request_id, day_of_week, schedule_date, start_time, end_time, timezone, booking_mode, slot_duration_minutes, capacity, created_at)
+			VALUES (?, ?, ?, ?::date, '16:00', '17:00', 'Asia/Jakarta', 'FIXED_SLOT', 30, 1, ?)`,
+			pendingSpecificItemIDs[i], pendingSpecificIDs[i], int(pendingSpecificDates[i].Weekday()), pendingSpecificDates[i].Format("2006-01-02"), now).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	doctors, err = hospitalRepo.ListHospitalDoctors(ctx, hospitalID, "ACTIVE")
-	if err != nil || len(doctors) != 1 || len(doctors[0].Schedules) != 2 || doctors[0].PendingScheduleChange == nil {
+	if err != nil || len(doctors) != 1 || len(doctors[0].Schedules) != 2 || len(doctors[0].PendingScheduleChanges) != 3 {
 		t.Fatalf("pending schedule projection = %#v, %v", doctors, err)
 	}
-	pending := doctors[0].PendingScheduleChange
+	pendingByID := make(map[string]response.PendingScheduleChange, len(doctors[0].PendingScheduleChanges))
+	for _, pending := range doctors[0].PendingScheduleChanges {
+		pendingByID[pending.ID] = pending
+	}
+	pending := pendingByID[changeID]
 	if pending.ID != changeID || pending.Status != "PENDING" || pending.Operation != "REPLACE" || len(pending.Schedules) != 1 ||
 		pending.Schedules[0].ID != changeItemID || pending.Schedules[0].Status != "PENDING" || pending.Schedules[0].DayOfWeek != 4 {
 		t.Fatalf("pending schedule projection fields = %#v", pending)
 	}
+	for i, id := range pendingSpecificIDs {
+		proposal := pendingByID[id]
+		if proposal.Operation != "ADD" || len(proposal.Schedules) != 1 || proposal.Schedules[0].ID != pendingSpecificItemIDs[i] || proposal.Schedules[0].Status != "PENDING" {
+			t.Fatalf("pending specific schedule projection = %#v", proposal)
+		}
+	}
 	doctorAffiliations, err := hospitalRepo.ListDoctorAffiliations(ctx, doctorID, "ACTIVE")
-	if err != nil || len(doctorAffiliations) != 1 || doctorAffiliations[0].PendingScheduleChange == nil || doctorAffiliations[0].PendingScheduleChange.ID != changeID {
+	if err != nil || len(doctorAffiliations) != 1 || len(doctorAffiliations[0].PendingScheduleChanges) != 3 {
 		t.Fatalf("doctor pending schedule projection = %#v, %v", doctorAffiliations, err)
 	}
 	if err := appointmentrepo.NewRepository(tx).ReviewScheduleChange(ctx, changeID, adminID, "HOSPITAL", "APPROVED", nil, now.Add(time.Minute)); err != nil {
 		t.Fatalf("approve pending affiliation schedule: %v", err)
 	}
 	doctors, err = hospitalRepo.ListHospitalDoctors(ctx, hospitalID, "ACTIVE")
-	if err != nil || len(doctors) != 1 || doctors[0].PendingScheduleChange != nil || len(doctors[0].Schedules) != 1 {
+	if err != nil || len(doctors) != 1 || len(doctors[0].PendingScheduleChanges) != 2 || len(doctors[0].Schedules) != 1 {
 		t.Fatalf("approved replacement schedule projection = %#v, %v", doctors, err)
 	}
 	if schedule := doctors[0].Schedules[0]; schedule.ID == changeItemID || schedule.Status != "ACTIVE" || schedule.DayOfWeek != 4 || schedule.StartTime != "13:00" {

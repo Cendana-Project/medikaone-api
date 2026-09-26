@@ -1121,11 +1121,20 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 				return ErrScheduleNotFound
 			}
 		}
-		var pending bool
-		if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_requests WHERE affiliation_id = ? AND status = 'PENDING')`, input.AffiliationID).Scan(&pending).Error; err != nil {
-			return err
+		var duplicatePending bool
+		switch input.Operation {
+		case "REPLACE":
+			if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_requests
+				WHERE affiliation_id = ? AND status = 'PENDING' AND operation = 'REPLACE')`, input.AffiliationID).Scan(&duplicatePending).Error; err != nil {
+				return err
+			}
+		case "REMOVE":
+			if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_requests
+				WHERE affiliation_id = ? AND status = 'PENDING' AND operation = 'REMOVE' AND target_schedule_id = ?)`, input.AffiliationID, input.TargetScheduleID).Scan(&duplicatePending).Error; err != nil {
+				return err
+			}
 		}
-		if pending {
+		if duplicatePending {
 			return ErrScheduleChangeExists
 		}
 		if err := tx.Exec(`

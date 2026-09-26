@@ -1057,14 +1057,14 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 	affiliationIDs := make([]string, 0, len(affiliations))
 	affiliationIndex := make(map[string]int, len(affiliations))
 	for i := range affiliations {
+		affiliations[i].PendingScheduleChanges = []response.PendingScheduleChange{}
 		affiliationIDs = append(affiliationIDs, affiliations[i].AffiliationID)
 		affiliationIndex[affiliations[i].AffiliationID] = i
 	}
 
 	changes := make([]response.PendingScheduleChange, 0)
 	if err := r.db.WithContext(ctx).Raw(`
-		SELECT DISTINCT ON (affiliation_id)
-		       id, affiliation_id, operation, target_schedule_id, requested_by,
+		SELECT id, affiliation_id, operation, target_schedule_id, requested_by,
 		       requested_by_party, status, reason, expires_at, created_at, updated_at
 		FROM doctor_schedule_change_requests
 		WHERE affiliation_id IN ? AND status = 'PENDING'
@@ -1121,7 +1121,7 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 
 	for i := range changes {
 		if affiliation, ok := affiliationIndex[changes[i].AffiliationID]; ok {
-			affiliations[affiliation].PendingScheduleChange = &changes[i]
+			affiliations[affiliation].PendingScheduleChanges = append(affiliations[affiliation].PendingScheduleChanges, changes[i])
 		}
 	}
 	return nil

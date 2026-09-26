@@ -78,24 +78,24 @@ type DoctorHospitalInvitation struct {
 }
 
 type HospitalDoctor struct {
-	DoctorMedikaOneID     string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
-	AffiliationID         string                   `json:"affiliation_id"`
-	HospitalID            string                   `json:"hospital_id"`
-	HospitalName          string                   `json:"hospital_name"`
-	DoctorID              string                   `json:"doctor_id"`
-	Email                 string                   `json:"email"`
-	FirstName             string                   `json:"first_name"`
-	LastName              string                   `json:"last_name"`
-	SIPNumber             string                   `json:"sip_number" gorm:"column:sip_number"`
-	Specialty             string                   `json:"specialty"`
-	DepartmentID          string                   `json:"department_id"`
-	Department            string                   `json:"department"`
-	RoomID                *string                  `json:"room_id,omitempty"`
-	Room                  *string                  `json:"room,omitempty"`
-	Status                string                   `json:"status"`
-	JoinedAt              time.Time                `json:"joined_at"`
-	Schedules             []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
-	PendingScheduleChange *PendingScheduleChange   `json:"pending_schedule_change" gorm:"-"`
+	DoctorMedikaOneID      string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	AffiliationID          string                   `json:"affiliation_id"`
+	HospitalID             string                   `json:"hospital_id"`
+	HospitalName           string                   `json:"hospital_name"`
+	DoctorID               string                   `json:"doctor_id"`
+	Email                  string                   `json:"email"`
+	FirstName              string                   `json:"first_name"`
+	LastName               string                   `json:"last_name"`
+	SIPNumber              string                   `json:"sip_number" gorm:"column:sip_number"`
+	Specialty              string                   `json:"specialty"`
+	DepartmentID           string                   `json:"department_id"`
+	Department             string                   `json:"department"`
+	RoomID                 *string                  `json:"room_id,omitempty"`
+	Room                   *string                  `json:"room,omitempty"`
+	Status                 string                   `json:"status"`
+	JoinedAt               time.Time                `json:"joined_at"`
+	Schedules              []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	PendingScheduleChanges []PendingScheduleChange  `json:"pending_schedule_changes" gorm:"-"`
 }
 
 type DoctorAffiliationStatus struct {
