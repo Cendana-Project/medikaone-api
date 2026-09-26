@@ -192,6 +192,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 - Schedule change rutin adalah operasi `REPLACE`: setelah approval, seluruh
   jadwal aktif untuk `affiliation_id` itu diganti snapshot baru. Afiliasi rumah
   sakit lain tidak ikut diganti.
+- List afiliasi mempertahankan jadwal aktif pada `schedules` dan mengekspos satu
+  proposal yang masih menunggu pada `pending_schedule_change`. Proposal tidak
+  boleh diperlakukan sebagai jadwal bookable sebelum approval pihak lawan.
 - Specific schedule adalah `ADD`; delete schedule adalah `REMOVE`. Keduanya
   memakai approval pihak lawan dan tidak mengganti seluruh snapshot.
 

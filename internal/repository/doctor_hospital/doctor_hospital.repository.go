@@ -1028,7 +1028,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 		return nil, err
 	}
 	for i := range rows {
-		var schedules []response.DoctorHospitalSchedule
+		schedules := make([]response.DoctorHospitalSchedule, 0)
 		if err := r.db.WithContext(ctx).Raw(`
 			SELECT id, day_of_week, schedule_date::text AS schedule_date, TO_CHAR(start_time, 'HH24:MI') AS start_time,
 			       TO_CHAR(end_time, 'HH24:MI') AS end_time, timezone,
@@ -1038,9 +1038,93 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 			ORDER BY day_of_week, start_time`, rows[i].AffiliationID).Scan(&schedules).Error; err != nil {
 			return nil, err
 		}
+		for j := range schedules {
+			schedules[j].Status = entity.DoctorHospitalAffiliationActive
+		}
 		rows[i].Schedules = schedules
 	}
+	if err := r.attachPendingScheduleChanges(ctx, rows); err != nil {
+		return nil, err
+	}
 	return rows, nil
+}
+
+func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliations []response.HospitalDoctor) error {
+	if len(affiliations) == 0 {
+		return nil
+	}
+
+	affiliationIDs := make([]string, 0, len(affiliations))
+	affiliationIndex := make(map[string]int, len(affiliations))
+	for i := range affiliations {
+		affiliationIDs = append(affiliationIDs, affiliations[i].AffiliationID)
+		affiliationIndex[affiliations[i].AffiliationID] = i
+	}
+
+	changes := make([]response.PendingScheduleChange, 0)
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT DISTINCT ON (affiliation_id)
+		       id, affiliation_id, operation, target_schedule_id, requested_by,
+		       requested_by_party, status, reason, expires_at, created_at, updated_at
+		FROM doctor_schedule_change_requests
+		WHERE affiliation_id IN ? AND status = 'PENDING'
+		ORDER BY affiliation_id, created_at DESC, id DESC`, affiliationIDs).Scan(&changes).Error; err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+
+	changeIDs := make([]string, 0, len(changes))
+	changeIndex := make(map[string]int, len(changes))
+	for i := range changes {
+		changes[i].Schedules = []response.DoctorHospitalSchedule{}
+		changeIDs = append(changeIDs, changes[i].ID)
+		changeIndex[changes[i].ID] = i
+	}
+
+	type pendingScheduleItem struct {
+		ChangeRequestID     string
+		ID                  string
+		DayOfWeek           int
+		ScheduleDate        *string
+		StartTime           string
+		EndTime             string
+		Timezone            string
+		BookingMode         string
+		SlotDurationMinutes int
+		Capacity            int
+	}
+	items := make([]pendingScheduleItem, 0)
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT change_request_id, id, day_of_week, schedule_date::text AS schedule_date,
+		       TO_CHAR(start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(end_time, 'HH24:MI') AS end_time,
+		       timezone, booking_mode, slot_duration_minutes, capacity
+		FROM doctor_schedule_change_items
+		WHERE change_request_id IN ?
+		ORDER BY change_request_id, schedule_date, day_of_week, start_time, id`, changeIDs).Scan(&items).Error; err != nil {
+		return err
+	}
+	for _, item := range items {
+		i, ok := changeIndex[item.ChangeRequestID]
+		if !ok {
+			continue
+		}
+		changes[i].Schedules = append(changes[i].Schedules, response.DoctorHospitalSchedule{
+			ID: item.ID, Status: entity.ScheduleChangePending, DayOfWeek: item.DayOfWeek,
+			ScheduleDate: item.ScheduleDate, StartTime: item.StartTime, EndTime: item.EndTime,
+			Timezone: item.Timezone, BookingMode: item.BookingMode,
+			SlotDurationMinutes: item.SlotDurationMinutes, Capacity: item.Capacity,
+		})
+	}
+
+	for i := range changes {
+		if affiliation, ok := affiliationIndex[changes[i].AffiliationID]; ok {
+			affiliations[affiliation].PendingScheduleChange = &changes[i]
+		}
+	}
+	return nil
 }
 
 func (r *Repository) UpdateAffiliationStatus(ctx context.Context, hospitalID, doctorID, status, actorID string, now time.Time) error {
