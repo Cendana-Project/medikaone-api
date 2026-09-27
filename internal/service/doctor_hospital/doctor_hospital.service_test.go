@@ -114,6 +114,8 @@ func (f *fakeRepository) AcceptInvitation(_ context.Context, invitationID, _ str
 	f.acceptedInvitation = invitationID
 	f.invitation.Status = "ACCEPTED"
 	f.invitation.RespondedAt = &now
+	affiliationID := uuid.NewString()
+	f.invitation.AffiliationID = &affiliationID
 	return nil
 }
 
@@ -404,7 +406,7 @@ func TestInvitationResponseRequiresNoPayloadOrSignedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accept without payload failed: %v", err)
 	}
-	if repo.acceptedInvitation != invitationID || accepted.Status != "ACCEPTED" {
+	if repo.acceptedInvitation != invitationID || accepted.Status != "ACCEPTED" || accepted.AffiliationID == nil {
 		t.Fatalf("invitation was not accepted: %#v", accepted)
 	}
 	if objectStorage.uploadedPath != "" {
