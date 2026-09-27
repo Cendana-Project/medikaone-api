@@ -79,6 +79,7 @@ type HospitalInformation struct {
 type DoctorHospitalInvitation struct {
 	DoctorMedikaOneID  string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	ID                 string                   `json:"id"`
+	AffiliationID      *string                  `json:"affiliation_id,omitempty"`
 	HospitalID         string                   `json:"hospital_id"`
 	HospitalCode       string                   `json:"hospital_code"`
 	HospitalName       string                   `json:"hospital_name"`

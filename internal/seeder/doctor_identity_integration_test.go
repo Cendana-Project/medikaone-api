@@ -231,7 +231,8 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		t.Fatalf("cross-hospital affiliation detail = %v", err)
 	}
 	invitationDetail, err := hospitalRepo.GetInvitationForDoctor(ctx, doctorID, invitationID, now)
-	if err != nil || invitationDetail.Hospital == nil || invitationDetail.Hospital.ID != hospitalID || invitationDetail.Hospital.Name == "" {
+	if err != nil || invitationDetail.Hospital == nil || invitationDetail.Hospital.ID != hospitalID || invitationDetail.Hospital.Name == "" ||
+		invitationDetail.AffiliationID == nil || *invitationDetail.AffiliationID != affiliationID {
 		t.Fatalf("invitation hospital detail = %#v, %v", invitationDetail, err)
 	}
 	if err := tx.SavePoint("pending_affiliation_schedule").Error; err != nil {

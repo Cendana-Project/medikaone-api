@@ -630,7 +630,8 @@ func (r *Repository) getHospitalInformation(ctx context.Context, hospitalID stri
 }
 
 const invitationSelect = `
-	SELECT i.id, i.hospital_id, h.code AS hospital_code, h.name AS hospital_name,
+	SELECT i.id, affiliation.id AS affiliation_id,
+	       i.hospital_id, h.code AS hospital_code, h.name AS hospital_name,
 	       i.doctor_id, dp.medikaone_id AS doctor_medikaone_id, u.email AS doctor_email, u.first_name AS doctor_first_name,
 	       u.last_name AS doctor_last_name, COALESCE(dp.sip_number, '') AS sip_number,
 	       COALESCE(dp.specialty, '') AS specialty,
@@ -646,7 +647,9 @@ const invitationSelect = `
 	JOIN doctor_profiles dp ON dp.user_id = i.doctor_id
 	JOIN hospital_departments department ON department.id = i.department_id
 	LEFT JOIN hospital_rooms room ON room.id = i.room_id
-	JOIN doctor_hospital_contracts contract ON contract.invitation_id = i.id`
+	JOIN doctor_hospital_contracts contract ON contract.invitation_id = i.id
+	LEFT JOIN doctor_hospital_affiliations affiliation
+	       ON affiliation.invitation_id = i.id AND affiliation.deleted_at IS NULL`
 
 func (r *Repository) attachInvitationSchedules(ctx context.Context, invitations []response.DoctorHospitalInvitation) error {
 	for i := range invitations {

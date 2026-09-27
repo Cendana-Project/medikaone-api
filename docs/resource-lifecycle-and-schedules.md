@@ -91,8 +91,11 @@ melalui endpoint delete afiliasi bila ingin mengakhiri penempatannya.
 
 Detail invitation dokter dan rumah sakit mempertahankan field identitas lama
 dan menambahkan `hospital` sebagai satu object berisi identitas, alamat, kontak,
-deskripsi, fasilitas, jam operasional, timezone, dan rating rumah sakit. Detail
-afiliasi memakai bentuk afiliasi yang sama dengan list, ditambah object
+deskripsi, fasilitas, jam operasional, timezone, dan rating rumah sakit.
+Invitation yang sudah diterima juga memuat `affiliation_id`, sehingga client
+dapat langsung membuka detail afiliasi setelah accept. Sebelum afiliasi dibuat,
+field tersebut tidak dikirim. Detail afiliasi memakai bentuk afiliasi yang sama
+dengan list, ditambah object
 `hospital` dan object `invitation` untuk penawaran asal serta nama kontraknya.
 Object `invitation` pada detail afiliasi sengaja tidak memuat `message`; pesan
 penawaran hanya tersedia melalui detail invitation.
