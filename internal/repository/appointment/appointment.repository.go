@@ -1088,6 +1088,13 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 	if input.Operation == "" {
 		input.Operation = "REPLACE"
 	}
+	if input.Operation == "REPLACE" {
+		for _, schedule := range input.Schedules {
+			if schedule.ScheduleDate != nil {
+				return nil, ErrInvalidScheduleChangeState
+			}
+		}
+	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "schedule-change:"+input.AffiliationID).Error; err != nil {
 			return err
@@ -1316,12 +1323,37 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 		if !affiliationActive {
 			return ErrAffiliationNotFound
 		}
+		if current.Operation == "REPLACE" {
+			var replacementContainsSpecific bool
+			if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM doctor_schedule_change_items
+				WHERE change_request_id = ? AND schedule_date IS NOT NULL)`, changeID).Scan(&replacementContainsSpecific).Error; err != nil {
+				return err
+			}
+			if replacementContainsSpecific {
+				return ErrInvalidScheduleChangeState
+			}
+		}
 		if current.Operation != "ADD" {
 			var activeAppointments bool
-			if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM appointments
-				WHERE affiliation_id = ?
-				AND (CAST(? AS uuid) IS NULL OR schedule_id = CAST(? AS uuid))
-				AND status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION'))`, current.AffiliationID, current.TargetScheduleID, current.TargetScheduleID).Scan(&activeAppointments).Error; err != nil {
+			query := `SELECT EXISTS(
+				SELECT 1
+				FROM appointments appointment
+				JOIN doctor_hospital_schedules schedule ON schedule.id = appointment.schedule_id
+				WHERE appointment.affiliation_id = ?
+				  AND schedule.is_active = TRUE
+				  AND schedule.schedule_date IS NULL
+				  AND appointment.status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION')
+			)`
+			args := []any{current.AffiliationID}
+			if current.Operation == "REMOVE" {
+				query = `SELECT EXISTS(
+					SELECT 1 FROM appointments
+					WHERE affiliation_id = ? AND schedule_id = ?
+					  AND status IN ('CONFIRMED','CHECKED_IN','WAITING_VITALS','WAITING_DOCTOR','IN_CONSULTATION')
+				)`
+				args = append(args, current.TargetScheduleID)
+			}
+			if err := tx.Raw(query, args...).Scan(&activeAppointments).Error; err != nil {
 				return err
 			}
 			if activeAppointments {
@@ -1354,7 +1386,8 @@ func (r *Repository) ReviewScheduleChange(ctx context.Context, changeID, actorID
 			return ErrDoctorScheduleConflict
 		}
 		if current.Operation == "REPLACE" {
-			if err := tx.Exec(`UPDATE doctor_hospital_schedules SET is_active = FALSE, updated_at = ? WHERE affiliation_id = ? AND is_active = TRUE`, now, current.AffiliationID).Error; err != nil {
+			if err := tx.Exec(`UPDATE doctor_hospital_schedules SET is_active = FALSE, updated_at = ?
+				WHERE affiliation_id = ? AND schedule_date IS NULL AND is_active = TRUE`, now, current.AffiliationID).Error; err != nil {
 				return err
 			}
 		}
@@ -1431,7 +1464,7 @@ func approvedScheduleConflict(tx *gorm.DB, doctorID, affiliationID, changeID, op
 		FROM doctor_hospital_affiliations affiliation
 		JOIN doctor_hospital_schedules existing ON existing.affiliation_id = affiliation.id
 		WHERE affiliation.doctor_id = ?
-		  AND (? = 'ADD' OR affiliation.id <> ?)
+		  AND (? = 'ADD' OR affiliation.id <> ? OR existing.schedule_date IS NOT NULL)
 		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
 		  AND existing.is_active = TRUE
 		  AND (existing.schedule_date IS NULL OR ((existing.schedule_date + existing.end_time) AT TIME ZONE existing.timezone) > ?)`,

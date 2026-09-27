@@ -1,6 +1,8 @@
 package infrastructure
 
 import (
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -77,5 +79,33 @@ func TestRequiredMigrationCannotBeReplacedByAnewerVersion(t *testing.T) {
 	}
 	if err := validateDatabaseMigrationState(RequiredDatabaseMigrationVersion+1, true); err != nil {
 		t.Fatalf("applied required migration with newer maximum was rejected: %v", err)
+	}
+}
+
+func TestRequiredDatabaseMigrationIsLatest(t *testing.T) {
+	entries, err := os.ReadDir("../../migration/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		prefix, _, found := strings.Cut(name, "_")
+		if !found {
+			continue
+		}
+		version, parseErr := strconv.ParseInt(prefix, 10, 64)
+		if parseErr != nil {
+			t.Fatalf("parse migration version from %q: %v", name, parseErr)
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	if latest != RequiredDatabaseMigrationVersion {
+		t.Fatalf("RequiredDatabaseMigrationVersion = %d, latest migration = %d", RequiredDatabaseMigrationVersion, latest)
 	}
 }

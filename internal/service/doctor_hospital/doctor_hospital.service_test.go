@@ -46,6 +46,10 @@ type fakeRepository struct {
 	affiliationErr      error
 	affiliationOwner    string
 	affiliationID       string
+	contractIdentifier  string
+	contractDoctorID    string
+	contractVersion     string
+	contractDocument    *repository.ContractDocument
 }
 
 func (f *fakeRepository) CreateDepartment(_ context.Context, hospitalID, masterDepartmentID string, now time.Time) (*entity.HospitalDepartment, error) {
@@ -134,6 +138,11 @@ func (f *fakeRepository) GetAffiliationForHospital(_ context.Context, hospitalID
 	return f.affiliation, f.affiliationErr
 }
 
+func (f *fakeRepository) GetContractForDoctor(_ context.Context, identifier, doctorID, version string) (*repository.ContractDocument, error) {
+	f.contractIdentifier, f.contractDoctorID, f.contractVersion = identifier, doctorID, version
+	return f.contractDocument, nil
+}
+
 func (f *fakeRepository) RejectInvitation(_ context.Context, invitationID, _ string, message *string, _ time.Time) error {
 	f.rejectedInvitation = invitationID
 	f.rejectionMessage = message
@@ -196,6 +205,7 @@ func TestCreateInvitationMapsBlankDepartmentToPlacementNotFound(t *testing.T) {
 type fakeStorage struct {
 	uploadedPath string
 	deletedPath  string
+	signedPath   string
 	uploadErr    error
 }
 
@@ -212,8 +222,32 @@ func (f *fakeStorage) Delete(_ context.Context, objectPath string) error {
 	return nil
 }
 
-func (f *fakeStorage) CreateSignedURL(context.Context, string, time.Duration, string) (string, error) {
-	return "", nil
+func (f *fakeStorage) CreateSignedURL(_ context.Context, objectPath string, _ time.Duration, _ string) (string, error) {
+	f.signedPath = objectPath
+	return "https://storage.example/signed", nil
+}
+
+func TestDoctorContractAcceptsAffiliationIdentifier(t *testing.T) {
+	doctorID, affiliationID := uuid.NewString(), uuid.NewString()
+	repo := &fakeRepository{contractDocument: &repository.ContractDocument{
+		Filename: "contract.pdf", ObjectPath: "contracts/contract.pdf",
+	}}
+	objectStorage := &fakeStorage{}
+	service := NewService(repo, objectStorage, nil, MaxContractBytes, time.Minute)
+
+	result, err := service.GetDoctorContractURL(context.Background(), doctorID, affiliationID, "original")
+	if err != nil {
+		t.Fatalf("contract by affiliation failed: %v", err)
+	}
+	if repo.contractIdentifier != affiliationID || repo.contractDoctorID != doctorID || repo.contractVersion != "original" {
+		t.Fatalf("contract scope mismatch: %#v", repo)
+	}
+	if objectStorage.signedPath != "contracts/contract.pdf" || result.URL != "https://storage.example/signed" {
+		t.Fatalf("signed contract = %#v, storage=%#v", result, objectStorage)
+	}
+	if _, err := service.GetDoctorContractURL(context.Background(), doctorID, "not-a-uuid", "original"); !errors.Is(err, constant.ErrInvalidUUIDFormat) {
+		t.Fatalf("invalid contract identifier = %v", err)
+	}
 }
 
 func TestSearchDoctorUsesUnifiedIdentity(t *testing.T) {

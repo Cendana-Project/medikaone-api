@@ -235,6 +235,17 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		invitationDetail.AffiliationID == nil || *invitationDetail.AffiliationID != affiliationID {
 		t.Fatalf("invitation hospital detail = %#v, %v", invitationDetail, err)
 	}
+	contractByInvitation, err := hospitalRepo.GetContractForDoctor(ctx, invitationID, doctorID, "original")
+	if err != nil || contractByInvitation.Filename != "integration-contract.pdf" {
+		t.Fatalf("contract resolved by invitation = %#v, %v", contractByInvitation, err)
+	}
+	contractByAffiliation, err := hospitalRepo.GetContractForDoctor(ctx, affiliationID, doctorID, "original")
+	if err != nil || contractByAffiliation.Filename != "integration-contract.pdf" || contractByAffiliation.ObjectPath != "integration/contract.pdf" {
+		t.Fatalf("contract resolved by affiliation = %#v, %v", contractByAffiliation, err)
+	}
+	if _, err := hospitalRepo.GetContractForDoctor(ctx, affiliationID, uuid.NewString(), "original"); !errors.Is(err, doctorhospitalrepo.ErrInvitationNotFound) {
+		t.Fatalf("cross-doctor contract by affiliation = %v", err)
+	}
 	if err := tx.SavePoint("pending_affiliation_schedule").Error; err != nil {
 		t.Fatal(err)
 	}

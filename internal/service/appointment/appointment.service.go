@@ -451,6 +451,13 @@ func (s *Service) createScheduleMutation(ctx context.Context, actorID, party, ho
 			return nil, err
 		}
 		for _, schedule := range schedules {
+			if operation == "REPLACE" && schedule.ScheduleDate != nil {
+				return nil, constant.NewInvalidFieldValueError(
+					"schedules.schedule_date",
+					"empty for recurring schedule replacement; use the specific schedule endpoint",
+					"kosong untuk penggantian jadwal rutin; gunakan endpoint jadwal khusus",
+				)
+			}
 			if schedule.ScheduleDate == nil {
 				continue
 			}

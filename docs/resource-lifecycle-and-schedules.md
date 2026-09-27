@@ -100,6 +100,12 @@ dengan list, ditambah object
 Object `invitation` pada detail afiliasi sengaja tidak memuat `message`; pesan
 penawaran hanya tersedia melalui detail invitation.
 
+Endpoint kontrak dokter
+`GET /v1/doctor/hospital-invitations/:invitation_or_affiliation_id/contract`
+menerima UUID invitation atau UUID affiliation hasil accept. Kedua bentuk tetap
+di-scope ke dokter dari bearer token; UUID milik dokter lain menghasilkan not
+found.
+
 DELETE tidak menghapus rekam medis, resep yang sudah diterbitkan, atau provenance
 kontrak. Kode `RESOURCE_IN_USE` (409) berarti appointment atau resource aktif
 yang bergantung harus diselesaikan terlebih dahulu. Penghapusan akun juga
@@ -163,10 +169,13 @@ DELETE tidak memiliki body. Semua route ini membutuhkan permission
 `schedule-change-requests/:change_id/approve` atau `/reject` yang sudah tersedia.
 `target_schedule_id` menunjuk schedule yang akan dihapus pada REMOVE.
 
-Proposal penggantian daftar jadwal yang sudah ada memakai `operation: REPLACE`.
-ADD mempertahankan jadwal lain, sedangkan REMOVE hanya menonaktifkan target.
-Persetujuan tetap memeriksa konflik dokter lintas rumah sakit, tanggal, serta
-appointment aktif. Schedule lama dipertahankan untuk referensi riwayat.
+Proposal penggantian jadwal rutin memakai `operation: REPLACE` dan itemnya tidak
+boleh memiliki `schedule_date`. Approval hanya mengganti jadwal rutin aktif
+(`schedule_date IS NULL`) pada afiliasi tersebut; seluruh specific schedule tetap
+aktif. ADD mempertahankan jadwal lain, sedangkan REMOVE hanya menonaktifkan target.
+Persetujuan tetap memeriksa konflik dokter lintas rumah sakit, tanggal, specific
+schedule yang dipertahankan, serta appointment aktif pada schedule yang benar-benar
+terdampak. Schedule lama dipertahankan untuk referensi riwayat.
 
 Setiap afiliasi hanya boleh mempunyai satu proposal rutin `REPLACE` yang
 `PENDING`. Specific schedule memakai `ADD`, sehingga beberapa tanggal specific
@@ -182,7 +191,8 @@ resource terkait juga aktif. `pending_schedule_changes` selalu berupa array dan
 berisi seluruh proposal `PENDING` beserta snapshot jadwal usulan; hasil kosong
 adalah `[]`. Selama proposal menunggu,
 jadwal aktif tidak berubah. Setelah approval `REPLACE`, proposal hilang dan
-`schedules` berisi snapshot baru dengan ID jadwal aktif yang baru. Untuk `ADD`,
-jadwal usulan ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
+jadwal rutin pada `schedules` berisi snapshot baru dengan ID baru, sementara
+specific schedule aktif tetap memakai ID lamanya. Untuk `ADD`, jadwal usulan
+ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
 ID pada item snapshot pending adalah ID item proposal, bukan `schedule_id` aktif;
 ID tersebut tidak boleh dipakai untuk booking atau delete schedule.

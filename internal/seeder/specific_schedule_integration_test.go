@@ -285,10 +285,51 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	if newID == scheduleID {
 		t.Fatal("re-add mutated historical schedule identity")
 	}
-	replacement := propose("REPLACE", []appointmentrepo.ScheduleItem{recurring, specific}, nil)
+	newSpecificSchedule, err := repo.GetActiveSchedule(ctx, newID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeSpecificAppointment := input
+	activeSpecificAppointment.Schedule = *newSpecificSchedule
+	activeSpecificAppointment.IdempotencyKey = uuid.NewString()
+	activeSpecificAppointment.IdempotencyRequestHash = strings.Repeat("b", 64)
+	bookedSpecific, _, err := repo.Book(ctx, activeSpecificAppointment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingRoutine := recurring
+	conflictingRoutine.StartTime = "13:00"
+	conflictingRoutine.EndTime = "14:00"
+	conflictingReplacement := propose("REPLACE", []appointmentrepo.ScheduleItem{conflictingRoutine}, nil)
+	if err := repo.ReviewScheduleChange(ctx, conflictingReplacement.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
+		t.Fatalf("routine replacement ignored preserved specific schedule: %v", err)
+	}
+	reason = "conflicts with specific schedule"
+	if err := repo.ReviewScheduleChange(ctx, conflictingReplacement.ID, doctorID, "DOCTOR", "REJECTED", &reason, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
+		AffiliationID: affiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: hospitalID,
+		Operation: "REPLACE", Schedules: []appointmentrepo.ScheduleItem{recurring, specific}, Now: now,
+		ExpiresAt: now.Add(7 * 24 * time.Hour),
+	}); !errors.Is(err, appointmentrepo.ErrInvalidScheduleChangeState) {
+		t.Fatalf("routine replacement accepted a specific schedule: %v", err)
+	}
+	replacement := propose("REPLACE", []appointmentrepo.ScheduleItem{recurring}, nil)
 	approve(replacement.ID)
-	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM doctor_hospital_schedules WHERE affiliation_id=$1 AND is_active`, affiliationID); got != 2 {
+	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM doctor_hospital_schedules WHERE affiliation_id=$1 AND is_active`, affiliationID); got != 3 {
 		t.Fatalf("replace active count=%d", got)
+	}
+	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM doctor_hospital_schedules
+		WHERE affiliation_id=$1 AND schedule_date IS NOT NULL AND is_active`, affiliationID); got != 2 {
+		t.Fatalf("routine replacement removed specific schedules: %d", got)
+	}
+	if _, err := repo.GetActiveSchedule(ctx, newID); err != nil {
+		t.Fatalf("routine replacement removed booked specific schedule: %v", err)
+	}
+	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM appointments
+		WHERE id=$1 AND schedule_id=$2 AND status='CONFIRMED'`, bookedSpecific.ID, newID); got != 1 {
+		t.Fatal("routine replacement changed active specific appointment")
 	}
 	if got := scalarInt(t, sqlDB, `SELECT COUNT(*) FROM appointments WHERE id=$1 AND schedule_id=$2 AND status='CANCELLED'`, booked.ID, scheduleID); got != 1 {
 		t.Fatal("replacement changed appointment history")

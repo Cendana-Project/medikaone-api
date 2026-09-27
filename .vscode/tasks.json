@@ -1,0 +1,39 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "MedikaOne: Migration Status",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"RemoteSigned",
+				"-File",
+				"${workspaceFolder}\\scripts\\Invoke-DatabaseMigration.ps1",
+				"-EnvFile",
+				"${workspaceFolder}\\.env.supabase-migration",
+				"-Action",
+				"status"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "MedikaOne: Migrate Up",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"RemoteSigned",
+				"-File",
+				"${workspaceFolder}\\scripts\\Invoke-DatabaseMigration.ps1",
+				"-EnvFile",
+				"${workspaceFolder}\\.env.supabase-migration",
+				"-Action",
+				"up"
+			],
+			"problemMatcher": []
+		}
+	]
+}

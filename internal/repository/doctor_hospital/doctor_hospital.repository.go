@@ -971,8 +971,16 @@ func (r *Repository) ResendInvitation(ctx context.Context, invitationID, hospita
 	return r.GetInvitationForHospital(ctx, hospitalID, newID, now)
 }
 
-func (r *Repository) GetContractForDoctor(ctx context.Context, invitationID, doctorID, version string) (*ContractDocument, error) {
-	return r.getContract(ctx, "i.id = ? AND i.doctor_id = ?", version, invitationID, doctorID)
+func (r *Repository) GetContractForDoctor(ctx context.Context, invitationOrAffiliationID, doctorID, version string) (*ContractDocument, error) {
+	return r.getContract(ctx, `i.doctor_id = ? AND (
+		i.id = ? OR EXISTS (
+			SELECT 1 FROM doctor_hospital_affiliations affiliation
+			WHERE affiliation.id = ?
+			  AND affiliation.invitation_id = i.id
+			  AND affiliation.doctor_id = ?
+			  AND affiliation.deleted_at IS NULL
+		)
+	)`, version, doctorID, invitationOrAffiliationID, invitationOrAffiliationID, doctorID)
 }
 
 func (r *Repository) GetContractForHospital(ctx context.Context, invitationID, hospitalID, version string) (*ContractDocument, error) {

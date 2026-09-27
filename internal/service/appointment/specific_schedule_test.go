@@ -78,6 +78,18 @@ func TestSpecificCreateAndDeleteRequireOwnerAndCounterpartReview(t *testing.T) {
 	if err != nil || row.Status != "PENDING" || repo.change.Operation != "ADD" || len(repo.change.Schedules) != 1 {
 		t.Fatalf("creation=%+v err=%v", repo.change, err)
 	}
+	_, err = service.CreateDoctorScheduleChange(context.Background(), schedule.DoctorID, request.CreateScheduleChangeRequest{
+		AffiliationID: schedule.AffiliationID,
+		Schedules: []request.DoctorInvitationScheduleRequest{{
+			ScheduleDate: &date,
+			StartTime:    "08:00",
+			EndTime:      "10:00",
+		}},
+	})
+	var validationError response.CustomError
+	if !errors.As(err, &validationError) || validationError.Code != "INVALID_FIELD_VALUE" {
+		t.Fatalf("routine replacement accepted a specific date: %v", err)
+	}
 	if _, err := service.DeleteHospitalSchedule(context.Background(), uuid.NewString(), uuid.NewString(), schedule.ID); !errors.Is(err, constant.ErrScheduleNotFound) {
 		t.Fatalf("foreign delete=%v", err)
 	}
