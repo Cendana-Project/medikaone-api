@@ -24,7 +24,7 @@ var DB *gorm.DB
 // RequiredDatabaseMigrationVersion is the latest required schema version that every
 // staging/production web process and guarded migration must observe before
 // traffic can resume.
-const RequiredDatabaseMigrationVersion int64 = 20260919090000
+const RequiredDatabaseMigrationVersion int64 = 20260926130000
 
 func OpenDBConn() (*gorm.DB, error) {
 	safeLogging := config.Env.Env == constant.ProductionEnvironment || config.Env.Env == "staging"
