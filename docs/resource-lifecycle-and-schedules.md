@@ -100,6 +100,12 @@ dengan list, ditambah object
 Object `invitation` pada detail afiliasi sengaja tidak memuat `message`; pesan
 penawaran hanya tersedia melalui detail invitation.
 
+Endpoint kontrak dokter
+`GET /v1/doctor/hospital-invitations/:invitation_or_affiliation_id/contract`
+menerima UUID invitation atau UUID affiliation hasil accept. Kedua bentuk tetap
+di-scope ke dokter dari bearer token; UUID milik dokter lain menghasilkan not
+found.
+
 DELETE tidak menghapus rekam medis, resep yang sudah diterbitkan, atau provenance
 kontrak. Kode `RESOURCE_IN_USE` (409) berarti appointment atau resource aktif
 yang bergantung harus diselesaikan terlebih dahulu. Penghapusan akun juga

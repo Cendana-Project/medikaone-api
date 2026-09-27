@@ -418,15 +418,15 @@ func (s *Service) ResendInvitation(ctx context.Context, hospitalID, invitationID
 	return row, nil
 }
 
-func (s *Service) GetDoctorContractURL(ctx context.Context, doctorID, invitationID, version string) (*SignedContractURL, error) {
-	if _, err := uuid.Parse(invitationID); err != nil {
+func (s *Service) GetDoctorContractURL(ctx context.Context, doctorID, invitationOrAffiliationID, version string) (*SignedContractURL, error) {
+	if _, err := uuid.Parse(invitationOrAffiliationID); err != nil {
 		return nil, constant.ErrInvalidUUIDFormat
 	}
 	version, err := normalizeContractVersion(version)
 	if err != nil {
 		return nil, err
 	}
-	document, err := s.repo.GetContractForDoctor(ctx, invitationID, doctorID, version)
+	document, err := s.repo.GetContractForDoctor(ctx, invitationOrAffiliationID, doctorID, version)
 	if err != nil {
 		return nil, mapRepositoryError(err)
 	}

@@ -162,6 +162,8 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   undangan. Jangan mereduksinya menjadi object tunggal.
 - Detail invitation memuat `hospital` sebagai satu object informasi rumah sakit.
   Invitation yang sudah diterima juga memuat `affiliation_id` hasil accept.
+  Endpoint kontrak dokter menerima UUID invitation atau affiliation, dengan
+  scope dokter tetap berasal dari bearer token.
   Detail afiliasi dokter maupun tenant juga memuat object `hospital` serta
   ringkasan `invitation` asal kontrak tanpa menyalin message penawaran.
 - Undangan dapat dibuat tanpa jadwal awal. Accept harus memeriksa konflik lagi
