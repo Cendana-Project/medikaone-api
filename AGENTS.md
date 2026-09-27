@@ -196,8 +196,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   ketika pihak lawan menyetujui proposal. Proposal yang gagal saat approval tetap
   `PENDING` agar dapat ditolak atau diperbaiki sesuai flow yang tersedia.
 - Schedule change rutin adalah operasi `REPLACE`: setelah approval, seluruh
-  jadwal aktif untuk `affiliation_id` itu diganti snapshot baru. Afiliasi rumah
-  sakit lain tidak ikut diganti.
+  jadwal rutin aktif (`schedule_date IS NULL`) untuk `affiliation_id` itu diganti
+  snapshot rutin baru. Specific schedule tetap aktif dan afiliasi rumah sakit
+  lain tidak ikut diganti.
 - List afiliasi mempertahankan jadwal aktif pada `schedules` dan mengekspos
   seluruh proposal yang masih menunggu pada `pending_schedule_changes`. Maksimal
   satu operasi `REPLACE` rutin boleh pending per afiliasi, sedangkan beberapa
