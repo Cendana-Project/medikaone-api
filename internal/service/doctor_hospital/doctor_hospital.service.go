@@ -279,7 +279,7 @@ func (s *Service) CreateInvitation(ctx context.Context, hospitalID, invitedBy st
 	objectPath := fmt.Sprintf("hospitals/%s/doctor-invitations/%s/original/%s.pdf", hospitalID, invitationID, uuid.NewString())
 	uploaded, err := s.storage.Upload(ctx, objectPath, "application/pdf", file.Content)
 	if err != nil {
-		return nil, constant.ErrStorageUnavailable
+		return nil, mapContractUploadError(err)
 	}
 	document.Bucket = uploaded.Bucket
 	document.ObjectPath = uploaded.ObjectPath
@@ -536,11 +536,14 @@ func (s *Service) MarkNotificationRead(ctx context.Context, userID, notification
 }
 
 func (s *Service) validatePDF(file UploadedFile) (repository.Document, error) {
+	if int64(len(file.Content)) > s.maxFileSize {
+		return repository.Document{}, constant.NewFileTooLargeError(s.maxFileSize)
+	}
 	filename := filepath.Base(strings.ReplaceAll(strings.TrimSpace(file.Filename), "\\", "/"))
-	if filename == "." || filename == "" || !strings.EqualFold(filepath.Ext(filename), ".pdf") {
+	if filename == "." || filename == "" || utf8.RuneCountInString(filename) > 255 || !strings.EqualFold(filepath.Ext(filename), ".pdf") {
 		return repository.Document{}, constant.ErrInvalidContractPDF
 	}
-	if len(file.Content) == 0 || int64(len(file.Content)) > s.maxFileSize {
+	if len(file.Content) == 0 {
 		return repository.Document{}, constant.ErrInvalidContractPDF
 	}
 	if !bytes.HasPrefix(file.Content, []byte("%PDF-")) {
@@ -555,6 +558,15 @@ func (s *Service) validatePDF(file UploadedFile) (repository.Document, error) {
 		Filename: filename, MIMEType: "application/pdf", FileSize: int64(len(file.Content)),
 		SHA256: hex.EncodeToString(sum[:]),
 	}, nil
+}
+
+func (s *Service) MaxFileSize() int64 { return s.maxFileSize }
+
+func mapContractUploadError(err error) error {
+	if errors.Is(err, storageclient.ErrFileTooLarge) {
+		return constant.ErrFileTooLarge
+	}
+	return constant.ErrStorageUnavailable
 }
 
 func validateSchedules(input []request.DoctorInvitationScheduleRequest) ([]repository.Schedule, error) {

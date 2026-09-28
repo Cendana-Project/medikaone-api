@@ -206,9 +206,15 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 	if err != nil || len(doctors) != 1 || doctors[0].DoctorMedikaOneID != publicID || len(doctors[0].Schedules) != 2 {
 		t.Fatalf("hospital doctor identity = %#v, %v", doctors, err)
 	}
+	var originalRoutineID, originalSpecificID string
 	for _, schedule := range doctors[0].Schedules {
 		if schedule.Status != "ACTIVE" {
 			t.Fatalf("active affiliation schedule missing ACTIVE status: %#v", schedule)
+		}
+		if schedule.ScheduleDate == nil {
+			originalRoutineID = schedule.ID
+		} else {
+			originalSpecificID = schedule.ID
 		}
 	}
 	if doctors[0].PendingScheduleChanges == nil || len(doctors[0].PendingScheduleChanges) != 0 {
@@ -306,11 +312,19 @@ func testDoctorDirectoryAffiliation(t *testing.T, tx *gorm.DB, doctorID, publicI
 		t.Fatalf("approve pending affiliation schedule: %v", err)
 	}
 	doctors, err = hospitalRepo.ListHospitalDoctors(ctx, hospitalID, "ACTIVE")
-	if err != nil || len(doctors) != 1 || len(doctors[0].PendingScheduleChanges) != 2 || len(doctors[0].Schedules) != 1 {
+	if err != nil || len(doctors) != 1 || len(doctors[0].PendingScheduleChanges) != 2 || len(doctors[0].Schedules) != 2 {
 		t.Fatalf("approved replacement schedule projection = %#v, %v", doctors, err)
 	}
-	if schedule := doctors[0].Schedules[0]; schedule.ID == changeItemID || schedule.Status != "ACTIVE" || schedule.DayOfWeek != 4 || schedule.StartTime != "13:00" {
-		t.Fatalf("approved proposal did not become a new active schedule: %#v", schedule)
+	for _, schedule := range doctors[0].Schedules {
+		if schedule.ScheduleDate != nil {
+			if schedule.ID != originalSpecificID || schedule.Status != "ACTIVE" || *schedule.ScheduleDate != date.Format("2006-01-02") || schedule.StartTime != "10:00" || schedule.EndTime != "11:00" {
+				t.Fatalf("routine replacement changed the specific schedule: %#v", schedule)
+			}
+			continue
+		}
+		if schedule.ID == originalRoutineID || schedule.ID == changeItemID || schedule.Status != "ACTIVE" || schedule.DayOfWeek != 4 || schedule.StartTime != "13:00" {
+			t.Fatalf("approved proposal did not become a new active recurring schedule: %#v", schedule)
+		}
 	}
 	if err := tx.RollbackTo("pending_affiliation_schedule").Error; err != nil {
 		t.Fatal(err)

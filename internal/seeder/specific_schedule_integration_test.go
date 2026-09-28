@@ -46,6 +46,16 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		}
 		return row
 	}
+	proposeConflict := func(operation string, items []appointmentrepo.ScheduleItem) {
+		t.Helper()
+		_, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
+			AffiliationID: affiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: hospitalID,
+			Operation: operation, Schedules: items, Now: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
+		})
+		if !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
+			t.Fatalf("conflicting %s proposal=%v", operation, err)
+		}
+	}
 	approve := func(changeID string) {
 		t.Helper()
 		if err := repo.ReviewScheduleChange(ctx, changeID, doctorID, "DOCTOR", "APPROVED", nil, now); err != nil {
@@ -140,28 +150,22 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 		VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$6,$6)`, secondAffiliationID, secondHospitalID, doctorID, secondDepartmentID, secondInvitationID, now); err != nil {
 		t.Fatal(err)
 	}
-	proposeSecondHospital := func(startTime, endTime string) *response.ScheduleChangeRequest {
+	proposeSecondHospital := func(startTime, endTime string) (*response.ScheduleChangeRequest, error) {
 		t.Helper()
-		row, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
+		return repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
 			AffiliationID: secondAffiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: secondHospitalID,
 			Operation: "ADD", Now: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
 			Schedules: []appointmentrepo.ScheduleItem{{DayOfWeek: 1, StartTime: startTime, EndTime: endTime,
 				Timezone: "Asia/Makassar", BookingMode: "FIXED_SLOT", SlotDurationMinutes: 30, Capacity: 1}},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return row
 	}
-	crossTimezoneConflict := proposeSecondHospital("09:00", "10:00")
-	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
+	if _, err := proposeSecondHospital("09:00", "10:00"); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
 		t.Fatalf("WIB/WITA cross-hospital conflict=%v", err)
 	}
-	rejectionReason = "same absolute practice time"
-	if err := repo.ReviewScheduleChange(ctx, crossTimezoneConflict.ID, doctorID, "DOCTOR", "REJECTED", &rejectionReason, now); err != nil {
+	adjacentTimezoneSchedule, err := proposeSecondHospital("10:00", "11:00")
+	if err != nil {
 		t.Fatal(err)
 	}
-	adjacentTimezoneSchedule := proposeSecondHospital("10:00", "11:00")
 	if err := repo.ReviewScheduleChange(ctx, adjacentTimezoneSchedule.ID, doctorID, "DOCTOR", "APPROVED", nil, now); err != nil {
 		t.Fatalf("adjacent WIB/WITA schedule rejected: %v", err)
 	}
@@ -229,14 +233,7 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	conflict := specific
 	conflict.StartTime = "08:00"
 	conflict.EndTime = "09:00"
-	conflicting := propose("ADD", []appointmentrepo.ScheduleItem{conflict}, nil)
-	if err := repo.ReviewScheduleChange(ctx, conflicting.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
-		t.Fatalf("specific vs recurring conflict=%v", err)
-	}
-	reason := "conflicting hours"
-	if err := repo.ReviewScheduleChange(ctx, conflicting.ID, doctorID, "DOCTOR", "REJECTED", &reason, now); err != nil {
-		t.Fatal(err)
-	}
+	proposeConflict("ADD", []appointmentrepo.ScheduleItem{conflict})
 	scheduleID := scalarString(t, sqlDB, `SELECT id::text FROM doctor_hospital_schedules WHERE affiliation_id=$1 AND schedule_date=$2::date AND is_active`, affiliationID, date)
 	schedule, err := repo.GetActiveSchedule(ctx, scheduleID)
 	if err != nil {
@@ -300,14 +297,7 @@ func runSpecificScheduleIntegration(t *testing.T, db *gorm.DB, sqlDB *sql.DB) {
 	conflictingRoutine := recurring
 	conflictingRoutine.StartTime = "13:00"
 	conflictingRoutine.EndTime = "14:00"
-	conflictingReplacement := propose("REPLACE", []appointmentrepo.ScheduleItem{conflictingRoutine}, nil)
-	if err := repo.ReviewScheduleChange(ctx, conflictingReplacement.ID, doctorID, "DOCTOR", "APPROVED", nil, now); !errors.Is(err, appointmentrepo.ErrDoctorScheduleConflict) {
-		t.Fatalf("routine replacement ignored preserved specific schedule: %v", err)
-	}
-	reason = "conflicts with specific schedule"
-	if err := repo.ReviewScheduleChange(ctx, conflictingReplacement.ID, doctorID, "DOCTOR", "REJECTED", &reason, now); err != nil {
-		t.Fatal(err)
-	}
+	proposeConflict("REPLACE", []appointmentrepo.ScheduleItem{conflictingRoutine})
 	if _, err := repo.CreateScheduleChange(ctx, appointmentrepo.ScheduleChangeInput{
 		AffiliationID: affiliationID, ActorID: adminID, ActorParty: "HOSPITAL", HospitalID: hospitalID,
 		Operation: "REPLACE", Schedules: []appointmentrepo.ScheduleItem{recurring, specific}, Now: now,

@@ -37,3 +37,23 @@ func (ctl *Controller) DeleteHospitalSchedule(c *gin.Context) {
 	result, err := ctl.service.DeleteHospitalSchedule(c.Request.Context(), hospitalID(c), util.GetUserID(c), c.Param("schedule_id"))
 	respond(c, constant.MsgHospitalScheduleChangeCreated, http.StatusAccepted, result, err)
 }
+
+func (ctl *Controller) DeactivateDoctorSchedules(c *gin.Context) {
+	var req request.DeactivateSchedulesRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.DeactivateDoctorSchedules(c.Request.Context(), util.GetUserID(c), c.Param("affiliation_id"), req)
+	respond(c, constant.MsgDoctorScheduleDeactivationRequested, http.StatusAccepted, result, err)
+}
+
+func (ctl *Controller) DeactivateHospitalSchedules(c *gin.Context) {
+	var req request.DeactivateSchedulesRequest
+	if err := util.BindAndValidate(c, &req); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.DeactivateHospitalSchedules(c.Request.Context(), hospitalID(c), util.GetUserID(c), c.Param("affiliation_id"), req)
+	respond(c, constant.MsgHospitalScheduleDeactivationRequested, http.StatusAccepted, result, err)
+}

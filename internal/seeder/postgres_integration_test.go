@@ -304,6 +304,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		testAccountDeletionIntegration(t, db)
 		testResourceLifecycleIntegration(t, db)
 		testInvitationRejectionIntegration(t, db)
+		testInvitationContractReplacementIntegration(t, db)
 		testDirectorySeedsIntegration(t, db, sqlDB)
 		currentIDs := map[string]string{
 			"doctor_medikaone": scalarString(t, sqlDB, `SELECT profile.medikaone_id FROM doctor_profiles profile JOIN users doctor ON doctor.id = profile.user_id WHERE doctor.email = 'doctor001@medikaone.id'`),
@@ -728,6 +729,12 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		t.FailNow()
 	}
 	if ok := t.Run("hospital directory images and verified reviews", func(t *testing.T) { runHospitalDirectoryIntegration(t, db, sqlDB) }); !ok {
+		t.FailNow()
+	}
+	if ok := t.Run("active and pending proposals reserve doctor practice time", func(t *testing.T) { runPendingScheduleConflictIntegration(t, db, sqlDB) }); !ok {
+		t.FailNow()
+	}
+	if ok := t.Run("schedule deactivation requires atomic counterpart approval", func(t *testing.T) { runScheduleDeactivationIntegration(t, db, sqlDB) }); !ok {
 		t.FailNow()
 	}
 

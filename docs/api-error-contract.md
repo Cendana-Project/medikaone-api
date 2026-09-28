@@ -62,7 +62,7 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 - `403`: akun terautentikasi tetapi tidak mempunyai izin.
 - `404`: resource yang diminta tidak ditemukan.
 - `409`: data duplikat atau state resource tidak mengizinkan aksi.
-- `413`: request melebihi batas 10 MB.
+- `413`: file atau body request melebihi batas ukuran yang diizinkan.
 - `429`: cooldown atau batas percobaan/permintaan terlampaui.
 - `500`: kesalahan internal yang tidak boleh membocorkan detail implementasi.
 - `502`/`503`: dependency atau kapasitas layanan sementara tidak tersedia.
@@ -79,6 +79,26 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 | `PASSWORD_RESET_PIN_ATTEMPTS_EXCEEDED` | Hapus challenge reset dan minta PIN baru. |
 | `PASSWORD_PROCESSING_BUSY` | Retry dengan backoff singkat. |
 | `EMAIL_DELIVERY_BUSY` | Retry pengiriman email dengan backoff singkat. |
+
+## Kode upload dan konflik jadwal
+
+| Kode | HTTP | Tindakan client |
+| --- | --- | --- |
+| `FILE_TOO_LARGE` | 413 | Pilih PDF yang lebih kecil. Pesan menyertakan batas byte aplikasi jika diketahui; batas provider storage juga dipetakan ke kode ini. |
+| `REQUEST_TOO_LARGE` | 413 | Kurangi ukuran keseluruhan request multipart/body. Ukuran file bukan satu-satunya bagian body. |
+| `INVALID_CONTRACT_PDF` | 400 | Kirim file PDF yang valid; nama/ekstensi PDF saja tidak cukup. |
+| `DOCTOR_SCHEDULE_CONFLICT` | 409 | Pilih waktu lain atau tinjau jadwal aktif dan proposal yang masih pending; pengajuan konflik tidak dibuat. |
+| `DOCTOR_SCHEDULE_NOT_FOUND` | 404 | Muat ulang jadwal aktif; scope penonaktifan tidak mempunyai target yang tersedia. |
+| `SCHEDULE_CHANGE_ALREADY_PENDING` | 409 | Selesaikan pengajuan yang berbenturan terlebih dahulu. Deactivate ALL berbenturan dengan semua pengajuan pada afiliasi itu; penonaktifan satu hari berbenturan dengan REPLACE atau removal/deactivation hari yang sama. |
+| `SCHEDULE_CHANGE_COUNTERPART_REVIEW_REQUIRED` | 403 | Pengajuan dokter harus ditinjau rumah sakit dan sebaliknya. |
+| `SCHEDULE_CHANGE_HAS_ACTIVE_APPOINTMENTS` | 409 | Batalkan/reschedule appointment aktif pada jadwal yang ditargetkan sebelum approval; seluruh pengajuan tetap PENDING tanpa perubahan parsial. |
+| `SCHEDULE_CHANGE_STATE_CONFLICT` | 409 | Muat ulang status pengajuan dan jadwal. Snapshot deactivation yang targetnya sudah nonaktif/tidak sesuai tidak dapat disetujui. |
+
+Kontrak menerima maksimal `SUPABASE_STORAGE_MAX_FILE_SIZE_BYTES`, dibatasi
+paling tinggi 10 MiB (10.485.760 byte). Body multipart mempunyai tambahan
+anggaran 64 KiB untuk field dan metadata form. File tepat pada batas file tetap
+valid jika metadata masih dalam anggaran. JSON tetap dibatasi 10 MiB.
+Kegagalan approval karena konflik tetap mempertahankan proposal sebagai PENDING.
 
 ## Kode check-in dan walk-in
 

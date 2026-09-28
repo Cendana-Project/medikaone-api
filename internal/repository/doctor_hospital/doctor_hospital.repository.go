@@ -1187,6 +1187,7 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 	changes := make([]response.PendingScheduleChange, 0)
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT id, affiliation_id, operation, target_schedule_id, requested_by,
+		       deactivation_scope, deactivation_day_of_week,
 		       requested_by_party, status, reason, expires_at, created_at, updated_at
 		FROM doctor_schedule_change_requests
 		WHERE affiliation_id IN ? AND status = 'PENDING'
@@ -1208,6 +1209,7 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 	type pendingScheduleItem struct {
 		ChangeRequestID     string
 		ID                  string
+		TargetScheduleID    *string
 		DayOfWeek           int
 		ScheduleDate        *string
 		StartTime           string
@@ -1219,7 +1221,7 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 	}
 	items := make([]pendingScheduleItem, 0)
 	if err := r.db.WithContext(ctx).Raw(`
-		SELECT change_request_id, id, day_of_week, schedule_date::text AS schedule_date,
+		SELECT change_request_id, id, target_schedule_id, day_of_week, schedule_date::text AS schedule_date,
 		       TO_CHAR(start_time, 'HH24:MI') AS start_time,
 		       TO_CHAR(end_time, 'HH24:MI') AS end_time,
 		       timezone, booking_mode, slot_duration_minutes, capacity
@@ -1235,7 +1237,8 @@ func (r *Repository) attachPendingScheduleChanges(ctx context.Context, affiliati
 		}
 		changes[i].Schedules = append(changes[i].Schedules, response.DoctorHospitalSchedule{
 			ID: item.ID, Status: entity.ScheduleChangePending, DayOfWeek: item.DayOfWeek,
-			ScheduleDate: item.ScheduleDate, StartTime: item.StartTime, EndTime: item.EndTime,
+			TargetScheduleID: item.TargetScheduleID,
+			ScheduleDate:     item.ScheduleDate, StartTime: item.StartTime, EndTime: item.EndTime,
 			Timezone: item.Timezone, BookingMode: item.BookingMode,
 			SlotDurationMinutes: item.SlotDurationMinutes, Capacity: item.Capacity,
 		})

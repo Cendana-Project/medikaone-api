@@ -158,26 +158,28 @@ type AppointmentPage struct {
 }
 
 type ScheduleChangeRequest struct {
-	Operation         string                   `json:"operation"`
-	TargetScheduleID  *string                  `json:"target_schedule_id,omitempty"`
-	DoctorMedikaOneID string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
-	ID                string                   `json:"id"`
-	AffiliationID     string                   `json:"affiliation_id"`
-	HospitalID        string                   `json:"hospital_id"`
-	HospitalName      string                   `json:"hospital_name"`
-	DoctorID          string                   `json:"doctor_id"`
-	DoctorName        string                   `json:"doctor_name"`
-	RequestedBy       string                   `json:"requested_by"`
-	RequestedByParty  string                   `json:"requested_by_party"`
-	Status            string                   `json:"status"`
-	Reason            *string                  `json:"reason,omitempty"`
-	ReviewedBy        *string                  `json:"reviewed_by,omitempty"`
-	ReviewedAt        *time.Time               `json:"reviewed_at,omitempty"`
-	RejectionReason   *string                  `json:"rejection_reason,omitempty"`
-	ExpiresAt         time.Time                `json:"expires_at"`
-	CreatedAt         time.Time                `json:"created_at"`
-	UpdatedAt         time.Time                `json:"updated_at"`
-	Schedules         []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	Operation             string                   `json:"operation"`
+	TargetScheduleID      *string                  `json:"target_schedule_id,omitempty"`
+	DeactivationScope     string                   `json:"deactivation_scope,omitempty"`
+	DeactivationDayOfWeek *int                     `json:"deactivation_day_of_week,omitempty"`
+	DoctorMedikaOneID     string                   `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
+	ID                    string                   `json:"id"`
+	AffiliationID         string                   `json:"affiliation_id"`
+	HospitalID            string                   `json:"hospital_id"`
+	HospitalName          string                   `json:"hospital_name"`
+	DoctorID              string                   `json:"doctor_id"`
+	DoctorName            string                   `json:"doctor_name"`
+	RequestedBy           string                   `json:"requested_by"`
+	RequestedByParty      string                   `json:"requested_by_party"`
+	Status                string                   `json:"status"`
+	Reason                *string                  `json:"reason,omitempty"`
+	ReviewedBy            *string                  `json:"reviewed_by,omitempty"`
+	ReviewedAt            *time.Time               `json:"reviewed_at,omitempty"`
+	RejectionReason       *string                  `json:"rejection_reason,omitempty"`
+	ExpiresAt             time.Time                `json:"expires_at"`
+	CreatedAt             time.Time                `json:"created_at"`
+	UpdatedAt             time.Time                `json:"updated_at"`
+	Schedules             []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
 }
 
 type AppointmentReminder struct {

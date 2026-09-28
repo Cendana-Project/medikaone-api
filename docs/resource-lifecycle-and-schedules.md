@@ -1,6 +1,6 @@
 # Direktori, lifecycle resource, dan jadwal dokter
 
-Migration terbaru: `20260926100000_schedule_conflict_guard.sql`. Jalankan seluruh
+Migration terbaru: `20260928043302_schedule_deactivation.sql`. Jalankan seluruh
 migration pending melalui command migration terpisah sebelum deploy API.
 Koleksi Bruno berada pada repository terpisah `Cendana-Project/bruno-medikaone`.
 
@@ -80,8 +80,22 @@ pemisahan antara ID master dengan `department_id` milik rumah sakit dijelaskan d
 PATCH invitation menggunakan JSON dengan field opsional `department_id`,
 `room_id`, `message`, `schedules`. Field yang tidak dikirim dipertahankan.
 `room_id`/`message` string kosong mengosongkan nilai; `schedules: []` menghapus
-seluruh jadwal usulan. Dokter penerima, rumah sakit pengirim, dan berkas kontrak
-tidak diganti melalui PATCH. Undangan tanpa jadwal awal tetap diperbolehkan.
+seluruh jadwal usulan. Dokter penerima dan rumah sakit pengirim tetap.
+Undangan tanpa jadwal awal tetap diperbolehkan.
+
+Untuk mengunggah kontrak baru, endpoint PATCH yang sama menerima
+`multipart/form-data`: `contract` adalah file PDF opsional, sedangkan
+`department_id`, `room_id`, `message`, dan `schedules` adalah field teks opsional.
+`schedules` berisi array JSON tanpa komentar; omit atau `null` mempertahankan
+jadwal, dan `[]` mengosongkannya. Biarkan HTTP client membuat Content-Type beserta
+boundary multipart. Tidak mengirim `contract` mempertahankan kontrak saat ini.
+Penggantian hanya berlaku pada invitation PENDING yang belum kedaluwarsa.
+`contract_filename` dan URL `version=original` mengacu ke PDF terbaru setelah
+berhasil; metadata kontrak lama masuk ke audit UPDATED dan file lama dipertahankan.
+Jika transaksi update gagal, file baru dibersihkan tanpa mengubah kontrak lama.
+Ukuran berlebih menghasilkan HTTP 413 `FILE_TOO_LARGE` atau `REQUEST_TOO_LARGE`,
+sedangkan PDF tidak valid menghasilkan HTTP 400 `INVALID_CONTRACT_PDF`.
+
 `department_id` wajib dipilih dari list department rumah sakit; nilai kosong atau
 placement dari rumah sakit lain menghasilkan HTTP 404
 `HOSPITAL_PLACEMENT_NOT_FOUND`.
@@ -196,3 +210,174 @@ specific schedule aktif tetap memakai ID lamanya. Untuk `ADD`, jadwal usulan
 ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
 ID pada item snapshot pending adalah ID item proposal, bukan `schedule_id` aktif;
 ID tersebut tidak boleh dipakai untuk booking atau delete schedule.
+
+### Konflik ketika pengajuan dibuat
+
+ADD/REPLACE memeriksa jadwal aktif dan semua proposal ADD/REPLACE PENDING yang
+belum kedaluwarsa milik dokter di seluruh afiliasi. Pemeriksaan serta penyimpanan
+berada dalam transaksi dengan lock per dokter, sehingga dua pengajuan bersamaan
+pada waktu yang sama tidak dapat keduanya berhasil. Pending REMOVE tidak
+membebaskan waktu sampai disetujui. REPLACE mengabaikan hanya jadwal rutin aktif
+afiliasi yang sedang diganti; specific schedule yang dipertahankan tetap dicek.
+
+Contoh: rutin Rabu 09:00–12:00 menghalangi specific pada Rabu 10:00–11:00.
+Specific PENDING tanggal 30 September 2026 09:00–10:00 juga menghalangi request
+kedua untuk tanggal dan jam tersebut. Jadwal 10:00–11:00 boleh mengikuti
+09:00–10:00 jika tidak berbenturan dengan jadwal/proposal lain. Perbandingan
+memakai timezone IANA, bukan hanya teks tanggal/jam lokal.
+
+Konflik menghasilkan 409 `DOCTOR_SCHEDULE_CONFLICT` sejak POST, tanpa membuat
+proposal baru. Approval memeriksa ulang, dengan mengecualikan proposalnya sendiri.
+Proposal duplikat yang telanjur ada sebelum perbaikan tidak dihapus otomatis;
+tolak salah satunya sebelum menyetujui proposal lain. Proposal ditolak atau
+kedaluwarsa tidak lagi memblokir pengajuan baru.
+
+### Ringkasan jadwal untuk tampilan
+
+Semua object response yang mempunyai array `schedules` kini juga membawa
+`schedule_groups`: undangan list/detail/create/update/accept, afiliasi
+list/detail, detail dokter publik, serta proposal jadwal create/list dan proposal
+nested dalam `pending_schedule_changes`. Jika tidak ada jadwal, nilainya `[]`.
+`schedules` tetap berisi row asli dengan ID masing-masing.
+
+Contoh satu group untuk empat hari rutin:
+
+```json
+{
+  "type": "RECURRING",
+  "status": "ACTIVE",
+  "item_ids": [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444"
+  ],
+  "day_of_week": [1, 2, 3, 4],
+  "day_label": "Senin–Kamis",
+  "time_label": "19:00–20:00",
+  "display_label": "Senin–Kamis, 19:00–20:00",
+  "start_time": "19:00",
+  "end_time": "20:00",
+  "timezone": "Asia/Jakarta",
+  "booking_mode": "FIXED_SLOT",
+  "slot_duration_minutes": 30,
+  "capacity": 1
+}
+```
+
+Group hanya menggabungkan jadwal rutin dengan jam mulai/selesai, timezone,
+status, booking mode, durasi slot, dan kapasitas identik. Urutan hari
+Senin–Minggu; hari tidak berurutan memakai koma, misalnya `Senin, Rabu, Jumat`.
+Sesi 09:00–10:00 dan 10:00–11:00 tetap dua group karena mempunyai batas sesi
+berbeda. Untuk specific: `type: SPECIFIC`, `day_of_week: []`, `schedule_date`
+tetap ada, dan label tanggal misalnya `30 Sep 2026, 09:00–10:00`.
+
+Jadwal aktif memakai `schedule_groups` pada afiliasi; jadwal pending memakai
+`pending_schedule_changes[i].schedule_groups` sehingga setiap pengajuan dan
+statusnya tetap terpisah. `item_ids` pada group aktif mengacu ke ID schedule
+asli, tetapi pada proposal mengacu ke ID item proposal yang belum bookable.
+Group bukan resource baru dan tidak memiliki satu ID untuk booking/delete.
+Status snapshot invitation dapat tidak ada; status invitation tetap berada pada
+object induk. Endpoint availability, jadwal hari ini, dan appointment tetap
+menyajikan satu sesi/kunjungan per item sesuai tanggalnya, bukan snapshot rutin.
+
+## Penonaktifan seluruh jadwal atau satu hari rutin
+
+| Endpoint | Otorisasi |
+| --- | --- |
+| `POST /v1/doctor/hospital-affiliations/:affiliation_id/schedules/deactivate` | Dokter pemilik afiliasi, permission `doctor_schedule.propose`. |
+| `POST /v1/hospitals/:hospital_id/doctor-affiliations/:affiliation_id/schedules/deactivate` | Tenant rumah sakit afiliasi, permission `doctor_schedule.propose`. |
+
+Body untuk seluruh jadwal rutin dan khusus aktif dalam satu afiliasi:
+
+```json
+{"scope":"ALL","reason":"Menghentikan seluruh jadwal praktik di rumah sakit ini"}
+```
+
+Body untuk seluruh sesi rutin pada satu hari lokal, misalnya Senin:
+
+```json
+{"scope":"RECURRING_DAY","day_of_week":1,"reason":"Tidak praktik rutin pada hari Senin"}
+```
+
+`scope` wajib, case-sensitive, dengan dua nilai di atas. `day_of_week` pada
+endpoint ini merupakan **satu angka**, bukan array: `0` Minggu hingga `6` Sabtu.
+Field wajib pada `RECURRING_DAY`; hilangkan saat `ALL` (null diperlakukan sebagai
+tidak dikirim). `reason` opsional, maksimal 1000 karakter. Pilihan satu hari
+menargetkan semua sesi rutin pada hari itu di afiliasi tersebut; jadwal khusus
+pada tanggal yang jatuh di hari yang sama tidak ikut dinonaktifkan. Afiliasi
+rumah sakit lain tidak terpengaruh. Tidak ada target aktif menghasilkan 404
+`DOCTOR_SCHEDULE_NOT_FOUND`.
+
+Kedua endpoint mengembalikan HTTP **202 Accepted**, message
+`DOCTOR_SCHEDULE_DEACTIVATION_REQUESTED` atau
+`HOSPITAL_SCHEDULE_DEACTIVATION_REQUESTED`, dan object schedule change lengkap.
+Field baru pada proposal adalah:
+
+```json
+{
+  "operation": "DEACTIVATE",
+  "status": "PENDING",
+  "deactivation_scope": "RECURRING_DAY",
+  "deactivation_day_of_week": 1,
+  "schedules": [
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "target_schedule_id": "88888888-8888-4888-8888-888888888888",
+      "status": "PENDING",
+      "day_of_week": [1],
+      "start_time": "08:00",
+      "end_time": "12:00",
+      "timezone": "Asia/Jakarta",
+      "booking_mode": "FIXED_SLOT",
+      "slot_duration_minutes": 30,
+      "capacity": 1
+    }
+  ]
+}
+```
+
+Contoh tersebut adalah potongan payload; metadata proposal dan `schedule_groups`
+tetap disertakan. Scope `ALL` tidak mengirim `deactivation_day_of_week`. ID item
+adalah UUID proposal, sedangkan `target_schedule_id` menunjuk jadwal aktif yang
+akan dinonaktifkan. Snapshot dan target disimpan saat pengajuan; approval tidak
+memilih ulang atau memperluas target secara diam-diam. `schedule_groups.item_ids`
+tetap menunjuk item proposal. Frontend harus membaca `operation` untuk memberi
+label **pengajuan penonaktifan**, bukan menganggapnya calon jadwal baru.
+
+Proposal muncul pada list schedule change dan
+`pending_schedule_changes` di list/detail afiliasi. Jadwal aktif tetap tampil
+pada `schedules` dan tetap bookable sampai approval. Gunakan endpoint approve/
+reject yang sudah ada; dokter menyetujui pengajuan rumah sakit dan rumah sakit
+menyetujui pengajuan dokter. Pengaju sendiri mendapat 403
+`SCHEDULE_CHANGE_COUNTERPART_REVIEW_REQUIRED`.
+
+Approval menonaktifkan seluruh target dalam satu transaksi. Jadwal hilang dari
+list aktif, direktori/availability hanya memperhitungkan jadwal yang masih aktif,
+dan riwayat appointment serta snapshot proposal tetap ada. Afiliasi tetap aktif.
+Snapshot proposal yang sudah disetujui berstatus `APPROVED`, yang merupakan status
+pengajuan dan tidak berarti jadwal target masih aktif. Tidak ada reaktivasi
+otomatis; jadwal baru dapat diajukan melalui flow rutin/khusus yang sudah ada.
+
+- Appointment target berstatus `CONFIRMED`, `CHECKED_IN`, `WAITING_VITALS`,
+  `WAITING_DOCTOR`, atau `IN_CONSULTATION` menolak seluruh approval dengan 409
+  `SCHEDULE_CHANGE_HAS_ACTIVE_APPOINTMENTS`. Batalkan atau reschedule appointment
+  terlebih dahulu. Appointment pada jadwal yang tidak ditargetkan tidak menghalangi.
+- Target yang sudah nonaktif atau tidak lagi sesuai scope menolak seluruh approval
+  dengan 409 `SCHEDULE_CHANGE_STATE_CONFLICT`; tidak ada perubahan parsial.
+- `ALL` berbenturan dengan setiap proposal pending lain pada afiliasi yang sama.
+  Selama pending, `ALL` juga memblokir pengajuan perubahan baru pada afiliasi itu.
+- `RECURRING_DAY` berbenturan dengan `REPLACE`, `DEACTIVATE ALL`, deactivation hari
+  yang sama, dan `REMOVE` sesi rutin pada hari yang sama. `ADD`, `REMOVE` specific,
+  serta perubahan hari lain tetap diizinkan dengan validasi konflik jadwal biasa.
+- Benturan proposal menghasilkan 409 `SCHEDULE_CHANGE_ALREADY_PENDING`. Aturan
+  berlaku dua arah, tidak bergantung urutan pengajuan. Proposal kedaluwarsa tidak
+  memblokir pengajuan baru setelah expiry diproses; TTL tetap tujuh hari. Jika
+  proposal kedaluwarsa masih dikunci transaksi review lain, request dapat menerima
+  konflik pending sementara dan dapat diulang setelah transaksi tersebut selesai.
+- Approval gagal karena appointment/target tidak valid mempertahankan `PENDING`.
+  Reject atau expiry tidak menonaktifkan jadwal.
+
+Migration baru wajib diterapkan sebelum deploy; startup memerlukan versi
+`20260928043302`. Seeder yang ada sudah menyediakan jadwal aktif untuk kedua flow;
+tidak menambahkan pending deactivation otomatis agar demo booking tetap tersedia.

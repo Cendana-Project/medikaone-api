@@ -38,7 +38,7 @@ func TestCreateInvitationRejectsRequestLargerThanTenMegabytes(t *testing.T) {
 
 	controller := &Controller{}
 	controller.CreateInvitation(ctx)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected HTTP 400 for oversized request, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected HTTP 413 for oversized request, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

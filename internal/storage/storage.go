@@ -2,8 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrFileTooLarge = errors.New("storage file size limit exceeded")
 
 type UploadedObject struct {
 	Bucket     string

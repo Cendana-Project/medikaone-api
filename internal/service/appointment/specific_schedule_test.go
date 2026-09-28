@@ -56,12 +56,44 @@ func TestSpecificScheduleAvailabilityDoesNotRepeatAndReservesCapacity(t *testing
 
 type scheduleMutationRepository struct {
 	fakeRepository
-	change repository.ScheduleChangeInput
+	change    repository.ScheduleChangeInput
+	changeErr error
 }
 
 func (f *scheduleMutationRepository) CreateScheduleChange(_ context.Context, input repository.ScheduleChangeInput) (*response.ScheduleChangeRequest, error) {
 	f.change = input
+	if f.changeErr != nil {
+		return nil, f.changeErr
+	}
 	return &response.ScheduleChangeRequest{ID: uuid.NewString(), Operation: input.Operation, Status: "PENDING"}, nil
+}
+
+func TestSpecificScheduleConflictReturnsActionableConflict(t *testing.T) {
+	date := "2026-09-30"
+	schedule := repository.Schedule{AffiliationID: uuid.NewString(), DoctorID: uuid.NewString(), HospitalID: uuid.NewString()}
+	repo := &scheduleMutationRepository{
+		fakeRepository: fakeRepository{schedules: []repository.Schedule{schedule}},
+		changeErr:      repository.ErrDoctorScheduleConflict,
+	}
+	service := NewService(repo, nil, "test")
+	service.now = func() time.Time { return time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC) }
+	req := request.CreateSpecificScheduleRequest{
+		AffiliationID: schedule.AffiliationID,
+		Schedule:      request.DoctorInvitationScheduleRequest{ScheduleDate: &date, StartTime: "09:00", EndTime: "10:00"},
+	}
+	for _, party := range []string{"DOCTOR", "HOSPITAL"} {
+		t.Run(party, func(t *testing.T) {
+			var err error
+			if party == "DOCTOR" {
+				_, err = service.CreateDoctorSpecificSchedule(context.Background(), schedule.DoctorID, req)
+			} else {
+				_, err = service.CreateHospitalSpecificSchedule(context.Background(), schedule.HospitalID, uuid.NewString(), req)
+			}
+			if !errors.Is(err, constant.ErrDoctorScheduleConflict) {
+				t.Fatalf("repository conflict must remain a client conflict: %v", err)
+			}
+		})
+	}
 }
 
 func TestSpecificCreateAndDeleteRequireOwnerAndCounterpartReview(t *testing.T) {
