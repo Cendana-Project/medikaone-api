@@ -77,14 +77,19 @@ func securityHeaders() gin.HandlerFunc {
 
 func limitRequestBody(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.ContentLength > maxBytes {
+		requestLimit := maxBytes
+		if c.ContentType() == "multipart/form-data" {
+			// Multipart framing and bounded metadata must not consume the file allowance.
+			requestLimit += 64 * 1024
+		}
+		if c.Request.ContentLength > requestLimit {
 			resp := constant.ErrRequestTooLarge.ToResponse()
 			util.HandleResponse(c, &resp, nil)
 			c.Abort()
 			return
 		}
 		if c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, requestLimit)
 		}
 		c.Next()
 	}

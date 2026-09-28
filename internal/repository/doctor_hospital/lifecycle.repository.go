@@ -24,6 +24,7 @@ type UpdateInvitationInput struct {
 	RoomID       *string
 	Message      *string
 	Schedules    *[]Schedule
+	Contract     *Document
 	Now          time.Time
 }
 
@@ -211,6 +212,7 @@ func ensurePlacementUnused(tx *gorm.DB, hospitalID, column, id string) error {
 }
 
 func (r *Repository) UpdateInvitation(ctx context.Context, input UpdateInvitationInput) (*response.DoctorHospitalInvitation, error) {
+	var updated *response.DoctorHospitalInvitation
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockInvitationHospital(tx, input.InvitationID, input.HospitalID, ""); err != nil {
 			return err
@@ -298,18 +300,40 @@ func (r *Repository) UpdateInvitation(ctx context.Context, input UpdateInvitatio
 		if err := tx.Model(&row).Updates(fields).Error; err != nil {
 			return err
 		}
+		if input.Contract != nil {
+			var previousContract string
+			if err := tx.Raw(`SELECT to_jsonb(contract)::text FROM doctor_hospital_contracts contract WHERE invitation_id = ? FOR UPDATE`, input.InvitationID).Scan(&previousContract).Error; err != nil {
+				return err
+			}
+			if previousContract == "" {
+				return ErrInvitationNotFound
+			}
+			previousTerms["contract"] = json.RawMessage(previousContract)
+			if err := tx.Exec(`UPDATE doctor_hospital_contracts SET original_filename = ?, original_mime_type = ?,
+				original_bucket = ?, original_object_path = ?, original_file_size = ?, original_sha256 = ?,
+				signed_filename = NULL, signed_mime_type = NULL, signed_bucket = NULL, signed_object_path = NULL,
+				signed_file_size = NULL, signed_sha256 = NULL, signed_at = NULL, updated_at = ? WHERE invitation_id = ?`,
+				input.Contract.Filename, input.Contract.MIMEType, input.Contract.Bucket, input.Contract.ObjectPath,
+				input.Contract.FileSize, input.Contract.SHA256, input.Now, input.InvitationID).Error; err != nil {
+				return err
+			}
+		}
 		// Keep the previous proposed terms in the audit trail when editing a draft.
-		metadata, _ := json.Marshal(map[string]any{"previous_terms": previousTerms, "schedules_replaced": input.Schedules != nil})
+		metadata, _ := json.Marshal(map[string]any{"previous_terms": previousTerms, "schedules_replaced": input.Schedules != nil, "contract_replaced": input.Contract != nil})
 		if err := tx.Exec(`INSERT INTO doctor_hospital_invitation_events (id, invitation_id, actor_id, event_type, metadata, created_at)
 			VALUES (?, ?, ?, 'UPDATED', ?::jsonb, ?)`, uuid.NewString(), input.InvitationID, input.ActorID, string(metadata), input.Now).Error; err != nil {
 			return err
 		}
-		return nil
+		// Hydrate before commit so a read failure cannot cause the service to delete
+		// a newly uploaded contract that the committed invitation already references.
+		var err error
+		updated, err = NewRepository(tx).GetInvitationForHospital(ctx, input.HospitalID, input.InvitationID, input.Now)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return r.GetInvitationForHospital(ctx, input.HospitalID, input.InvitationID, input.Now)
+	return updated, nil
 }
 
 func (r *Repository) DeleteInvitation(ctx context.Context, hospitalID, invitationID, actorID string, now time.Time) error {

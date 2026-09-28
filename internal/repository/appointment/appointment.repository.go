@@ -40,7 +40,7 @@ var (
 	ErrInvalidScheduleChangeState    = errors.New("invalid schedule change state")
 	ErrScheduleChangeOwnApproval     = errors.New("schedule change requires counterpart review")
 	ErrScheduleChangeAppointments    = errors.New("schedule change has active appointments")
-	ErrDoctorScheduleConflict        = errors.New("doctor schedule conflicts with another affiliation")
+	ErrDoctorScheduleConflict        = errors.New("doctor schedule conflicts with active or pending practice")
 )
 
 type Repository struct{ db *gorm.DB }
@@ -1025,36 +1025,45 @@ func (r *Repository) FailReminder(ctx context.Context, reminderID, message strin
 func (r *Repository) ExpireScheduleChanges(ctx context.Context, now time.Time) (int64, error) {
 	var affected int64
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []struct {
-			ID          string
-			RequestedBy string
-		}
-		if err := tx.Raw(`
-			SELECT id, requested_by
-			FROM doctor_schedule_change_requests
-			WHERE status = 'PENDING' AND expires_at <= ?
-			FOR UPDATE SKIP LOCKED`, now).Scan(&rows).Error; err != nil {
-			return err
-		}
-		for _, row := range rows {
-			if err := tx.Exec(`
-				UPDATE doctor_schedule_change_requests
-				SET status = 'EXPIRED', updated_at = ?
-				WHERE id = ? AND status = 'PENDING'`, now, row.ID).Error; err != nil {
-				return err
-			}
-			if err := insertScheduleChangeEvent(tx, row.ID, nil, "EXPIRED", now); err != nil {
-				return err
-			}
-			data, _ := json.Marshal(map[string]any{"schedule_change_id": row.ID, "event": "SCHEDULE_CHANGE_EXPIRED"})
-			if err := insertNotification(tx, row.RequestedBy, "SCHEDULE_CHANGE_EXPIRED", "Pengajuan jadwal kedaluwarsa", "Pengajuan perubahan jadwal tidak ditinjau dalam tujuh hari.", data, now); err != nil {
-				return err
-			}
-			affected++
-		}
-		return nil
+		var err error
+		affected, err = expireScheduleChanges(tx, "", now)
+		return err
 	})
 	return affected, err
+}
+
+func expireScheduleChanges(tx *gorm.DB, affiliationID string, now time.Time) (int64, error) {
+	var rows []struct {
+		ID          string
+		RequestedBy string
+	}
+	where := "status = 'PENDING' AND expires_at <= ?"
+	args := []any{now}
+	if affiliationID != "" {
+		where += " AND affiliation_id = ?"
+		args = append(args, affiliationID)
+	}
+	// Reviews lock their proposal before acquiring the affiliation lock. Skip
+	// those rows instead of waiting in the reverse order during creation.
+	if err := tx.Raw(`SELECT id, requested_by FROM doctor_schedule_change_requests
+		WHERE `+where+` FOR UPDATE SKIP LOCKED`, args...).Scan(&rows).Error; err != nil {
+		return 0, err
+	}
+	for _, row := range rows {
+		if err := tx.Exec(`UPDATE doctor_schedule_change_requests
+			SET status = 'EXPIRED', updated_at = ?
+			WHERE id = ? AND status = 'PENDING'`, now, row.ID).Error; err != nil {
+			return 0, err
+		}
+		if err := insertScheduleChangeEvent(tx, row.ID, nil, "EXPIRED", now); err != nil {
+			return 0, err
+		}
+		data, _ := json.Marshal(map[string]any{"schedule_change_id": row.ID, "event": "SCHEDULE_CHANGE_EXPIRED"})
+		if err := insertNotification(tx, row.RequestedBy, "SCHEDULE_CHANGE_EXPIRED", "Pengajuan jadwal kedaluwarsa", "Pengajuan perubahan jadwal tidak ditinjau dalam tujuh hari.", data, now); err != nil {
+			return 0, err
+		}
+	}
+	return int64(len(rows)), nil
 }
 
 func (r *Repository) GetAffiliation(ctx context.Context, affiliationID string) (*Schedule, error) {
@@ -1102,8 +1111,8 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "appointment:affiliation:"+input.AffiliationID).Error; err != nil {
 			return err
 		}
-		var valid string
-		if err := tx.Raw(`SELECT affiliation.id FROM doctor_hospital_affiliations affiliation
+		var doctorID string
+		if err := tx.Raw(`SELECT affiliation.doctor_id FROM doctor_hospital_affiliations affiliation
 			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 			JOIN users doctor ON doctor.id = affiliation.doctor_id
 			JOIN hospital_departments department ON department.id = affiliation.department_id
@@ -1113,11 +1122,16 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 			AND doctor.status = 'active' AND doctor.deleted_at IS NULL AND department.is_active = TRUE
 			AND (affiliation.room_id IS NULL OR room.is_active = TRUE)
 			AND ((? = 'DOCTOR' AND affiliation.doctor_id = CAST(? AS uuid)) OR (? = 'HOSPITAL' AND affiliation.hospital_id = CAST(NULLIF(?, '') AS uuid)))
-			FOR SHARE OF affiliation, hospital, doctor, department`, input.AffiliationID, input.ActorParty, input.ActorID, input.ActorParty, input.HospitalID).Scan(&valid).Error; err != nil {
+			FOR SHARE OF affiliation, hospital, doctor, department`, input.AffiliationID, input.ActorParty, input.ActorID, input.ActorParty, input.HospitalID).Scan(&doctorID).Error; err != nil {
 			return err
 		}
-		if valid == "" {
+		if doctorID == "" {
 			return ErrAffiliationNotFound
+		}
+		// Use the same doctor lock as approval and the database overlap guard:
+		// proposals in different affiliations must reserve time atomically too.
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))`, doctorID).Error; err != nil {
+			return err
 		}
 		if input.TargetScheduleID != nil {
 			var target string
@@ -1127,6 +1141,9 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 			if target == "" {
 				return ErrScheduleNotFound
 			}
+		}
+		if _, err := expireScheduleChanges(tx, input.AffiliationID, input.Now); err != nil {
+			return err
 		}
 		var duplicatePending bool
 		switch input.Operation {
@@ -1143,6 +1160,20 @@ func (r *Repository) CreateScheduleChange(ctx context.Context, input ScheduleCha
 		}
 		if duplicatePending {
 			return ErrScheduleChangeExists
+		}
+		proposed := make([]scheduleconflict.Schedule, 0, len(input.Schedules))
+		for _, schedule := range input.Schedules {
+			proposed = append(proposed, scheduleconflict.Schedule{
+				DayOfWeek: schedule.DayOfWeek, ScheduleDate: schedule.ScheduleDate,
+				StartTime: schedule.StartTime, EndTime: schedule.EndTime, Timezone: schedule.Timezone,
+			})
+		}
+		conflict, err := scheduleMutationConflict(tx, doctorID, input.AffiliationID, changeID, input.Operation, proposed, input.Now)
+		if err != nil {
+			return err
+		}
+		if conflict {
+			return ErrDoctorScheduleConflict
 		}
 		if err := tx.Exec(`
 			INSERT INTO doctor_schedule_change_requests (
@@ -1453,6 +1484,15 @@ func approvedScheduleConflict(tx *gorm.DB, doctorID, affiliationID, changeID, op
 		FROM doctor_schedule_change_items WHERE change_request_id = ?`, changeID).Scan(&proposed).Error; err != nil {
 		return false, err
 	}
+	return scheduleMutationConflict(tx, doctorID, affiliationID, changeID, operation, proposed, now)
+}
+
+// The caller holds the doctor-wide transaction lock. Pending proposals reserve
+// time but are not bookable; REMOVE keeps its target reserved until approval.
+func scheduleMutationConflict(tx *gorm.DB, doctorID, affiliationID, changeID, operation string, proposed []scheduleconflict.Schedule, now time.Time) (bool, error) {
+	if operation == "REMOVE" {
+		return false, nil
+	}
 	if conflict, err := scheduleconflict.AnyOverlap(proposed, now); err != nil || conflict {
 		return conflict, err
 	}
@@ -1471,7 +1511,26 @@ func approvedScheduleConflict(tx *gorm.DB, doctorID, affiliationID, changeID, op
 		doctorID, operation, affiliationID, now).Scan(&active).Error; err != nil {
 		return false, err
 	}
-	return scheduleconflict.AnyConflict(proposed, active, now)
+	if conflict, err := scheduleconflict.AnyConflict(proposed, active, now); err != nil || conflict {
+		return conflict, err
+	}
+	var pending []scheduleconflict.Schedule
+	if err := tx.Raw(`
+		SELECT item.day_of_week, item.schedule_date::text AS schedule_date,
+		       TO_CHAR(item.start_time, 'HH24:MI') AS start_time,
+		       TO_CHAR(item.end_time, 'HH24:MI') AS end_time, item.timezone
+		FROM doctor_schedule_change_requests change
+		JOIN doctor_hospital_affiliations affiliation ON affiliation.id = change.affiliation_id
+		JOIN doctor_schedule_change_items item ON item.change_request_id = change.id
+		WHERE affiliation.doctor_id = ?
+		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND change.status = 'PENDING' AND change.expires_at > ?
+		  AND change.operation IN ('ADD', 'REPLACE') AND change.id <> ?
+		  AND (item.schedule_date IS NULL OR ((item.schedule_date + item.end_time) AT TIME ZONE item.timezone) > ?)`,
+		doctorID, now, changeID, now).Scan(&pending).Error; err != nil {
+		return false, err
+	}
+	return scheduleconflict.AnyConflict(proposed, pending, now)
 }
 
 func insertAppointmentEvent(tx *gorm.DB, appointmentID string, actorID any, eventType string, from *string, to string, reason *string, now time.Time) error {

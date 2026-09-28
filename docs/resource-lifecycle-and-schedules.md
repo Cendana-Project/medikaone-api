@@ -80,8 +80,22 @@ pemisahan antara ID master dengan `department_id` milik rumah sakit dijelaskan d
 PATCH invitation menggunakan JSON dengan field opsional `department_id`,
 `room_id`, `message`, `schedules`. Field yang tidak dikirim dipertahankan.
 `room_id`/`message` string kosong mengosongkan nilai; `schedules: []` menghapus
-seluruh jadwal usulan. Dokter penerima, rumah sakit pengirim, dan berkas kontrak
-tidak diganti melalui PATCH. Undangan tanpa jadwal awal tetap diperbolehkan.
+seluruh jadwal usulan. Dokter penerima dan rumah sakit pengirim tetap.
+Undangan tanpa jadwal awal tetap diperbolehkan.
+
+Untuk mengunggah kontrak baru, endpoint PATCH yang sama menerima
+`multipart/form-data`: `contract` adalah file PDF opsional, sedangkan
+`department_id`, `room_id`, `message`, dan `schedules` adalah field teks opsional.
+`schedules` berisi array JSON tanpa komentar; omit atau `null` mempertahankan
+jadwal, dan `[]` mengosongkannya. Biarkan HTTP client membuat Content-Type beserta
+boundary multipart. Tidak mengirim `contract` mempertahankan kontrak saat ini.
+Penggantian hanya berlaku pada invitation PENDING yang belum kedaluwarsa.
+`contract_filename` dan URL `version=original` mengacu ke PDF terbaru setelah
+berhasil; metadata kontrak lama masuk ke audit UPDATED dan file lama dipertahankan.
+Jika transaksi update gagal, file baru dibersihkan tanpa mengubah kontrak lama.
+Ukuran berlebih menghasilkan HTTP 413 `FILE_TOO_LARGE` atau `REQUEST_TOO_LARGE`,
+sedangkan PDF tidak valid menghasilkan HTTP 400 `INVALID_CONTRACT_PDF`.
+
 `department_id` wajib dipilih dari list department rumah sakit; nilai kosong atau
 placement dari rumah sakit lain menghasilkan HTTP 404
 `HOSPITAL_PLACEMENT_NOT_FOUND`.
@@ -196,3 +210,73 @@ specific schedule aktif tetap memakai ID lamanya. Untuk `ADD`, jadwal usulan
 ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
 ID pada item snapshot pending adalah ID item proposal, bukan `schedule_id` aktif;
 ID tersebut tidak boleh dipakai untuk booking atau delete schedule.
+
+### Konflik ketika pengajuan dibuat
+
+ADD/REPLACE memeriksa jadwal aktif dan semua proposal ADD/REPLACE PENDING yang
+belum kedaluwarsa milik dokter di seluruh afiliasi. Pemeriksaan serta penyimpanan
+berada dalam transaksi dengan lock per dokter, sehingga dua pengajuan bersamaan
+pada waktu yang sama tidak dapat keduanya berhasil. Pending REMOVE tidak
+membebaskan waktu sampai disetujui. REPLACE mengabaikan hanya jadwal rutin aktif
+afiliasi yang sedang diganti; specific schedule yang dipertahankan tetap dicek.
+
+Contoh: rutin Rabu 09:00–12:00 menghalangi specific pada Rabu 10:00–11:00.
+Specific PENDING tanggal 30 September 2026 09:00–10:00 juga menghalangi request
+kedua untuk tanggal dan jam tersebut. Jadwal 10:00–11:00 boleh mengikuti
+09:00–10:00 jika tidak berbenturan dengan jadwal/proposal lain. Perbandingan
+memakai timezone IANA, bukan hanya teks tanggal/jam lokal.
+
+Konflik menghasilkan 409 `DOCTOR_SCHEDULE_CONFLICT` sejak POST, tanpa membuat
+proposal baru. Approval memeriksa ulang, dengan mengecualikan proposalnya sendiri.
+Proposal duplikat yang telanjur ada sebelum perbaikan tidak dihapus otomatis;
+tolak salah satunya sebelum menyetujui proposal lain. Proposal ditolak atau
+kedaluwarsa tidak lagi memblokir pengajuan baru.
+
+### Ringkasan jadwal untuk tampilan
+
+Semua object response yang mempunyai array `schedules` kini juga membawa
+`schedule_groups`: undangan list/detail/create/update/accept, afiliasi
+list/detail, detail dokter publik, serta proposal jadwal create/list dan proposal
+nested dalam `pending_schedule_changes`. Jika tidak ada jadwal, nilainya `[]`.
+`schedules` tetap berisi row asli dengan ID masing-masing.
+
+Contoh satu group untuk empat hari rutin:
+
+```json
+{
+  "type": "RECURRING",
+  "status": "ACTIVE",
+  "item_ids": [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444"
+  ],
+  "day_of_week": [1, 2, 3, 4],
+  "day_label": "Senin–Kamis",
+  "time_label": "19:00–20:00",
+  "display_label": "Senin–Kamis, 19:00–20:00",
+  "start_time": "19:00",
+  "end_time": "20:00",
+  "timezone": "Asia/Jakarta",
+  "booking_mode": "FIXED_SLOT",
+  "slot_duration_minutes": 30,
+  "capacity": 1
+}
+```
+
+Group hanya menggabungkan jadwal rutin dengan jam mulai/selesai, timezone,
+status, booking mode, durasi slot, dan kapasitas identik. Urutan hari
+Senin–Minggu; hari tidak berurutan memakai koma, misalnya `Senin, Rabu, Jumat`.
+Sesi 09:00–10:00 dan 10:00–11:00 tetap dua group karena mempunyai batas sesi
+berbeda. Untuk specific: `type: SPECIFIC`, `day_of_week: []`, `schedule_date`
+tetap ada, dan label tanggal misalnya `30 Sep 2026, 09:00–10:00`.
+
+Jadwal aktif memakai `schedule_groups` pada afiliasi; jadwal pending memakai
+`pending_schedule_changes[i].schedule_groups` sehingga setiap pengajuan dan
+statusnya tetap terpisah. `item_ids` pada group aktif mengacu ke ID schedule
+asli, tetapi pada proposal mengacu ke ID item proposal yang belum bookable.
+Group bukan resource baru dan tidak memiliki satu ID untuk booking/delete.
+Status snapshot invitation dapat tidak ada; status invitation tetap berada pada
+object induk. Endpoint availability, jadwal hari ini, dan appointment tetap
+menyajikan satu sesi/kunjungan per item sesuai tanggalnya, bukan snapshot rutin.

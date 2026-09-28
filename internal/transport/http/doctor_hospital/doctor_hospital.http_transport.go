@@ -17,7 +17,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
-const maxMultipartRequestBytes = int64(10 * 1024 * 1024)
+const maxMultipartRequestBytes = service.MaxContractBytes + 64*1024
 
 type Controller struct {
 	service *service.Service
@@ -63,11 +63,11 @@ func (ctl *Controller) ListRooms(c *gin.Context) {
 }
 
 func (ctl *Controller) CreateInvitation(c *gin.Context) {
-	prepareMultipart(c)
-	if err := c.Request.ParseMultipartForm(maxMultipartRequestBytes); err != nil {
-		util.HandleError(c, constant.ErrInvalidContractPDF)
+	if err := parseContractMultipart(c, ctl.maxContractSize()); err != nil {
+		util.HandleError(c, err)
 		return
 	}
+	defer c.Request.MultipartForm.RemoveAll()
 	schedules := []request.DoctorInvitationScheduleRequest{}
 	if raw := strings.TrimSpace(c.PostForm("schedules")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &schedules); err != nil {
@@ -83,7 +83,7 @@ func (ctl *Controller) CreateInvitation(c *gin.Context) {
 	if value := strings.TrimSpace(c.PostForm("message")); value != "" {
 		message = &value
 	}
-	file, err := readMultipartPDF(c, "contract")
+	file, err := readMultipartPDF(c, "contract", ctl.maxContractSize())
 	if err != nil {
 		util.HandleError(c, err)
 		return
@@ -197,11 +197,33 @@ func (ctl *Controller) MarkNotificationRead(c *gin.Context) {
 	respond(c, constant.MsgNotificationMarkedRead, http.StatusOK, gin.H{"read": err == nil}, err)
 }
 
-func prepareMultipart(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMultipartRequestBytes)
+func (ctl *Controller) maxContractSize() int64 {
+	if ctl.service == nil {
+		return service.MaxContractBytes
+	}
+	return ctl.service.MaxFileSize()
 }
 
-func readMultipartPDF(c *gin.Context, field string) (service.UploadedFile, error) {
+func parseContractMultipart(c *gin.Context, maxFileSize int64) error {
+	requestLimit := maxFileSize + 64*1024
+	if c.Request.ContentLength > requestLimit {
+		return constant.ErrRequestTooLarge
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, requestLimit)
+	if err := c.Request.ParseMultipartForm(requestLimit); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) || errors.Is(err, multipart.ErrMessageTooLarge) {
+			return constant.ErrRequestTooLarge
+		}
+		return constant.ErrInvalidContractPDF
+	}
+	return nil
+}
+
+func readMultipartPDF(c *gin.Context, field string, maxFileSize int64) (service.UploadedFile, error) {
+	if len(c.Request.MultipartForm.File[field]) != 1 {
+		return service.UploadedFile{}, constant.NewInvalidFieldValueError(field, "exactly one PDF file", "tepat satu file PDF")
+	}
 	file, header, err := c.Request.FormFile(field)
 	if err != nil {
 		if errors.Is(err, http.ErrMissingFile) {
@@ -210,8 +232,14 @@ func readMultipartPDF(c *gin.Context, field string) (service.UploadedFile, error
 		return service.UploadedFile{}, constant.ErrInvalidContractPDF
 	}
 	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, maxMultipartRequestBytes+1))
-	if err != nil || int64(len(content)) > maxMultipartRequestBytes {
+	if header.Size > maxFileSize {
+		return service.UploadedFile{}, constant.NewFileTooLargeError(maxFileSize)
+	}
+	content, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	if int64(len(content)) > maxFileSize {
+		return service.UploadedFile{}, constant.NewFileTooLargeError(maxFileSize)
+	}
+	if err != nil {
 		return service.UploadedFile{}, constant.ErrInvalidContractPDF
 	}
 	return service.UploadedFile{Filename: header.Filename, MIMEType: multipartContentType(header), Content: content}, nil

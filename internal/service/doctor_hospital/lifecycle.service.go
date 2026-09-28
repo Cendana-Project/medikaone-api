@@ -3,6 +3,7 @@ package doctor_hospital
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/doctor_hospital"
+	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
 type LifecycleRepository interface {
@@ -146,10 +148,14 @@ func (s *Service) DeleteRoom(ctx context.Context, hospitalID, roomID string) err
 }
 
 func (s *Service) UpdateInvitation(ctx context.Context, hospitalID, invitationID, actorID string, req request.UpdateDoctorHospitalInvitationRequest) (*response.DoctorHospitalInvitation, error) {
+	return s.UpdateInvitationWithContract(ctx, hospitalID, invitationID, actorID, req, nil)
+}
+
+func (s *Service) UpdateInvitationWithContract(ctx context.Context, hospitalID, invitationID, actorID string, req request.UpdateDoctorHospitalInvitationRequest, file *UploadedFile) (*response.DoctorHospitalInvitation, error) {
 	if err := validateResourceIDs(hospitalID, invitationID, actorID); err != nil {
 		return nil, err
 	}
-	if req.DepartmentID == nil && req.RoomID == nil && req.Message == nil && req.Schedules == nil {
+	if req.DepartmentID == nil && req.RoomID == nil && req.Message == nil && req.Schedules == nil && file == nil {
 		return nil, constant.NewFieldRequiredError("at least one update field")
 	}
 	if req.DepartmentID != nil {
@@ -190,10 +196,49 @@ func (s *Service) UpdateInvitation(ctx context.Context, hospitalID, invitationID
 	if err != nil {
 		return nil, err
 	}
+	var contract *repository.Document
+	if file != nil {
+		document, err := s.validatePDF(*file)
+		if err != nil {
+			return nil, err
+		}
+		// Check tenant ownership and lifecycle before uploading. The write transaction
+		// locks and repeats these checks in case accept/cancel races the upload.
+		invitation, err := s.repo.GetInvitationForHospital(ctx, hospitalID, invitationID, s.now())
+		if err != nil {
+			return nil, mapLifecycleError(err)
+		}
+		if invitation.Status == entity.DoctorHospitalInvitationExpired {
+			return nil, constant.ErrDoctorInvitationExpired
+		}
+		if invitation.Status != entity.DoctorHospitalInvitationPending {
+			return nil, constant.ErrInvalidDoctorInvitationState
+		}
+		if !invitation.ExpiresAt.After(s.now()) {
+			return nil, constant.ErrDoctorInvitationExpired
+		}
+		if s.storage == nil {
+			return nil, constant.ErrStorageUnavailable
+		}
+		objectPath := fmt.Sprintf("hospitals/%s/doctor-invitations/%s/original/%s.pdf", hospitalID, invitationID, uuid.NewString())
+		uploaded, err := s.storage.Upload(ctx, objectPath, "application/pdf", file.Content)
+		if err != nil {
+			return nil, mapContractUploadError(err)
+		}
+		document.Bucket, document.ObjectPath, document.FileSize = uploaded.Bucket, uploaded.ObjectPath, uploaded.FileSize
+		contract = &document
+	}
 	row, err := repo.UpdateInvitation(ctx, repository.UpdateInvitationInput{
 		HospitalID: hospitalID, InvitationID: invitationID, ActorID: actorID, DepartmentID: req.DepartmentID,
-		RoomID: req.RoomID, Message: req.Message, Schedules: schedules, Now: s.now(),
+		RoomID: req.RoomID, Message: req.Message, Schedules: schedules, Contract: contract, Now: s.now(),
 	})
+	if err != nil && contract != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if cleanupErr := s.storage.Delete(cleanupCtx, contract.ObjectPath); cleanupErr != nil {
+			util.Errorf(ctx, "storage cleanup failed operation=cleanup_replacement_contract error_type=%T", cleanupErr)
+		}
+	}
 	return row, mapLifecycleError(err)
 }
 

@@ -47,6 +47,15 @@ func NewFieldRequiredError(field string) response.CustomError {
 	)
 }
 
+// NewFileTooLargeError exposes the configured file limit without storage details.
+func NewFileTooLargeError(maxBytes int64) response.CustomError {
+	return apiError(
+		"FILE_TOO_LARGE", http.StatusRequestEntityTooLarge,
+		"File too large", fmt.Sprintf("The file exceeds the maximum size of %d bytes.", maxBytes),
+		"File terlalu besar", fmt.Sprintf("Ukuran file melebihi batas maksimum %d byte.", maxBytes),
+	)
+}
+
 // NewInvalidFieldValueError is used for cross-field and enum validation that
 // cannot be expressed by a single static error value.
 func NewInvalidFieldValueError(field, expectedEng, expectedIdn string) response.CustomError {
@@ -207,8 +216,13 @@ var (
 	)
 	ErrRequestTooLarge = apiError(
 		"REQUEST_TOO_LARGE", http.StatusRequestEntityTooLarge,
-		"Request too large", "The request body exceeds the 10 MB limit.",
-		"Permintaan terlalu besar", "Body permintaan melebihi batas 10 MB.",
+		"Request too large", "The request body exceeds the allowed size limit.",
+		"Permintaan terlalu besar", "Body permintaan melebihi batas ukuran yang diizinkan.",
+	)
+	ErrFileTooLarge = apiError(
+		"FILE_TOO_LARGE", http.StatusRequestEntityTooLarge,
+		"File too large", "The file exceeds the storage size limit. Upload a smaller file.",
+		"File terlalu besar", "Ukuran file melebihi batas penyimpanan. Unggah file yang lebih kecil.",
 	)
 	ErrServiceUnavailable = apiError(
 		"SERVICE_UNAVAILABLE", http.StatusServiceUnavailable,
@@ -562,8 +576,8 @@ var (
 	)
 	ErrDoctorScheduleConflict = apiError(
 		"DOCTOR_SCHEDULE_CONFLICT", http.StatusConflict,
-		"Doctor schedule conflict", "The proposed practice schedule overlaps another active doctor schedule.",
-		"Jadwal dokter bertabrakan", "Jadwal praktik yang diajukan bertabrakan dengan jadwal dokter aktif lainnya.",
+		"Doctor schedule conflict", "The proposed practice schedule overlaps another active or pending doctor schedule.",
+		"Jadwal dokter bertabrakan", "Jadwal praktik yang diajukan bertabrakan dengan jadwal dokter aktif atau yang masih menunggu persetujuan.",
 	)
 	ErrInvalidContractPDF = apiError(
 		"INVALID_CONTRACT_PDF", http.StatusBadRequest,
@@ -919,7 +933,7 @@ func APIErrorCatalog() []response.CustomError {
 		ErrPublicAuthRateLimitExceeded, ErrRegistrationPINCooldown,
 		ErrRegistrationPINAttemptsExceeded, ErrLoginAttemptsExceeded,
 		ErrPasswordResetRequestsExceeded, ErrPasswordResetPINAttemptsExceeded,
-		ErrPasswordProcessingBusy, ErrEmailDeliveryBusy, ErrRequestTooLarge,
+		ErrPasswordProcessingBusy, ErrEmailDeliveryBusy, ErrRequestTooLarge, ErrFileTooLarge,
 		ErrServiceUnavailable, ErrServiceNotReady, ErrInvalidEmail, ErrInvalidUsername, ErrInvalidPassword,
 		ErrPasswordSimilarToUserInfo, ErrInvalidDateFormat, ErrInvalidUUIDFormat,
 		ErrInvalidIdempotencyKey,

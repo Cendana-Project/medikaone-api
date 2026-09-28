@@ -189,6 +189,16 @@ func safeDownloadName(value string) string {
 
 func responseError(operation string, resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	var storageError struct {
+		StatusCode json.RawMessage `json:"statusCode"`
+		Code       string          `json:"code"`
+		Error      string          `json:"error"`
+	}
+	_ = json.Unmarshal(body, &storageError)
+	if resp.StatusCode == http.StatusRequestEntityTooLarge || strings.Trim(string(storageError.StatusCode), `"`) == "413" ||
+		storageError.Code == "EntityTooLarge" || storageError.Error == "EntityTooLarge" {
+		return fmt.Errorf("%s: %w", operation, ErrFileTooLarge)
+	}
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		message = resp.Status

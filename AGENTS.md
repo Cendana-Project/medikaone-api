@@ -169,7 +169,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 - Undangan dapat dibuat tanpa jadwal awal. Accept harus memeriksa konflik lagi
   sebelum membuat afiliasi aktif.
 - PATCH invitation hanya berlaku untuk invitation `PENDING` yang belum
-  kedaluwarsa. Doctor dan contract tidak diganti melalui PATCH.
+  kedaluwarsa. Doctor tidak diganti melalui PATCH. JSON tetap didukung; multipart
+  menerima file PDF `contract` opsional untuk mengganti kontrak asli. Metadata
+  kontrak lama dipertahankan pada audit dan file lama tidak dihapus.
 - Reject invitation menerima message opsional dan menyimpannya pada event/audit.
 - Invitation `ACCEPTED` tidak dihapus; akhiri hubungan melalui lifecycle
   afiliasi. Delete resource adalah archive/soft delete jika riwayat harus tetap
@@ -195,6 +197,10 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 - Periksa konflik ketika proposal dibuat/diubah, ketika invitation diterima, dan
   ketika pihak lawan menyetujui proposal. Proposal yang gagal saat approval tetap
   `PENDING` agar dapat ditolak atau diperbaiki sesuai flow yang tersedia.
+- Pengajuan ADD/REPLACE memeriksa jadwal aktif serta proposal ADD/REPLACE PENDING
+  yang belum kedaluwarsa lintas afiliasi dengan lock transaksi per dokter.
+  Pending REMOVE belum membebaskan waktu. Specific schedule tidak boleh berada
+  di dalam/bertumpuk dengan rentang jadwal rutin atau specific lainnya.
 - Schedule change rutin adalah operasi `REPLACE`: setelah approval, seluruh
   jadwal rutin aktif (`schedule_date IS NULL`) untuk `affiliation_id` itu diganti
   snapshot rutin baru. Specific schedule tetap aktif dan afiliasi rumah sakit
@@ -206,6 +212,10 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   diperlakukan sebagai jadwal bookable sebelum approval pihak lawan.
 - Specific schedule adalah `ADD`; delete schedule adalah `REMOVE`. Keduanya
   memakai approval pihak lawan dan tidak mengganti seluruh snapshot.
+- Response yang mempunyai array `schedules` juga menyertakan `schedule_groups`
+  untuk tampilan. Hanya hari rutin dengan jam, timezone, status, dan aturan
+  booking sama yang digabung. Item aktif dan tiap proposal tetap terpisah;
+  `schedules`/ID asli tetap dipakai untuk booking atau penghapusan.
 
 ### Direktori dan rekomendasi pasien
 

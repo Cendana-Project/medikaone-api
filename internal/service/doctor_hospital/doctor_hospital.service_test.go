@@ -302,12 +302,15 @@ func TestValidatePDFEnforcesTenMegabyteCeiling(t *testing.T) {
 		{Filename: "contract.txt", MIMEType: "application/pdf", Content: []byte("%PDF-test")},
 		{Filename: "contract.pdf", MIMEType: "application/pdf", Content: []byte("not-a-pdf")},
 		{Filename: "contract.pdf", MIMEType: "text/plain", Content: []byte("%PDF-test")},
-		{Filename: "contract.pdf", MIMEType: "application/pdf", Content: make([]byte, MaxContractBytes+1)},
 	}
 	for i := range invalidFiles {
 		if _, err := service.validatePDF(invalidFiles[i]); !errors.Is(err, constant.ErrInvalidContractPDF) {
 			t.Fatalf("invalid file %d should be rejected, got %v", i, err)
 		}
+	}
+	oversized := UploadedFile{Filename: "contract.pdf", MIMEType: "application/pdf", Content: make([]byte, MaxContractBytes+1)}
+	if _, err := service.validatePDF(oversized); !errors.Is(err, constant.NewFileTooLargeError(MaxContractBytes)) {
+		t.Fatalf("oversized file must return FILE_TOO_LARGE: %v", err)
 	}
 }
 
