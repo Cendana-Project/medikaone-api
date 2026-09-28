@@ -734,6 +734,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 	if ok := t.Run("active and pending proposals reserve doctor practice time", func(t *testing.T) { runPendingScheduleConflictIntegration(t, db, sqlDB) }); !ok {
 		t.FailNow()
 	}
+	if ok := t.Run("schedule deactivation requires atomic counterpart approval", func(t *testing.T) { runScheduleDeactivationIntegration(t, db, sqlDB) }); !ok {
+		t.FailNow()
+	}
 
 	if ok := t.Run("appointment booking serializes competing patients", func(t *testing.T) {
 		t.Setenv("SUPERADMIN_EMAIL", "")

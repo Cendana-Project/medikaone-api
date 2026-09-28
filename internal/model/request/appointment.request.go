@@ -16,6 +16,14 @@ type ReviewScheduleChangeRequest struct {
 	Reason *string `json:"reason,omitempty" validate:"omitempty,max=1000"`
 }
 
+// DeactivateSchedulesRequest scopes a counterpart-reviewed removal to an
+// affiliation. A weekday refers to all recurring sessions on that local day.
+type DeactivateSchedulesRequest struct {
+	Scope     string  `json:"scope" validate:"required,oneof=ALL RECURRING_DAY"`
+	DayOfWeek *int    `json:"day_of_week,omitempty" validate:"omitempty,min=0,max=6"`
+	Reason    *string `json:"reason,omitempty" validate:"omitempty,max=1000"`
+}
+
 type CreateAppointmentRequest struct {
 	ScheduleID      string  `json:"schedule_id" validate:"required,uuid"`
 	AppointmentDate string  `json:"appointment_date" validate:"required,datetime=2006-01-02"`

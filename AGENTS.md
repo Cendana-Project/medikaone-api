@@ -212,6 +212,14 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   diperlakukan sebagai jadwal bookable sebelum approval pihak lawan.
 - Specific schedule adalah `ADD`; delete schedule adalah `REMOVE`. Keduanya
   memakai approval pihak lawan dan tidak mengganti seluruh snapshot.
+- Penonaktifan jadwal adalah `DEACTIVATE` dengan scope `ALL` (semua jadwal aktif
+  pada satu afiliasi) atau `RECURRING_DAY` (semua sesi rutin pada satu hari lokal
+  `0..6`). Snapshot proposal menyimpan `target_schedule_id` pada setiap item.
+  Jadwal tetap aktif saat pending; approval menonaktifkan seluruh target secara
+  atomik tanpa menghapus riwayat. Appointment aktif pada target atau target yang
+  sudah berubah/nonaktif menolak approval. `ALL` tidak boleh bersamaan dengan
+  proposal lain pada afiliasi itu; `RECURRING_DAY` menolak REPLACE dan removal/
+  deactivation pada hari yang sama, tetapi mengizinkan ADD dan hari lain.
 - Response yang mempunyai array `schedules` juga menyertakan `schedule_groups`
   untuk tampilan. Hanya hari rutin dengan jam, timezone, status, dan aturan
   booking sama yang digabung. Item aktif dan tiap proposal tetap terpisah;

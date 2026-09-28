@@ -374,6 +374,10 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
 			t.appointmentController.DeleteDoctorSchedule,
 		)
+		protected.POST("/doctor/hospital-affiliations/:affiliation_id/schedules/deactivate",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.DeactivateDoctorSchedules,
+		)
 		protected.GET("/doctor/schedule-change-requests",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionDoctorScheduleView),
 			t.appointmentController.ListDoctorScheduleChanges,
@@ -438,6 +442,10 @@ func (t *Transport) InitRoute() {
 		tenant.DELETE("/hospitals/:hospital_id/schedules/:schedule_id",
 			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),
 			t.appointmentController.DeleteHospitalSchedule,
+		)
+		tenant.POST("/hospitals/:hospital_id/doctor-affiliations/:affiliation_id/schedules/deactivate",
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorSchedulePropose),
+			t.appointmentController.DeactivateHospitalSchedules,
 		)
 		tenant.POST("/hospitals/:hospital_id/admins",
 			transportmw.RequireSuperAdmin(t.roleRepo),

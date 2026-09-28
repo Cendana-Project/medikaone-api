@@ -19,6 +19,7 @@ type DoctorSearchResult struct {
 
 type DoctorHospitalSchedule struct {
 	ID                  string  `json:"id,omitempty"`
+	TargetScheduleID    *string `json:"target_schedule_id,omitempty"`
 	Status              string  `json:"status,omitempty"`
 	DayOfWeek           int     `json:"-"`
 	ScheduleDate        *string `json:"schedule_date,omitempty"`
@@ -32,20 +33,23 @@ type DoctorHospitalSchedule struct {
 
 // PendingScheduleChange keeps a proposal separate from the currently active
 // schedules. Schedule item IDs belong to the proposal until it is approved;
-// approval creates new active schedule IDs.
+// ADD/REPLACE approval creates new active schedule IDs. DEACTIVATE snapshots
+// instead identify the existing rows to deactivate through target_schedule_id.
 type PendingScheduleChange struct {
-	ID               string                   `json:"id"`
-	AffiliationID    string                   `json:"-"`
-	Operation        string                   `json:"operation"`
-	TargetScheduleID *string                  `json:"target_schedule_id,omitempty"`
-	RequestedBy      string                   `json:"requested_by"`
-	RequestedByParty string                   `json:"requested_by_party"`
-	Status           string                   `json:"status"`
-	Reason           *string                  `json:"reason,omitempty"`
-	ExpiresAt        time.Time                `json:"expires_at"`
-	CreatedAt        time.Time                `json:"created_at"`
-	UpdatedAt        time.Time                `json:"updated_at"`
-	Schedules        []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	ID                    string                   `json:"id"`
+	AffiliationID         string                   `json:"-"`
+	Operation             string                   `json:"operation"`
+	TargetScheduleID      *string                  `json:"target_schedule_id,omitempty"`
+	DeactivationScope     string                   `json:"deactivation_scope,omitempty"`
+	DeactivationDayOfWeek *int                     `json:"deactivation_day_of_week,omitempty"`
+	RequestedBy           string                   `json:"requested_by"`
+	RequestedByParty      string                   `json:"requested_by_party"`
+	Status                string                   `json:"status"`
+	Reason                *string                  `json:"reason,omitempty"`
+	ExpiresAt             time.Time                `json:"expires_at"`
+	CreatedAt             time.Time                `json:"created_at"`
+	UpdatedAt             time.Time                `json:"updated_at"`
+	Schedules             []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
 }
 
 // HospitalInformation is the hospital snapshot exposed by invitation and

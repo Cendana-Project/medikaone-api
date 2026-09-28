@@ -81,6 +81,7 @@ const (
 	MsgConsultationStarted                   MessageCode = "CONSULTATION_STARTED"
 	MsgAppointmentCompleted                  MessageCode = "APPOINTMENT_COMPLETED"
 	MsgDoctorScheduleChangeCreated           MessageCode = "DOCTOR_SCHEDULE_CHANGE_CREATED"
+	MsgDoctorScheduleDeactivationRequested   MessageCode = "DOCTOR_SCHEDULE_DEACTIVATION_REQUESTED"
 	MsgDoctorScheduleChangesListed           MessageCode = "DOCTOR_SCHEDULE_CHANGES_LISTED"
 	MsgDoctorScheduleChangeApproved          MessageCode = "DOCTOR_SCHEDULE_CHANGE_APPROVED"
 	MsgDoctorScheduleChangeRejected          MessageCode = "DOCTOR_SCHEDULE_CHANGE_REJECTED"
@@ -97,6 +98,7 @@ const (
 	MsgHospitalAppointmentQueueListed        MessageCode = "HOSPITAL_APPOINTMENT_QUEUE_LISTED"
 	MsgAppointmentVitalsCompleted            MessageCode = "APPOINTMENT_VITALS_COMPLETED"
 	MsgHospitalScheduleChangeCreated         MessageCode = "HOSPITAL_SCHEDULE_CHANGE_CREATED"
+	MsgHospitalScheduleDeactivationRequested MessageCode = "HOSPITAL_SCHEDULE_DEACTIVATION_REQUESTED"
 	MsgHospitalScheduleChangesListed         MessageCode = "HOSPITAL_SCHEDULE_CHANGES_LISTED"
 	MsgHospitalScheduleChangeApproved        MessageCode = "HOSPITAL_SCHEDULE_CHANGE_APPROVED"
 	MsgHospitalScheduleChangeRejected        MessageCode = "HOSPITAL_SCHEDULE_CHANGE_REJECTED"
@@ -233,6 +235,7 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgConsultationStarted:                   successDetail("Consultation started", "Konsultasi berhasil dimulai"),
 	MsgAppointmentCompleted:                  successDetail("Appointment completed", "Appointment berhasil diselesaikan"),
 	MsgDoctorScheduleChangeCreated:           successDetail("Doctor schedule change request created", "Permintaan perubahan jadwal dokter berhasil dibuat"),
+	MsgDoctorScheduleDeactivationRequested:   successDetail("Doctor schedule deactivation requested", "Permintaan penonaktifan jadwal dokter berhasil dibuat"),
 	MsgDoctorScheduleChangesListed:           successDetail("Doctor schedule change requests retrieved", "Daftar permintaan perubahan jadwal dokter berhasil diambil"),
 	MsgDoctorScheduleChangeApproved:          successDetail("Doctor schedule change request approved", "Permintaan perubahan jadwal dokter berhasil disetujui"),
 	MsgDoctorScheduleChangeRejected:          successDetail("Doctor schedule change request rejected", "Permintaan perubahan jadwal dokter berhasil ditolak"),
@@ -249,6 +252,7 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgHospitalAppointmentQueueListed:        successDetail("Hospital appointment queue retrieved", "Antrean appointment rumah sakit berhasil diambil"),
 	MsgAppointmentVitalsCompleted:            successDetail("Appointment vitals completed", "Pemeriksaan tanda vital appointment berhasil diselesaikan"),
 	MsgHospitalScheduleChangeCreated:         successDetail("Hospital schedule change request created", "Permintaan perubahan jadwal rumah sakit berhasil dibuat"),
+	MsgHospitalScheduleDeactivationRequested: successDetail("Hospital schedule deactivation requested", "Permintaan penonaktifan jadwal rumah sakit berhasil dibuat"),
 	MsgHospitalScheduleChangesListed:         successDetail("Hospital schedule change requests retrieved", "Daftar permintaan perubahan jadwal rumah sakit berhasil diambil"),
 	MsgHospitalScheduleChangeApproved:        successDetail("Hospital schedule change request approved", "Permintaan perubahan jadwal rumah sakit berhasil disetujui"),
 	MsgHospitalScheduleChangeRejected:        successDetail("Hospital schedule change request rejected", "Permintaan perubahan jadwal rumah sakit berhasil ditolak"),
