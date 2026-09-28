@@ -222,8 +222,12 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   deactivation pada hari yang sama, tetapi mengizinkan ADD dan hari lain.
 - Response yang mempunyai array `schedules` juga menyertakan `schedule_groups`
   untuk tampilan. Hanya hari rutin dengan jam, timezone, status, dan aturan
-  booking sama yang digabung. Item aktif dan tiap proposal tetap terpisah;
-  `schedules`/ID asli tetap dipakai untuk booking atau penghapusan.
+  booking sama yang digabung. Setiap group menyertakan `schedules` berupa array
+  object jadwal lengkap, diurutkan Senin–Minggu dengan ID/hari/tanggal/target
+  proposal tetap utuh. Frontend dapat membaca `schedule_groups[i].schedules`
+  langsung. Field `schedules` di luar group dan `item_ids` tetap dipertahankan
+  untuk kompatibilitas. Item aktif dan tiap proposal tetap terpisah; hanya ID
+  jadwal aktif yang dapat dipakai untuk booking atau penghapusan.
 
 ### Direktori dan rekomendasi pasien
 

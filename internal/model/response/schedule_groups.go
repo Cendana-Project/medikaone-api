@@ -9,23 +9,24 @@ import (
 	"time"
 )
 
-// ScheduleGroup is a display projection. ItemIDs refer to the original schedule
-// rows or proposal items; clients must still select an active row to book/delete.
+// ScheduleGroup contains the original schedule rows or proposal items alongside
+// their display labels. Only active rows may be used for booking/deletion.
 type ScheduleGroup struct {
-	Type                string   `json:"type"`
-	Status              string   `json:"status,omitempty"`
-	ItemIDs             []string `json:"item_ids"`
-	DayOfWeek           []int    `json:"day_of_week"`
-	ScheduleDate        *string  `json:"schedule_date,omitempty"`
-	DayLabel            string   `json:"day_label"`
-	TimeLabel           string   `json:"time_label"`
-	DisplayLabel        string   `json:"display_label"`
-	StartTime           string   `json:"start_time"`
-	EndTime             string   `json:"end_time"`
-	Timezone            string   `json:"timezone"`
-	BookingMode         string   `json:"booking_mode"`
-	SlotDurationMinutes int      `json:"slot_duration_minutes"`
-	Capacity            int      `json:"capacity"`
+	Type                string                   `json:"type"`
+	Status              string                   `json:"status,omitempty"`
+	ItemIDs             []string                 `json:"item_ids"`
+	Schedules           []DoctorHospitalSchedule `json:"schedules"`
+	DayOfWeek           []int                    `json:"day_of_week"`
+	ScheduleDate        *string                  `json:"schedule_date,omitempty"`
+	DayLabel            string                   `json:"day_label"`
+	TimeLabel           string                   `json:"time_label"`
+	DisplayLabel        string                   `json:"display_label"`
+	StartTime           string                   `json:"start_time"`
+	EndTime             string                   `json:"end_time"`
+	Timezone            string                   `json:"timezone"`
+	BookingMode         string                   `json:"booking_mode"`
+	SlotDurationMinutes int                      `json:"slot_duration_minutes"`
+	Capacity            int                      `json:"capacity"`
 }
 
 // GroupSchedules combines recurring days only when the entire practice window
@@ -51,6 +52,7 @@ func GroupSchedules(schedules []DoctorHospitalSchedule, fallbackStatus string) [
 			index = len(groups)
 			group := ScheduleGroup{
 				Type: "RECURRING", Status: status, ItemIDs: []string{}, DayOfWeek: []int{},
+				Schedules:    []DoctorHospitalSchedule{},
 				ScheduleDate: schedule.ScheduleDate, StartTime: schedule.StartTime,
 				EndTime: schedule.EndTime, Timezone: schedule.Timezone,
 				BookingMode: schedule.BookingMode, SlotDurationMinutes: schedule.SlotDurationMinutes,
@@ -64,6 +66,9 @@ func GroupSchedules(schedules []DoctorHospitalSchedule, fallbackStatus string) [
 			groups = append(groups, group)
 		}
 		group := &groups[index]
+		// Copy before applying a display fallback; never mutate the source rows.
+		schedule.Status = status
+		group.Schedules = append(group.Schedules, schedule)
 		if schedule.ID != "" {
 			group.ItemIDs = append(group.ItemIDs, schedule.ID)
 		}
@@ -74,6 +79,13 @@ func GroupSchedules(schedules []DoctorHospitalSchedule, fallbackStatus string) [
 	for i := range groups {
 		group := &groups[i]
 		sort.Strings(group.ItemIDs)
+		sort.Slice(group.Schedules, func(i, j int) bool {
+			left, right := group.Schedules[i], group.Schedules[j]
+			return cmp.Or(
+				cmp.Compare(weekdayOrder(left.DayOfWeek), weekdayOrder(right.DayOfWeek)),
+				cmp.Compare(left.ID, right.ID),
+			) < 0
+		})
 		sort.Slice(group.DayOfWeek, func(i, j int) bool { return weekdayOrder(group.DayOfWeek[i]) < weekdayOrder(group.DayOfWeek[j]) })
 		days := make([]int, 0, len(group.DayOfWeek))
 		for _, day := range group.DayOfWeek {
