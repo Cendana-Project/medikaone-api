@@ -49,7 +49,7 @@ type PendingScheduleChange struct {
 	ExpiresAt             time.Time                `json:"expires_at"`
 	CreatedAt             time.Time                `json:"created_at"`
 	UpdatedAt             time.Time                `json:"updated_at"`
-	Schedules             []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	Schedules             []DoctorHospitalSchedule `json:"-" gorm:"-"`
 }
 
 // HospitalInformation is the hospital snapshot exposed by invitation and
@@ -107,7 +107,7 @@ type DoctorHospitalInvitation struct {
 	CreatedAt          time.Time                `json:"created_at"`
 	ContractFilename   string                   `json:"contract_filename"`
 	SignedContractName *string                  `json:"signed_contract_filename,omitempty"`
-	Schedules          []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	Schedules          []DoctorHospitalSchedule `json:"-" gorm:"-"`
 	Hospital           *HospitalInformation     `json:"hospital,omitempty" gorm:"-"`
 }
 
@@ -128,7 +128,7 @@ type HospitalDoctor struct {
 	Room                   *string                  `json:"room,omitempty"`
 	Status                 string                   `json:"status"`
 	JoinedAt               time.Time                `json:"joined_at"`
-	Schedules              []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	Schedules              []DoctorHospitalSchedule `json:"-" gorm:"-"`
 	PendingScheduleChanges []PendingScheduleChange  `json:"pending_schedule_changes" gorm:"-"`
 }
 

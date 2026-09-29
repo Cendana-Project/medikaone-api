@@ -11,6 +11,7 @@ import (
 
 // ScheduleGroup contains the original schedule rows or proposal items alongside
 // their display labels. Only active rows may be used for booking/deletion.
+// Parent response Schedules fields stay internal; rows are serialized here only.
 type ScheduleGroup struct {
 	Type                string                   `json:"type"`
 	Status              string                   `json:"status,omitempty"`

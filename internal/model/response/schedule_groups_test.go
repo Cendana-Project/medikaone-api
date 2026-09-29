@@ -94,7 +94,7 @@ func TestScheduleGroupsHandleNonconsecutiveDaysAndSpecificDates(t *testing.T) {
 	}
 }
 
-func TestScheduleGroupsAreExposedOnEveryScheduleCollection(t *testing.T) {
+func TestScheduleCollectionsExposeRowsOnlyInsideGroups(t *testing.T) {
 	rows := recurringDisplayFixture()
 	for _, value := range []any{
 		DoctorHospitalInvitation{ID: "invitation", Schedules: rows},
@@ -109,15 +109,15 @@ func TestScheduleGroupsAreExposedOnEveryScheduleCollection(t *testing.T) {
 			t.Fatal(err)
 		}
 		var body struct {
-			Schedules      []json.RawMessage `json:"schedules"`
-			ScheduleGroups []ScheduleGroup   `json:"schedule_groups"`
+			ScheduleGroups []ScheduleGroup `json:"schedule_groups"`
 		}
 		if err := json.Unmarshal(encoded, &body); err != nil {
 			t.Fatal(err)
 		}
-		if len(body.Schedules) != 4 || len(body.ScheduleGroups) != 1 || body.ScheduleGroups[0].DayLabel != "Senin–Kamis" || len(body.ScheduleGroups[0].Schedules) != 4 {
+		if len(body.ScheduleGroups) != 1 || body.ScheduleGroups[0].DayLabel != "Senin–Kamis" || len(body.ScheduleGroups[0].Schedules) != 4 {
 			t.Fatalf("%T has missing source rows or grouping: %s", value, encoded)
 		}
+		assertNoSiblingSchedules(t, encoded)
 	}
 }
 
@@ -156,6 +156,34 @@ func TestAffiliationGroupingPreservesHospitalInvitationAndPendingProposals(t *te
 	if body.ScheduleGroups[0].Schedules[0].Status != "ACTIVE" || body.PendingScheduleChanges[0].ScheduleGroups[0].Schedules[0].Status != "PENDING" {
 		t.Fatalf("nested rows lost active/proposal status: %s", encoded)
 	}
+	assertNoSiblingSchedules(t, encoded)
+}
+
+func assertNoSiblingSchedules(t *testing.T, encoded []byte) {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		t.Fatal(err)
+	}
+	var visit func(any)
+	visit = func(value any) {
+		switch object := value.(type) {
+		case map[string]any:
+			if _, hasGroups := object["schedule_groups"]; hasGroups {
+				if _, hasSchedules := object["schedules"]; hasSchedules {
+					t.Fatalf("duplicate schedules beside schedule_groups: %s", encoded)
+				}
+			}
+			for _, child := range object {
+				visit(child)
+			}
+		case []any:
+			for _, child := range object {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
 }
 
 func TestNestedScheduleRowsPreserveDatesTargetsAndBookingFields(t *testing.T) {
@@ -206,5 +234,22 @@ func TestEmptyScheduleGroupsAreArrays(t *testing.T) {
 	groups, err := json.Marshal(GroupSchedules(nil, ""))
 	if err != nil || string(groups) != "[]" {
 		t.Fatalf("empty group must be []: %s, %v", groups, err)
+	}
+	for _, value := range []any{
+		DoctorHospitalInvitation{}, HospitalDoctor{}, DoctorHospitalAffiliationDetail{},
+		PendingScheduleChange{}, ScheduleChangeRequest{}, PublicDoctorAffiliation{},
+	} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &body); err != nil {
+			t.Fatal(err)
+		}
+		if string(body["schedule_groups"]) != "[]" {
+			t.Fatalf("%T empty collection must be []: %s", value, encoded)
+		}
+		assertNoSiblingSchedules(t, encoded)
 	}
 }
