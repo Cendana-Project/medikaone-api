@@ -20,7 +20,7 @@ type PublicDoctorAffiliation struct {
 	DepartmentName string                   `json:"department_name"`
 	RoomID         *string                  `json:"room_id,omitempty"`
 	RoomName       *string                  `json:"room_name,omitempty"`
-	Schedules      []DoctorHospitalSchedule `json:"schedules" gorm:"-"`
+	Schedules      []DoctorHospitalSchedule `json:"-" gorm:"-"`
 }
 
 type PublicDoctorDetail struct {

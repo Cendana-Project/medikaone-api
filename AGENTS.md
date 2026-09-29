@@ -205,8 +205,9 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   jadwal rutin aktif (`schedule_date IS NULL`) untuk `affiliation_id` itu diganti
   snapshot rutin baru. Specific schedule tetap aktif dan afiliasi rumah sakit
   lain tidak ikut diganti.
-- List afiliasi mempertahankan jadwal aktif pada `schedules` dan mengekspos
-  seluruh proposal yang masih menunggu pada `pending_schedule_changes`. Maksimal
+- List afiliasi mempertahankan jadwal aktif pada `schedule_groups[].schedules`
+  dan mengekspos seluruh proposal yang masih menunggu pada
+  `pending_schedule_changes`. Maksimal
   satu operasi `REPLACE` rutin boleh pending per afiliasi, sedangkan beberapa
   operasi `ADD` specific schedule boleh pending bersamaan. Proposal tidak boleh
   diperlakukan sebagai jadwal bookable sebelum approval pihak lawan.
@@ -220,10 +221,15 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   sudah berubah/nonaktif menolak approval. `ALL` tidak boleh bersamaan dengan
   proposal lain pada afiliasi itu; `RECURRING_DAY` menolak REPLACE dan removal/
   deactivation pada hari yang sama, tetapi mengizinkan ADD dan hari lain.
-- Response yang mempunyai array `schedules` juga menyertakan `schedule_groups`
-  untuk tampilan. Hanya hari rutin dengan jam, timezone, status, dan aturan
-  booking sama yang digabung. Item aktif dan tiap proposal tetap terpisah;
-  `schedules`/ID asli tetap dipakai untuk booking atau penghapusan.
+- Response jadwal menyertakan `schedule_groups` untuk tampilan. Hanya hari rutin
+  dengan jam, timezone, status, dan aturan booking sama yang digabung. Setiap
+  group menyertakan `schedules` berupa array
+  object jadwal lengkap, diurutkan Senin–Minggu dengan ID/hari/tanggal/target
+  proposal tetap utuh. Frontend dapat membaca `schedule_groups[i].schedules`
+  langsung. Jangan tampilkan array `schedules` sejajar dengan `schedule_groups`;
+  field sumber pada DTO tetap internal. `item_ids` masih tersedia pada group.
+  Body request `schedules` tetap berlaku. Item aktif dan tiap proposal terpisah;
+  hanya ID jadwal aktif yang dapat dipakai untuk booking atau penghapusan.
 
 ### Direktori dan rekomendasi pasien
 
