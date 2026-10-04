@@ -10,6 +10,10 @@ import (
 )
 
 func (ctl *Controller) ListHospitals(c *gin.Context) {
+	if err := util.ValidateDiscoveryQuery(c.Request.URL.Query()); err != nil {
+		util.HandleError(c, err)
+		return
+	}
 	q := request.HospitalDirectoryQuery{Limit: 20}
 	if err := c.ShouldBindQuery(&q); err != nil {
 		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid directory query parameters", "parameter query direktori yang valid"))
@@ -20,6 +24,10 @@ func (ctl *Controller) ListHospitals(c *gin.Context) {
 }
 
 func (ctl *Controller) RecommendHospitals(c *gin.Context) {
+	if err := util.ValidateDiscoveryQuery(c.Request.URL.Query()); err != nil {
+		util.HandleError(c, err)
+		return
+	}
 	q := request.HospitalDirectoryQuery{Limit: 10, Sort: "rating"}
 	if err := c.ShouldBindQuery(&q); err != nil {
 		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid recommendation query parameters", "parameter query rekomendasi yang valid"))

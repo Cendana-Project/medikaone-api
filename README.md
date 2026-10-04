@@ -18,6 +18,11 @@ opsional dan object response `nearest_practice`. Lokasi dipilih dari afiliasi
 aktif yang memenuhi filter poli, RS, dan jadwal. Tanpa koordinat, urutan lama
 tetap berlaku. Kontrak lengkap ada pada panduan lifecycle dan jadwal di atas.
 
+Pencarian dan rekomendasi pasien mendukung pengalaman dan gender dokter,
+ketersediaan pada tanggal/jam dengan kapasitas booking tersisa, serta status
+buka RS. Lihat [kontrak pencarian pasien](docs/patient-discovery.md) untuk
+parameter, field profil pengalaman, dan migration yang diperlukan.
+
 ## Menjalankan secara lokal
 
 Prasyarat:

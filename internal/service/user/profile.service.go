@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
@@ -290,6 +291,16 @@ func (s *Service) Update(ctx context.Context, userID string, input request.Updat
 
 	doctorUpdates := make(map[string]any)
 	if input.DoctorProfile != nil {
+		if value, present := input.DoctorProfile.PracticeStartedOn.Get(); present {
+			if err := directorycriteria.PracticeStartedOn(value, s.now()); err != nil {
+				return err
+			}
+			if value == nil {
+				doctorUpdates["practice_started_on"] = nil
+			} else {
+				doctorUpdates["practice_started_on"] = *value
+			}
+		}
 		if raw, present := input.DoctorProfile.SIPNumber.Get(); present {
 			if raw == nil || strings.TrimSpace(*raw) == "" {
 				return constant.NewFieldRequiredError("doctor_profile.sip_number")
@@ -490,7 +501,7 @@ func hasPatientProfileUpdate(profile *request.UpdatePatientProfileRequest) bool 
 }
 
 func hasDoctorProfileUpdate(profile *request.UpdateDoctorProfileRequest) bool {
-	return profile != nil && (profile.SIPNumber.IsSet() || profile.Specialty.IsSet())
+	return profile != nil && (profile.SIPNumber.IsSet() || profile.Specialty.IsSet() || profile.PracticeStartedOn.IsSet())
 }
 
 func nullableTrimmed(value string) any {

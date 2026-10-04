@@ -22,6 +22,33 @@ type fakeRepository struct {
 	err      error
 }
 
+func TestExperienceGenderAndAvailabilityFilters(t *testing.T) {
+	number := func(v int) *int { return &v }
+	date := time.Now().UTC().AddDate(0, 0, 3).Format("2006-01-02")
+	for _, filter := range []repository.Filter{
+		{Gender: "X"}, {MinExperienceYears: number(-1)}, {MaxExperienceYears: number(101)},
+		{MinExperienceYears: number(10), MaxExperienceYears: number(3)},
+		{OnlyAvailable: true}, {AvailableOn: date, AvailableFrom: "09:00"},
+	} {
+		for _, recommended := range []bool{false, true} {
+			repo := &fakeRepository{}
+			svc := NewService(repo)
+			method := svc.ListDoctors
+			if recommended {
+				method = svc.RecommendDoctors
+			}
+			if _, err := method(context.Background(), filter); err == nil || repo.calls != 0 {
+				t.Fatalf("accepted invalid filter: %#v %v", filter, err)
+			}
+		}
+	}
+	repo := &fakeRepository{}
+	_, err := NewService(repo).RecommendDoctors(context.Background(), repository.Filter{Gender: " p ", MinExperienceYears: number(0), MaxExperienceYears: number(10), AvailableOn: date, AvailableFrom: "09:00", AvailableTo: "10:00", OnlyAvailable: true})
+	if err != nil || repo.filter.Gender != "P" || repo.filter.MinExperienceYears == nil || *repo.filter.MinExperienceYears != 0 || !repo.filter.OnlyAvailable || repo.filter.AvailableFrom != "09:00" {
+		t.Fatalf("lost filter: %#v %v", repo.filter, err)
+	}
+}
+
 func TestDoctorLocationValidation(t *testing.T) {
 	number := func(v float64) *float64 { return &v }
 	for _, filter := range []repository.Filter{

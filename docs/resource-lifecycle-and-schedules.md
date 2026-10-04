@@ -40,6 +40,12 @@ Endpoint direktori publik dapat dipakai Website maupun Mobile. Direktori dokter
 menampilkan identitas profesional, tanpa email, telepon pribadi, NIK, atau DOB.
 Resource nonaktif/diarsipkan tidak muncul di direktori.
 
+List/rekomendasi dokter juga menerima `gender`, `min_experience_years`,
+`max_experience_years`, `available_from`, `available_to`, dan `only_available`.
+Filter ketersediaan tersedia pula untuk RS, ditambah `open_now`.
+Lihat [kontrak pencarian pasien](patient-discovery.md) untuk semantik waktu,
+kapasitas, metadata pengalaman, dan migration yang diperlukan.
+
 ### Rekomendasi dokter berdasarkan tempat praktik
 
 ```http

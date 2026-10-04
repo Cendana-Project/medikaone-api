@@ -244,6 +244,14 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   harus disertai test dan pembaruan dokumentasi.
 - `available_on` menunjukkan adanya jadwal praktik aktif yang cocok. Nilai itu
   bukan jaminan kapasitas appointment masih tersedia.
+- `only_available=true` membutuhkan `available_on` dan memeriksa sisa kapasitas,
+  lead time 2 jam, serta horizon 90 hari dari `internal/bookingpolicy`. Jam
+  `available_from/to` harus berpasangan. Semua filter diterapkan sebelum
+  pagination dan pada afiliasi/poli yang sama, termasuk praktik terdekat dokter.
+- Pengalaman dokter berasal dari nullable `doctor_profiles.practice_started_on`;
+  `experience_years` dihitung sebagai tahun penuh, bukan usia akun. Data unknown
+  tetap null dan tidak memenuhi filter pengalaman. Kontrak lengkap berada di
+  `docs/patient-discovery.md`; RS juga mendukung `open_now` independen dari booking.
 - Filter `latitude`/`longitude` dokter dikirim berpasangan oleh client; backend
   tidak menebak lokasi pasien. Koordinat otomatis memprioritaskan afiliasi praktik
   terdekat yang memenuhi seluruh filter dan mempunyai jadwal aktif. Response

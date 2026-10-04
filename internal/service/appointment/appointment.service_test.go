@@ -227,6 +227,22 @@ func TestListAvailabilityBuildsFixedAndQueueCapacity(t *testing.T) {
 	}
 }
 
+func TestAvailabilityRangeDoesNotExposeSlotsBeyondBookingHorizon(t *testing.T) {
+	now := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	start := now.AddDate(0, 0, 89)
+	date := now.AddDate(0, 0, 91)
+	dateText := date.Format("2006-01-02")
+	for _, mode := range []string{entity.BookingModeFixedSlot, entity.BookingModeSessionQueue} {
+		repo := &fakeRepository{schedules: []repository.Schedule{{ID: uuid.NewString(), DayOfWeek: int(date.Weekday()), ScheduleDate: &dateText, StartTime: "09:00", EndTime: "10:00", Timezone: "UTC", BookingMode: mode, SlotDurationMinutes: 30, Capacity: 1}}}
+		svc := NewService(repo, nil, "test")
+		svc.now = func() time.Time { return now }
+		rows, err := svc.ListAvailability(context.Background(), uuid.NewString(), "", start.Format("2006-01-02"), dateText)
+		if err != nil || len(rows) != 1 || len(rows[0].Slots) != 0 {
+			t.Fatalf("mode %s: slots outside horizon: %#v %v", mode, rows, err)
+		}
+	}
+}
+
 func TestCreateAppointmentRequiresConsentAndBuildsSecureResult(t *testing.T) {
 	fixedNow := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 	schedule := repository.Schedule{ID: uuid.NewString(), AffiliationID: uuid.NewString(), HospitalID: uuid.NewString(), HospitalCode: "HSP-MO-001", DoctorID: uuid.NewString(), DepartmentID: uuid.NewString(), DayOfWeek: 1, StartTime: "08:00", EndTime: "10:00", Timezone: "Asia/Jakarta", BookingMode: entity.BookingModeFixedSlot, SlotDurationMinutes: 30, Capacity: 1}

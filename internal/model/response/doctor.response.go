@@ -2,6 +2,9 @@ package response
 
 // PublicDoctor exposes professional identity without private account data.
 type PublicDoctor struct {
+	Gender            *string                 `json:"gender"`
+	PracticeStartedOn *string                 `json:"practice_started_on"`
+	ExperienceYears   *int                    `json:"experience_years"`
 	DoctorID          string                  `json:"doctor_id"`
 	DoctorMedikaOneID string                  `json:"doctor_medikaone_id" gorm:"column:doctor_medikaone_id"`
 	FirstName         string                  `json:"first_name"`

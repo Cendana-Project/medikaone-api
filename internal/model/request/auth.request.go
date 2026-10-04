@@ -89,13 +89,14 @@ type PatientProfileRequest struct {
 }
 
 type DoctorProfileRequest struct {
-	FirstName string  `json:"first_name" validate:"required,max=100"`
-	LastName  string  `json:"last_name" validate:"required,max=100"`
-	DOB       *string `json:"dob,omitempty"`
-	Address   *string `json:"address,omitempty" validate:"omitempty,max=1000"`
-	Gender    *string `json:"gender,omitempty" validate:"omitempty,oneof=L P"`
-	SIPNumber *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
-	Specialty *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
+	PracticeStartedOn *string `json:"practice_started_on,omitempty"`
+	FirstName         string  `json:"first_name" validate:"required,max=100"`
+	LastName          string  `json:"last_name" validate:"required,max=100"`
+	DOB               *string `json:"dob,omitempty"`
+	Address           *string `json:"address,omitempty" validate:"omitempty,max=1000"`
+	Gender            *string `json:"gender,omitempty" validate:"omitempty,oneof=L P"`
+	SIPNumber         *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
+	Specialty         *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
 }
 
 // PatchField preserves the difference between an omitted JSON property and a
@@ -199,8 +200,9 @@ type UpdatePatientProfileRequest struct {
 // explicitly empty SIP is rejected by the service so an active doctor cannot
 // clear their professional identifier.
 type UpdateDoctorProfileRequest struct {
-	SIPNumber PatchField[string] `json:"sip_number,omitempty"`
-	Specialty PatchField[string] `json:"specialty,omitempty"`
+	PracticeStartedOn PatchField[string] `json:"practice_started_on,omitempty"`
+	SIPNumber         PatchField[string] `json:"sip_number,omitempty"`
+	Specialty         PatchField[string] `json:"specialty,omitempty"`
 }
 
 type LogoutRequest struct {

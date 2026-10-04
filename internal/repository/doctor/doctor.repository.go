@@ -7,7 +7,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	directoryrepo "github.com/Cendana-Project/medikaone-api/internal/repository/directory"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -15,27 +17,35 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type Filter struct {
-	Query          string
-	Specialty      string
-	HospitalID     string
-	DepartmentCode string
-	DepartmentID   string
-	City           string
-	AvailableOn    string
-	BookingMode    string
-	Latitude       *float64
-	Longitude      *float64
-	RadiusKM       *float64
-	Recommended    bool
-	Page           int
-	Limit          int
+	Gender             string
+	MinExperienceYears *int
+	MaxExperienceYears *int
+	AvailableFrom      string
+	AvailableTo        string
+	OnlyAvailable      bool
+	Query              string
+	Specialty          string
+	HospitalID         string
+	DepartmentCode     string
+	DepartmentID       string
+	City               string
+	AvailableOn        string
+	BookingMode        string
+	Latitude           *float64
+	Longitude          *float64
+	RadiusKM           *float64
+	Recommended        bool
+	Page               int
+	Limit              int
 }
 
 const publicDoctorColumns = `
 	doctor.id::text AS doctor_id, profile.medikaone_id AS doctor_medikaone_id,
 	COALESCE(doctor.first_name, '') AS first_name, COALESCE(doctor.last_name, '') AS last_name,
 	TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS full_name,
-	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(profile.specialty, '') AS specialty`
+	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(profile.specialty, '') AS specialty,
+	doctor.gender, profile.practice_started_on::text,
+	EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, profile.practice_started_on))::integer AS experience_years`
 
 const publicDoctorTables = `
 	FROM users doctor
@@ -68,9 +78,11 @@ func practiceQuery(filter Filter) (string, []any) {
 	where := ` FROM doctor_hospital_affiliations affiliation
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
+		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 		WHERE affiliation.doctor_id = doctor.id
 		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
-		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL AND department.is_active = TRUE`
+		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL AND department.is_active = TRUE
+		  AND (affiliation.room_id IS NULL OR room.is_active = TRUE)`
 	args := make([]any, 0)
 	for _, condition := range []struct{ value, sql string }{
 		{filter.HospitalID, " AND affiliation.hospital_id = ?"},
@@ -84,21 +96,12 @@ func practiceQuery(filter Filter) (string, []any) {
 		}
 	}
 	if filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended || filter.Latitude != nil {
-		where += ` AND EXISTS (
-			SELECT 1 FROM doctor_hospital_schedules schedule
-			WHERE schedule.affiliation_id = affiliation.id AND schedule.is_active = TRUE
-			  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP)`
-		if filter.AvailableOn != "" {
-			where += ` AND (schedule.schedule_date = ?::date
-				OR (schedule.schedule_date IS NULL AND schedule.day_of_week = EXTRACT(DOW FROM ?::date)::integer))
-				AND ((?::date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP`
-			args = append(args, filter.AvailableOn, filter.AvailableOn, filter.AvailableOn)
-		}
-		if filter.BookingMode != "" {
-			where += " AND schedule.booking_mode = ?"
-			args = append(args, filter.BookingMode)
-		}
-		where += ")"
+		predicate, values := directoryrepo.SchedulePredicate(directorycriteria.Availability{
+			Date: filter.AvailableOn, From: filter.AvailableFrom, To: filter.AvailableTo,
+			OnlyAvailable: filter.OnlyAvailable, BookingMode: filter.BookingMode,
+		})
+		where += " AND EXISTS (SELECT 1 FROM doctor_hospital_schedules schedule WHERE schedule.affiliation_id = affiliation.id AND " + predicate + ")"
+		args = append(args, values...)
 	}
 	return where, args
 }
@@ -135,6 +138,19 @@ func filterQuery(filter Filter) (string, []any) {
 	if filter.Specialty != "" {
 		where += ` AND LOWER(profile.specialty) = LOWER(?)`
 		args = append(args, filter.Specialty)
+	}
+	if filter.Gender != "" {
+		where += " AND doctor.gender = ?"
+		args = append(args, filter.Gender)
+	}
+	const experience = "EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, profile.practice_started_on))"
+	if filter.MinExperienceYears != nil {
+		where += " AND " + experience + " >= ?"
+		args = append(args, *filter.MinExperienceYears)
+	}
+	if filter.MaxExperienceYears != nil {
+		where += " AND " + experience + " <= ?"
+		args = append(args, *filter.MaxExperienceYears)
 	}
 	if filter.Latitude == nil && (filter.HospitalID != "" || filter.DepartmentCode != "" || filter.DepartmentID != "" || filter.City != "" || filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended) {
 		where += " AND EXISTS (SELECT 1 " + practice + ")"

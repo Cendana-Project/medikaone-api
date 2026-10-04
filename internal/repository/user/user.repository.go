@@ -420,14 +420,21 @@ func (r *Repository) UpsertPatientProfile(ctx context.Context, p map[string]any)
 }
 
 func (r *Repository) UpsertDoctorProfile(ctx context.Context, p map[string]any) error {
+	params := make(map[string]any, len(p)+2)
+	for key, value := range p {
+		params[key] = value
+	}
+	value, present := p["practice_started_on"]
+	params["practice_started_on"], params["has_practice_started_on"] = value, present
 	err := r.db.WithContext(ctx).Exec(`
-		INSERT INTO doctor_profiles (user_id, sip_number, specialty, created_at, updated_at)
-		VALUES (@user_id, @sip_number, @specialty, NOW(), NOW())
+		INSERT INTO doctor_profiles (user_id, sip_number, specialty, practice_started_on, created_at, updated_at)
+		VALUES (@user_id, @sip_number, @specialty, @practice_started_on, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 		  sip_number = EXCLUDED.sip_number,
 		  specialty  = EXCLUDED.specialty,
+		  practice_started_on = CASE WHEN @has_practice_started_on THEN EXCLUDED.practice_started_on ELSE doctor_profiles.practice_started_on END,
 		  updated_at = NOW();
-	`, p).Error
+	`, params).Error
 	return mapDoctorProfileWriteError(err)
 }
 
@@ -598,7 +605,8 @@ func (r *Repository) GetDoctorProfileByUserID(ctx context.Context, userID string
 func (r *Repository) GetDoctorProfile(ctx context.Context, userID string) (*response.DoctorProfile, error) {
 	var profile response.DoctorProfile
 	result := r.db.WithContext(ctx).Raw(`
-		SELECT medikaone_id, sip_number, specialty FROM doctor_profiles WHERE user_id = ?
+		SELECT medikaone_id, sip_number, specialty, practice_started_on::text,
+		EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, practice_started_on))::integer AS experience_years FROM doctor_profiles WHERE user_id = ?
 	`, userID).Scan(&profile)
 	if result.Error != nil {
 		return nil, result.Error

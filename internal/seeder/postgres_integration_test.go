@@ -302,6 +302,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		}
 		testDoctorIdentityIntegration(t, db)
 		testDoctorLocationIntegration(t, db)
+		testDirectoryFiltersIntegration(t, db)
 		testAccountDeletionIntegration(t, db)
 		testResourceLifecycleIntegration(t, db)
 		testInvitationRejectionIntegration(t, db)

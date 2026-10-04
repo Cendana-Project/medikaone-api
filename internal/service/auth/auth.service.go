@@ -26,6 +26,7 @@ import (
 
 	"github.com/Cendana-Project/medikaone-api/internal/config"
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/email"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
@@ -1816,6 +1817,9 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 	if err := ulog.ValidateStruct(req); err != nil {
 		return ulog.MapValidationError(err)
 	}
+	if err := directorycriteria.PracticeStartedOn(req.PracticeStartedOn, time.Now()); err != nil {
+		return err
+	}
 	if req.SIPNumber == nil || strings.TrimSpace(*req.SIPNumber) == "" {
 		return constant.NewFieldRequiredError("sip_number")
 	}
@@ -1876,6 +1880,9 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 		"user_id":    userID,
 		"sip_number": sipNumber,
 		"specialty":  req.Specialty,
+	}
+	if req.PracticeStartedOn != nil {
+		prof["practice_started_on"] = *req.PracticeStartedOn
 	}
 	if err := users.UpsertDoctorProfile(ctx, prof); err != nil {
 		return doctorProfilePersistenceError(err)
@@ -2017,6 +2024,8 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		if doctorProfile != nil {
 			prof.SIPNumber, prof.Specialty = doctorProfile.SIPNumber, doctorProfile.Specialty
 			prof.DoctorMedikaOneID = doctorProfile.DoctorMedikaOneID
+			prof.PracticeStartedOn = doctorProfile.PracticeStartedOn
+			prof.ExperienceYears = doctorProfile.ExperienceYears
 		}
 	}
 
