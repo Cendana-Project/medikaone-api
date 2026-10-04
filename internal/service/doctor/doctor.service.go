@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/doctor"
 )
@@ -36,6 +38,18 @@ func (s *Service) RecommendDoctors(ctx context.Context, filter repository.Filter
 }
 
 func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, defaultLimit int) (*response.PublicDoctorPage, error) {
+	filter.Gender = strings.ToUpper(strings.TrimSpace(filter.Gender))
+	if filter.Gender != "" && filter.Gender != "L" && filter.Gender != "P" {
+		return nil, constant.NewInvalidFieldValueError("gender", "L or P", "L (laki-laki) atau P (perempuan)")
+	}
+	for _, value := range []*int{filter.MinExperienceYears, filter.MaxExperienceYears} {
+		if value != nil && (*value < 0 || *value > 100) {
+			return nil, constant.NewInvalidFieldValueError("experience_years", "an integer between 0 and 100", "bilangan bulat antara 0 dan 100")
+		}
+	}
+	if filter.MinExperienceYears != nil && filter.MaxExperienceYears != nil && *filter.MinExperienceYears > *filter.MaxExperienceYears {
+		return nil, constant.NewInvalidFieldValueError("min_experience_years", "less than or equal to max_experience_years", "lebih kecil atau sama dengan max_experience_years")
+	}
 	filter.Query = strings.TrimSpace(filter.Query)
 	filter.Specialty = strings.TrimSpace(filter.Specialty)
 	filter.HospitalID = strings.TrimSpace(filter.HospitalID)
@@ -44,6 +58,21 @@ func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, def
 	filter.City = strings.TrimSpace(filter.City)
 	filter.AvailableOn = strings.TrimSpace(filter.AvailableOn)
 	filter.BookingMode = strings.ToUpper(strings.TrimSpace(filter.BookingMode))
+	if (filter.Latitude == nil) != (filter.Longitude == nil) {
+		return nil, constant.NewInvalidFieldValueError("coordinates", "latitude and longitude supplied together", "latitude dan longitude dikirim berpasangan")
+	}
+	for _, coordinate := range []struct {
+		name  string
+		value *float64
+		bound float64
+	}{{"latitude", filter.Latitude, 90}, {"longitude", filter.Longitude, 180}} {
+		if coordinate.value != nil && (math.IsNaN(*coordinate.value) || math.IsInf(*coordinate.value, 0) || math.Abs(*coordinate.value) > coordinate.bound) {
+			return nil, constant.NewInvalidFieldValueError(coordinate.name, "a finite coordinate within latitude -90..90 and longitude -180..180", "koordinat angka berhingga dalam latitude -90..90 dan longitude -180..180")
+		}
+	}
+	if filter.RadiusKM != nil && (filter.Latitude == nil || math.IsNaN(*filter.RadiusKM) || math.IsInf(*filter.RadiusKM, 0) || *filter.RadiusKM <= 0 || *filter.RadiusKM > 5000) {
+		return nil, constant.NewInvalidFieldValueError("radius_km", "greater than 0 through 5000, with latitude and longitude", "lebih dari 0 hingga 5000, dengan latitude dan longitude")
+	}
 	if len(filter.Query) > 190 || len(filter.Specialty) > 190 || len(filter.DepartmentCode) > 40 || len(filter.City) > 100 {
 		return nil, constant.NewInvalidFieldLengthError("directory filter", "q/specialty <=190, department_code <=40, and city <=100 characters", "q/specialty <=190, department_code <=40, dan city <=100 karakter")
 	}
@@ -61,16 +90,11 @@ func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, def
 		}
 		filter.DepartmentID = id.String()
 	}
-	if filter.AvailableOn != "" {
-		date, err := time.Parse("2006-01-02", filter.AvailableOn)
-		today := time.Now().UTC().Truncate(24 * time.Hour)
-		if err != nil || date.Before(today) || date.After(today.AddDate(1, 0, 0)) {
-			return nil, constant.NewInvalidFieldValueError("available_on", "a date from today through one year ahead in YYYY-MM-DD format", "tanggal hari ini hingga satu tahun ke depan dengan format YYYY-MM-DD")
-		}
+	availability := directorycriteria.Availability{Date: filter.AvailableOn, From: filter.AvailableFrom, To: filter.AvailableTo, OnlyAvailable: filter.OnlyAvailable, BookingMode: filter.BookingMode}
+	if err := availability.Validate(time.Now()); err != nil {
+		return nil, err
 	}
-	if filter.BookingMode != "" && filter.BookingMode != "FIXED_SLOT" && filter.BookingMode != "SESSION_QUEUE" {
-		return nil, constant.NewInvalidFieldValueError("booking_mode", "FIXED_SLOT or SESSION_QUEUE", "FIXED_SLOT atau SESSION_QUEUE")
-	}
+	filter.AvailableOn, filter.AvailableFrom, filter.AvailableTo, filter.BookingMode = availability.Date, availability.From, availability.To, availability.BookingMode
 	if filter.Page == 0 {
 		filter.Page = 1
 	}

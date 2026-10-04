@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,10 +25,58 @@ func (ctl *Controller) RecommendDoctors(c *gin.Context) {
 }
 
 func (ctl *Controller) listDoctors(c *gin.Context, recommended bool) {
+	if err := util.ValidateDiscoveryQuery(c.Request.URL.Query()); err != nil {
+		util.HandleError(c, err)
+		return
+	}
 	filter := repository.Filter{
+		Gender: c.Query("gender"), AvailableFrom: c.Query("available_from"), AvailableTo: c.Query("available_to"),
 		Query: c.Query("q"), Specialty: c.Query("specialty"), HospitalID: c.Query("hospital_id"),
 		DepartmentCode: c.Query("department_code"), DepartmentID: c.Query("department_id"), City: c.Query("city"),
 		AvailableOn: c.Query("available_on"), BookingMode: c.Query("booking_mode"),
+	}
+	for _, field := range []struct {
+		name   string
+		target **int
+	}{
+		{"min_experience_years", &filter.MinExperienceYears}, {"max_experience_years", &filter.MaxExperienceYears},
+	} {
+		if values, exists := c.Request.URL.Query()[field.name]; exists {
+			if len(values) != 1 {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "one integer", "satu bilangan bulat"))
+				return
+			}
+			value, err := strconv.Atoi(values[0])
+			if err != nil {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "an integer", "bilangan bulat"))
+				return
+			}
+			*field.target = &value
+		}
+	}
+	if values, exists := c.Request.URL.Query()["only_available"]; exists {
+		if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+			util.HandleError(c, constant.NewInvalidFieldValueError("only_available", "true or false", "true atau false"))
+			return
+		}
+		filter.OnlyAvailable = values[0] == "true"
+	}
+	for _, field := range []struct {
+		name   string
+		target **float64
+	}{{"latitude", &filter.Latitude}, {"longitude", &filter.Longitude}, {"radius_km", &filter.RadiusKM}} {
+		if values, exists := c.Request.URL.Query()[field.name]; exists {
+			if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "a single numeric value", "satu nilai angka"))
+				return
+			}
+			value, err := strconv.ParseFloat(values[0], 64)
+			if err != nil {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "a numeric value", "nilai angka"))
+				return
+			}
+			*field.target = &value
+		}
 	}
 	for key, target := range map[string]*int{"page": &filter.Page, "limit": &filter.Limit} {
 		if value, exists := c.GetQuery(key); exists {

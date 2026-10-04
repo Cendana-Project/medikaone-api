@@ -1,6 +1,12 @@
 package request
 
 type HospitalDirectoryQuery struct {
+	AvailableOn    string   `form:"available_on"`
+	AvailableFrom  string   `form:"available_from"`
+	AvailableTo    string   `form:"available_to"`
+	OnlyAvailable  bool     `form:"only_available"`
+	BookingMode    string   `form:"booking_mode"`
+	OpenNow        *bool    `form:"open_now"`
 	Search         string   `form:"search"`
 	City           string   `form:"city"`
 	Department     string   `form:"department"`

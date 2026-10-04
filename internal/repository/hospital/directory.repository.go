@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	directoryrepo "github.com/Cendana-Project/medikaone-api/internal/repository/directory"
 	"gorm.io/gorm"
 )
 
@@ -53,16 +55,33 @@ func (r *Repository) ListDirectory(ctx context.Context, q request.HospitalDirect
 	if q.RadiusKM != nil {
 		query = query.Where("distance_km <= ?", *q.RadiusKM)
 	}
-	if q.Recommended {
-		query = query.Where(`EXISTS(
+	if q.OpenNow != nil {
+		query = query.Where(directoryrepo.HospitalOpenExpression+" = ?", *q.OpenNow)
+	}
+	if q.Recommended || q.AvailableOn != "" || q.BookingMode != "" {
+		predicate, args := directoryrepo.SchedulePredicate(directorycriteria.Availability{Date: q.AvailableOn, From: q.AvailableFrom, To: q.AvailableTo, BookingMode: q.BookingMode, OnlyAvailable: q.OnlyAvailable})
+		where := `EXISTS(
 			SELECT 1 FROM doctor_hospital_affiliations affiliation
 			JOIN users doctor ON doctor.id = affiliation.doctor_id
 			JOIN hospital_departments department ON department.id = affiliation.department_id
+			LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 			JOIN doctor_hospital_schedules schedule ON schedule.affiliation_id = affiliation.id
 			WHERE affiliation.hospital_id = directory.id AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
 			  AND doctor.status = 'active' AND doctor.deleted_at IS NULL AND department.is_active = TRUE AND schedule.is_active = TRUE
-			  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP)
-		)`)
+			  AND (affiliation.room_id IS NULL OR room.is_active = TRUE) AND ` + predicate
+		if q.Department != "" {
+			where += " AND (LOWER(department.name) LIKE ? OR LOWER(department.code) LIKE ?)"
+			args = append(args, likePattern(q.Department), likePattern(q.Department))
+		}
+		if q.DepartmentCode != "" {
+			where += " AND LOWER(department.code) = LOWER(?)"
+			args = append(args, q.DepartmentCode)
+		}
+		if q.DepartmentID != "" {
+			where += " AND department.id = ?"
+			args = append(args, q.DepartmentID)
+		}
+		query = query.Where(where+")", args...)
 	}
 	switch q.Sort {
 	case "distance":

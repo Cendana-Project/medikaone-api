@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Cendana-Project/medikaone-api/internal/bookingpolicy"
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/email"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
@@ -30,8 +31,8 @@ const (
 	DefaultCapacity            = 1
 	MaximumScheduleEntries     = 50
 	MaximumAvailabilityDays    = 31
-	BookingHorizon             = 90 * 24 * time.Hour
-	MinimumBookingLeadTime     = 2 * time.Hour
+	BookingHorizon             = bookingpolicy.Horizon
+	MinimumBookingLeadTime     = bookingpolicy.MinimumLeadTime
 	PatientChangeCutoff        = 2 * time.Hour
 	CheckInEarlyWindow         = 30 * time.Minute
 	CheckInLateWindow          = 15 * time.Minute
@@ -137,7 +138,7 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 			if schedule.BookingMode == entity.BookingModeSessionQueue {
 				used := reserved[availabilityKey(schedule.ID, row.Date, sessionStart)]
 				row.AvailableCapacity = maxInt(schedule.Capacity-used, 0)
-				if sessionStart.After(now.Add(MinimumBookingLeadTime)) && row.AvailableCapacity > 0 {
+				if sessionStart.After(now.Add(MinimumBookingLeadTime)) && !sessionStart.After(now.Add(BookingHorizon)) && row.AvailableCapacity > 0 {
 					row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: sessionStart, EndAt: sessionEnd, AvailableCapacity: row.AvailableCapacity, Capacity: schedule.Capacity})
 				}
 			} else {
@@ -146,7 +147,7 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 					used := reserved[availabilityKey(schedule.ID, row.Date, start)]
 					available := maxInt(schedule.Capacity-used, 0)
 					row.AvailableCapacity += available
-					if start.After(now.Add(MinimumBookingLeadTime)) && available > 0 {
+					if start.After(now.Add(MinimumBookingLeadTime)) && !start.After(now.Add(BookingHorizon)) && available > 0 {
 						row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: start, EndAt: end, AvailableCapacity: available, Capacity: schedule.Capacity})
 					}
 				}

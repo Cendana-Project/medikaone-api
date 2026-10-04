@@ -64,6 +64,8 @@ type UserProfile struct {
 	MedicalHistory *string `json:"medical_history,omitempty"`
 
 	// Doctor-only
+	PracticeStartedOn *string `json:"practice_started_on,omitempty"`
+	ExperienceYears   *int    `json:"experience_years,omitempty"`
 	DoctorMedikaOneID string  `json:"doctor_medikaone_id,omitempty"`
 	SIPNumber         *string `json:"sip_number,omitempty"`
 	Specialty         *string `json:"specialty,omitempty"`

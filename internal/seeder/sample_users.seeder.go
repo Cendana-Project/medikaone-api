@@ -12,20 +12,21 @@ import (
 )
 
 type sampleUserSeed struct {
-	Email     string
-	FirstName string
-	LastName  string
-	Password  string
-	RoleSlug  string
-	Phone     string
-	Gender    string
-	NIK       string
-	DOB       string
-	Address   string
-	SIPNumber string
-	Specialty string
-	HeightCM  int
-	WeightKG  int
+	Email             string
+	FirstName         string
+	LastName          string
+	Password          string
+	RoleSlug          string
+	Phone             string
+	Gender            string
+	NIK               string
+	DOB               string
+	Address           string
+	SIPNumber         string
+	Specialty         string
+	PracticeStartedOn string
+	HeightCM          int
+	WeightKG          int
 }
 
 func sampleUserSeeds() []sampleUserSeed {
@@ -69,18 +70,19 @@ func sampleUserSeeds() []sampleUserSeed {
 
 	for i := 1; i <= 3; i++ {
 		users = append(users, sampleUserSeed{
-			Email:     fmt.Sprintf("doctor%03d@medikaone.id", i),
-			FirstName: "Doctor",
-			LastName:  fmt.Sprintf("%03d", i),
-			Password:  "Password123",
-			RoleSlug:  constant.RoleDoctor,
-			SIPNumber: fmt.Sprintf("SIP-DEMO-DOCTOR-%03d", i),
-			Specialty: []string{"Umum", "Mata", "Paru"}[i-1],
-			Phone:     fmt.Sprintf("081210000%03d", i),
-			Gender:    []string{"L", "P"}[i%2],
-			NIK:       genNIK("1201", i),
-			DOB:       "1985-02-02",
-			Address:   "Jl. Sehat No. 45, Jakarta",
+			Email:             fmt.Sprintf("doctor%03d@medikaone.id", i),
+			FirstName:         "Doctor",
+			LastName:          fmt.Sprintf("%03d", i),
+			Password:          "Password123",
+			RoleSlug:          constant.RoleDoctor,
+			SIPNumber:         fmt.Sprintf("SIP-DEMO-DOCTOR-%03d", i),
+			Specialty:         []string{"Umum", "Mata", "Paru"}[i-1],
+			PracticeStartedOn: []string{"2010-07-01", "2015-07-01", "2020-07-01"}[i-1],
+			Phone:             fmt.Sprintf("081210000%03d", i),
+			Gender:            []string{"L", "P"}[i%2],
+			NIK:               genNIK("1201", i),
+			DOB:               "1985-02-02",
+			Address:           "Jl. Sehat No. 45, Jakarta",
 		})
 	}
 
@@ -155,10 +157,10 @@ func SeedSampleUsers(db *gorm.DB) error {
 		if user.RoleSlug == constant.RoleDoctor {
 			// Omit medikaone_id so new fixtures receive the database default and
 			// repeated runs preserve each doctor's immutable public identifier.
-			if err := db.Exec(`INSERT INTO doctor_profiles (user_id, sip_number, specialty, created_at, updated_at)
-				VALUES (?, ?, ?, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE
-				SET sip_number = EXCLUDED.sip_number, specialty = EXCLUDED.specialty, updated_at = NOW()`,
-				created.ID, user.SIPNumber, user.Specialty).Error; err != nil {
+			if err := db.Exec(`INSERT INTO doctor_profiles (user_id, sip_number, specialty, practice_started_on, created_at, updated_at)
+				VALUES (?, ?, ?, ?::date, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE
+				SET sip_number = EXCLUDED.sip_number, specialty = EXCLUDED.specialty, practice_started_on = EXCLUDED.practice_started_on, updated_at = NOW()`,
+				created.ID, user.SIPNumber, user.Specialty, user.PracticeStartedOn).Error; err != nil {
 				return fmt.Errorf("seed doctor profile for %s: %w", user.Email, err)
 			}
 		}

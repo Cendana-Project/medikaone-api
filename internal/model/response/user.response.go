@@ -47,6 +47,8 @@ type PatientProfile struct {
 
 // DoctorProfile untuk user berperan DOCTOR.
 type DoctorProfile struct {
+	PracticeStartedOn *string `json:"practice_started_on"`
+	ExperienceYears   *int    `json:"experience_years"`
 	DoctorMedikaOneID string  `json:"doctor_medikaone_id" gorm:"column:medikaone_id"`
 	SIPNumber         *string `json:"sip_number" gorm:"column:sip_number"`
 	Specialty         *string `json:"specialty"`

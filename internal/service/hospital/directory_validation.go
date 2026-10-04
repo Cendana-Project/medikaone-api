@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	"github.com/google/uuid"
@@ -24,6 +25,11 @@ func invalidDirectory(field, requirement string) error {
 }
 
 func validateDirectoryQuery(q *request.HospitalDirectoryQuery) error {
+	availability := directorycriteria.Availability{Date: q.AvailableOn, From: q.AvailableFrom, To: q.AvailableTo, OnlyAvailable: q.OnlyAvailable, BookingMode: q.BookingMode}
+	if err := availability.Validate(time.Now()); err != nil {
+		return err
+	}
+	q.AvailableOn, q.AvailableFrom, q.AvailableTo, q.BookingMode = availability.Date, availability.From, availability.To, availability.BookingMode
 	q.Search, q.City, q.Department = strings.TrimSpace(q.Search), strings.TrimSpace(q.City), strings.TrimSpace(q.Department)
 	q.DepartmentCode = strings.ToUpper(strings.TrimSpace(q.DepartmentCode))
 	if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 || q.Offset > 100000 {

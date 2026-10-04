@@ -31,6 +31,11 @@ memakai UUID. Hospital nonaktif/terhapus tidak tersedia di direktori publik.
 
 ## Pencarian dan jarak
 
+Filter `available_on`, `available_from`, `available_to`, `booking_mode`,
+`only_available`, dan `open_now` tersedia pada list dan rekomendasi RS.
+Aturan kapasitas booking, jam operasional, dan contoh lengkap ada di
+[`patient-discovery.md`](patient-discovery.md).
+
 `GET /v1/hospitals` menerima `search`, `city`, `department` (pencarian lama),
 `department_code` (pilihan dari `/v1/departments`), `department_id` (UUID poli), `min_rating` (0-5), `latitude`, `longitude`,
 `radius_km` (>0 sampai 5000), `sort` (`name`, `rating`, `distance`),

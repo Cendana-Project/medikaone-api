@@ -149,3 +149,9 @@ Kegagalan approval karena konflik tetap mempertahankan proposal sebagai PENDING.
 Pesan sukses didefinisikan di `internal/constant/message.constant.go`. Error
 statis didefinisikan di `internal/constant/custom_error.constant.go` dan
 dirender hanya melalui `internal/util/error.go`.
+
+Filter lokasi pada `GET /v1/doctors` dan `GET /v1/recommendations/doctors`
+menggunakan HTTP 400 `INVALID_FIELD_VALUE` untuk koordinat tidak berpasangan,
+angka tidak valid/nonfinite, latitude di luar -90..90, longitude di luar
+-180..180, atau radius di luar (0, 5000] km/tanpa koordinat. Parameter lokasi
+kosong atau berulang juga ditolak. Client harus memperbaiki input sebelum retry.

@@ -301,6 +301,8 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			t.Fatalf("second idempotent Run() error = %v", err)
 		}
 		testDoctorIdentityIntegration(t, db)
+		testDoctorLocationIntegration(t, db)
+		testDirectoryFiltersIntegration(t, db)
 		testAccountDeletionIntegration(t, db)
 		testResourceLifecycleIntegration(t, db)
 		testInvitationRejectionIntegration(t, db)

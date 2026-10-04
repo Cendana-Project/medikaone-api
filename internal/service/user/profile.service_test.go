@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -39,6 +40,44 @@ type fakeRepository struct {
 	updates                  map[string]any
 	profileUpdate            repository.UnifiedProfileUpdate
 	image                    *repository.ProfileImageRecord
+}
+
+func TestPracticeStartPatchPresenceValidationAndRole(t *testing.T) {
+	for _, tc := range []struct {
+		body                   string
+		doctor, valid, present bool
+		want                   any
+	}{
+		{`{"doctor_profile":{"practice_started_on":"2015-07-01"}}`, true, true, true, "2015-07-01"},
+		{`{"doctor_profile":{"practice_started_on":null}}`, true, true, true, nil},
+		{`{"doctor_profile":{"specialty":"Mata"}}`, true, true, false, nil},
+		{`{"doctor_profile":{"practice_started_on":""}}`, true, false, false, nil},
+		{`{"doctor_profile":{"practice_started_on":"2999-01-01"}}`, true, false, false, nil},
+		{`{"doctor_profile":{"practice_started_on":"2015-07-01"}}`, false, false, false, nil},
+	} {
+		t.Run(tc.body+fmt.Sprint(tc.doctor), func(t *testing.T) {
+			sip := "SIP-existing"
+			repo := &fakeRepository{user: &entity.User{ID: "doctor-1"}, currentSIP: &sip, globalRoles: map[string]bool{constant.RoleDoctor: tc.doctor}}
+			svc := NewService(repo, &fakeStorage{}, maxProfilePhotoSize, time.Minute)
+			var input request.UpdateUserProfileRequest
+			if err := json.Unmarshal([]byte(tc.body), &input); err != nil {
+				t.Fatal(err)
+			}
+			err := svc.Update(context.Background(), "doctor-1", input)
+			if (err == nil) != tc.valid {
+				t.Fatalf("err=%v", err)
+			}
+			if !tc.valid && repo.profileUpdateAttempted {
+				t.Fatal("invalid/unauthorized change persisted")
+			}
+			if tc.valid {
+				value, present := repo.profileUpdate.DoctorFields["practice_started_on"]
+				if present != tc.present || value != tc.want {
+					t.Fatalf("presence/value: %#v %v", value, present)
+				}
+			}
+		})
+	}
 }
 
 func (f *fakeRepository) GetByID(context.Context, string) (*entity.User, error) { return f.user, nil }

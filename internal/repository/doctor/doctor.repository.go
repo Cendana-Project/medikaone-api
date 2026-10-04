@@ -2,11 +2,14 @@ package doctor
 
 import (
 	"context"
+	"math"
 	"strings"
 
 	"gorm.io/gorm"
 
+	"github.com/Cendana-Project/medikaone-api/internal/directorycriteria"
 	"github.com/Cendana-Project/medikaone-api/internal/model/response"
+	directoryrepo "github.com/Cendana-Project/medikaone-api/internal/repository/directory"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -14,28 +17,41 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type Filter struct {
-	Query          string
-	Specialty      string
-	HospitalID     string
-	DepartmentCode string
-	DepartmentID   string
-	City           string
-	AvailableOn    string
-	BookingMode    string
-	Recommended    bool
-	Page           int
-	Limit          int
+	Gender             string
+	MinExperienceYears *int
+	MaxExperienceYears *int
+	AvailableFrom      string
+	AvailableTo        string
+	OnlyAvailable      bool
+	Query              string
+	Specialty          string
+	HospitalID         string
+	DepartmentCode     string
+	DepartmentID       string
+	City               string
+	AvailableOn        string
+	BookingMode        string
+	Latitude           *float64
+	Longitude          *float64
+	RadiusKM           *float64
+	Recommended        bool
+	Page               int
+	Limit              int
 }
 
 const publicDoctorColumns = `
 	doctor.id::text AS doctor_id, profile.medikaone_id AS doctor_medikaone_id,
 	COALESCE(doctor.first_name, '') AS first_name, COALESCE(doctor.last_name, '') AS last_name,
 	TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS full_name,
-	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(profile.specialty, '') AS specialty`
+	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(profile.specialty, '') AS specialty,
+	doctor.gender, profile.practice_started_on::text,
+	EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, profile.practice_started_on))::integer AS experience_years`
 
-const publicDoctorFrom = `
+const publicDoctorTables = `
 	FROM users doctor
-	JOIN doctor_profiles profile ON profile.user_id = doctor.id
+	JOIN doctor_profiles profile ON profile.user_id = doctor.id`
+
+const publicDoctorConditions = `
 	WHERE doctor.status = 'active' AND doctor.deleted_at IS NULL AND doctor.verified_at IS NOT NULL
 	  AND NULLIF(BTRIM(profile.sip_number), '') IS NOT NULL
 	  AND EXISTS (
@@ -54,9 +70,64 @@ const publicDoctorFrom = `
 		  )
 	  )`
 
+const publicDoctorFrom = publicDoctorTables + publicDoctorConditions
+
+// Reused for eligibility and nearest practice, so a nearby affiliation cannot
+// satisfy distance while a different one satisfies department/date/mode filters.
+func practiceQuery(filter Filter) (string, []any) {
+	where := ` FROM doctor_hospital_affiliations affiliation
+		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
+		JOIN hospital_departments department ON department.id = affiliation.department_id
+		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
+		WHERE affiliation.doctor_id = doctor.id
+		  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL
+		  AND hospital.is_active = TRUE AND hospital.deleted_at IS NULL AND department.is_active = TRUE
+		  AND (affiliation.room_id IS NULL OR room.is_active = TRUE)`
+	args := make([]any, 0)
+	for _, condition := range []struct{ value, sql string }{
+		{filter.HospitalID, " AND affiliation.hospital_id = ?"},
+		{filter.DepartmentCode, " AND LOWER(department.code) = LOWER(?)"},
+		{filter.DepartmentID, " AND department.id = ?"},
+		{filter.City, " AND LOWER(hospital.city) = LOWER(?)"},
+	} {
+		if condition.value != "" {
+			where += condition.sql
+			args = append(args, condition.value)
+		}
+	}
+	if filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended || filter.Latitude != nil {
+		predicate, values := directoryrepo.SchedulePredicate(directorycriteria.Availability{
+			Date: filter.AvailableOn, From: filter.AvailableFrom, To: filter.AvailableTo,
+			OnlyAvailable: filter.OnlyAvailable, BookingMode: filter.BookingMode,
+		})
+		where += " AND EXISTS (SELECT 1 FROM doctor_hospital_schedules schedule WHERE schedule.affiliation_id = affiliation.id AND " + predicate + ")"
+		args = append(args, values...)
+	}
+	return where, args
+}
+
 func filterQuery(filter Filter) (string, []any) {
 	where := publicDoctorFrom
 	args := make([]any, 0)
+	practice, practiceArgs := practiceQuery(filter)
+	if filter.Latitude != nil && filter.Longitude != nil {
+		where = publicDoctorTables + ` LEFT JOIN LATERAL (
+			SELECT affiliation.id AS affiliation_id, hospital.id AS hospital_id, hospital.name AS hospital_name,
+			       department.id AS department_id, department.name AS department_name, hospital.latitude, hospital.longitude,
+			       CASE WHEN hospital.latitude IS NULL OR hospital.longitude IS NULL THEN NULL ELSE
+			       6371.0088 * ACOS(LEAST(1.0, GREATEST(-1.0,
+			           SIN(RADIANS(?::double precision)) * SIN(RADIANS(hospital.latitude::double precision)) +
+			           COS(RADIANS(?::double precision)) * COS(RADIANS(hospital.latitude::double precision)) *
+			           COS(RADIANS(hospital.longitude::double precision - ?::double precision))))) END AS distance_km
+			` + practice + ` ORDER BY distance_km ASC NULLS LAST, hospital.id, affiliation.id LIMIT 1
+		) nearest ON TRUE ` + publicDoctorConditions + " AND nearest.affiliation_id IS NOT NULL"
+		args = append(args, *filter.Latitude, *filter.Latitude, *filter.Longitude)
+		args = append(args, practiceArgs...)
+		if filter.RadiusKM != nil {
+			where += " AND nearest.distance_km <= ?"
+			args = append(args, *filter.RadiusKM)
+		}
+	}
 	if filter.Query != "" {
 		pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(filter.Query)) + "%"
 		where += ` AND (LOWER(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) LIKE ?
@@ -68,50 +139,22 @@ func filterQuery(filter Filter) (string, []any) {
 		where += ` AND LOWER(profile.specialty) = LOWER(?)`
 		args = append(args, filter.Specialty)
 	}
-	if filter.HospitalID != "" || filter.DepartmentCode != "" || filter.DepartmentID != "" || filter.City != "" || filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended {
-		where += ` AND EXISTS (
-			SELECT 1 FROM doctor_hospital_affiliations affiliation
-			JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
-			JOIN hospital_departments department ON department.id = affiliation.department_id
-			WHERE affiliation.doctor_id = doctor.id
-			  AND affiliation.status = 'ACTIVE' AND affiliation.deleted_at IS NULL AND hospital.is_active = TRUE
-			  AND hospital.deleted_at IS NULL AND department.is_active = TRUE
-		`
-		if filter.HospitalID != "" {
-			where += " AND affiliation.hospital_id = ?"
-			args = append(args, filter.HospitalID)
-		}
-		if filter.DepartmentCode != "" {
-			where += " AND LOWER(department.code) = LOWER(?)"
-			args = append(args, filter.DepartmentCode)
-		}
-		if filter.DepartmentID != "" {
-			where += " AND department.id = ?"
-			args = append(args, filter.DepartmentID)
-		}
-		if filter.City != "" {
-			where += " AND LOWER(hospital.city) = LOWER(?)"
-			args = append(args, filter.City)
-		}
-		if filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended {
-			where += ` AND EXISTS (
-				SELECT 1 FROM doctor_hospital_schedules schedule
-				WHERE schedule.affiliation_id = affiliation.id AND schedule.is_active = TRUE
-				  AND (schedule.schedule_date IS NULL OR ((schedule.schedule_date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP)`
-			if filter.AvailableOn != "" {
-				where += ` AND (
-					schedule.schedule_date = ?::date
-					OR (schedule.schedule_date IS NULL AND schedule.day_of_week = EXTRACT(DOW FROM ?::date)::integer)
-				) AND ((?::date + schedule.end_time) AT TIME ZONE schedule.timezone) > CURRENT_TIMESTAMP`
-				args = append(args, filter.AvailableOn, filter.AvailableOn, filter.AvailableOn)
-			}
-			if filter.BookingMode != "" {
-				where += " AND schedule.booking_mode = ?"
-				args = append(args, filter.BookingMode)
-			}
-			where += ")"
-		}
-		where += ")"
+	if filter.Gender != "" {
+		where += " AND doctor.gender = ?"
+		args = append(args, filter.Gender)
+	}
+	const experience = "EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, profile.practice_started_on))"
+	if filter.MinExperienceYears != nil {
+		where += " AND " + experience + " >= ?"
+		args = append(args, *filter.MinExperienceYears)
+	}
+	if filter.MaxExperienceYears != nil {
+		where += " AND " + experience + " <= ?"
+		args = append(args, *filter.MaxExperienceYears)
+	}
+	if filter.Latitude == nil && (filter.HospitalID != "" || filter.DepartmentCode != "" || filter.DepartmentID != "" || filter.City != "" || filter.AvailableOn != "" || filter.BookingMode != "" || filter.Recommended) {
+		where += " AND EXISTS (SELECT 1 " + practice + ")"
+		args = append(args, practiceArgs...)
 	}
 	return where, args
 }
@@ -128,23 +171,65 @@ func (r *Repository) ListDoctors(ctx context.Context, filter Filter) (*response.
 			SELECT COALESCE(AVG(review.rating)::double precision, 0)
 			FROM doctor_hospital_affiliations ranked_affiliation
 			JOIN hospitals ranked_hospital ON ranked_hospital.id = ranked_affiliation.hospital_id
+			JOIN hospital_departments ranked_department ON ranked_department.id = ranked_affiliation.department_id AND ranked_department.is_active = TRUE
 			LEFT JOIN hospital_reviews review ON review.hospital_id = ranked_hospital.id AND review.deleted_at IS NULL
 			WHERE ranked_affiliation.doctor_id = doctor.id AND ranked_affiliation.status = 'ACTIVE'
 			  AND ranked_affiliation.deleted_at IS NULL AND ranked_hospital.is_active = TRUE AND ranked_hospital.deleted_at IS NULL
 		) DESC, (
 			SELECT COUNT(*) FROM doctor_hospital_affiliations ranked_affiliation
+			JOIN hospitals ranked_hospital ON ranked_hospital.id = ranked_affiliation.hospital_id AND ranked_hospital.is_active = TRUE AND ranked_hospital.deleted_at IS NULL
+			JOIN hospital_departments ranked_department ON ranked_department.id = ranked_affiliation.department_id AND ranked_department.is_active = TRUE
 			JOIN doctor_hospital_schedules ranked_schedule ON ranked_schedule.affiliation_id = ranked_affiliation.id
 			WHERE ranked_affiliation.doctor_id = doctor.id AND ranked_affiliation.status = 'ACTIVE'
 			  AND ranked_affiliation.deleted_at IS NULL AND ranked_schedule.is_active = TRUE
 			  AND (ranked_schedule.schedule_date IS NULL OR ((ranked_schedule.schedule_date + ranked_schedule.end_time) AT TIME ZONE ranked_schedule.timezone) > CURRENT_TIMESTAMP)
 		) DESC, LOWER(doctor.first_name), LOWER(doctor.last_name), doctor.id`
 	}
-	query := `SELECT ` + publicDoctorColumns + where + ` ORDER BY ` + order + ` LIMIT ? OFFSET ?`
+	columns := publicDoctorColumns
+	withLocation := filter.Latitude != nil && filter.Longitude != nil
+	if withLocation {
+		order = "nearest.distance_km ASC NULLS LAST, " + order
+		columns += `, nearest.affiliation_id::text AS nearest_affiliation_id,
+			nearest.hospital_id::text AS nearest_hospital_id, nearest.hospital_name AS nearest_hospital_name,
+			nearest.department_id::text AS nearest_department_id, nearest.department_name AS nearest_department_name,
+			nearest.latitude AS nearest_latitude, nearest.longitude AS nearest_longitude, nearest.distance_km AS nearest_distance_km`
+	}
+	query := `SELECT ` + columns + where + ` ORDER BY ` + order + ` LIMIT ? OFFSET ?`
 	args = append(args, filter.Limit, (filter.Page-1)*filter.Limit)
-	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&out.Items).Error; err != nil {
+	if !withLocation {
+		if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&out.Items).Error; err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	var rows []doctorLocationRow
+	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
+	for _, row := range rows {
+		if row.NearestDistanceKM != nil && row.NearestLatitude != nil && row.NearestLongitude != nil {
+			row.NearestPractice = &response.DoctorPracticeLocation{
+				AffiliationID: row.NearestAffiliationID, HospitalID: row.NearestHospitalID, HospitalName: row.NearestHospitalName,
+				DepartmentID: row.NearestDepartmentID, DepartmentName: row.NearestDepartmentName,
+				Latitude: *row.NearestLatitude, Longitude: *row.NearestLongitude,
+				DistanceKM: math.Round(*row.NearestDistanceKM*100) / 100,
+			}
+		}
+		out.Items = append(out.Items, row.PublicDoctor)
+	}
 	return out, nil
+}
+
+type doctorLocationRow struct {
+	response.PublicDoctor
+	NearestAffiliationID  string
+	NearestHospitalID     string
+	NearestHospitalName   string
+	NearestDepartmentID   string
+	NearestDepartmentName string
+	NearestLatitude       *float64
+	NearestLongitude      *float64
+	NearestDistanceKM     *float64 `gorm:"column:nearest_distance_km"`
 }
 
 // GetDoctor accepts either the relational UUID or the human-facing MedikaOne ID.

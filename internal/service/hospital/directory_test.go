@@ -108,6 +108,24 @@ func TestHospitalDirectoryQueryValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestHospitalAvailabilityQueryValidation(t *testing.T) {
+	date := time.Now().UTC().AddDate(0, 0, 2).Format("2006-01-02")
+	for _, q := range []request.HospitalDirectoryQuery{
+		{Limit: 20, OnlyAvailable: true}, {Limit: 20, AvailableFrom: "09:00", AvailableTo: "10:00"},
+		{Limit: 20, AvailableOn: date, AvailableFrom: "09:00"},
+		{Limit: 20, AvailableOn: date, AvailableFrom: "10:00", AvailableTo: "09:00"},
+	} {
+		if err := validateDirectoryQuery(&q); err == nil {
+			t.Fatalf("accepted %#v", q)
+		}
+	}
+	open := true
+	q := request.HospitalDirectoryQuery{Limit: 20, AvailableOn: date, AvailableFrom: "09:00", AvailableTo: "10:00", OnlyAvailable: true, OpenNow: &open, BookingMode: "session_queue"}
+	if err := validateDirectoryQuery(&q); err != nil || q.BookingMode != "SESSION_QUEUE" {
+		t.Fatalf("valid query: %#v %v", q, err)
+	}
+}
 func TestHospitalFacilitiesCanonicalAndLegacy(t *testing.T) {
 	for _, raw := range []string{`["Parkir Mobil", "wifi"]`, `{"parking":true,"inactive":false,"beds":120}`, `[{"code":"parking","name":"Parkir","icon":"car"}]`, `null`} {
 		out, err := normalizeFacilities(json.RawMessage(raw))

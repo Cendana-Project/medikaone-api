@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,72 @@ type fakeRepository struct {
 	identity string
 	calls    int
 	err      error
+}
+
+func TestExperienceGenderAndAvailabilityFilters(t *testing.T) {
+	number := func(v int) *int { return &v }
+	date := time.Now().UTC().AddDate(0, 0, 3).Format("2006-01-02")
+	for _, filter := range []repository.Filter{
+		{Gender: "X"}, {MinExperienceYears: number(-1)}, {MaxExperienceYears: number(101)},
+		{MinExperienceYears: number(10), MaxExperienceYears: number(3)},
+		{OnlyAvailable: true}, {AvailableOn: date, AvailableFrom: "09:00"},
+	} {
+		for _, recommended := range []bool{false, true} {
+			repo := &fakeRepository{}
+			svc := NewService(repo)
+			method := svc.ListDoctors
+			if recommended {
+				method = svc.RecommendDoctors
+			}
+			if _, err := method(context.Background(), filter); err == nil || repo.calls != 0 {
+				t.Fatalf("accepted invalid filter: %#v %v", filter, err)
+			}
+		}
+	}
+	repo := &fakeRepository{}
+	_, err := NewService(repo).RecommendDoctors(context.Background(), repository.Filter{Gender: " p ", MinExperienceYears: number(0), MaxExperienceYears: number(10), AvailableOn: date, AvailableFrom: "09:00", AvailableTo: "10:00", OnlyAvailable: true})
+	if err != nil || repo.filter.Gender != "P" || repo.filter.MinExperienceYears == nil || *repo.filter.MinExperienceYears != 0 || !repo.filter.OnlyAvailable || repo.filter.AvailableFrom != "09:00" {
+		t.Fatalf("lost filter: %#v %v", repo.filter, err)
+	}
+}
+
+func TestDoctorLocationValidation(t *testing.T) {
+	number := func(v float64) *float64 { return &v }
+	for _, filter := range []repository.Filter{
+		{Latitude: number(0)}, {Longitude: number(0)},
+		{Latitude: number(91), Longitude: number(0)},
+		{Latitude: number(0), Longitude: number(-181)},
+		{Latitude: number(math.NaN()), Longitude: number(0)},
+		{Latitude: number(0), Longitude: number(math.Inf(1))},
+		{RadiusKM: number(10)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(0)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(-1)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(5001)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(math.NaN())},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(math.Inf(-1))},
+	} {
+		for _, recommended := range []bool{false, true} {
+			repo := &fakeRepository{}
+			svc := NewService(repo)
+			method := svc.ListDoctors
+			if recommended {
+				method = svc.RecommendDoctors
+			}
+			if _, err := method(context.Background(), filter); err == nil || repo.calls != 0 {
+				t.Fatalf("invalid location must fail before querying: %#v recommended=%v err=%v", filter, recommended, err)
+			}
+		}
+	}
+	for _, filter := range []repository.Filter{
+		{}, {Latitude: number(0), Longitude: number(0)},
+		{Latitude: number(-90), Longitude: number(180), RadiusKM: number(5000)},
+		{Latitude: number(90), Longitude: number(-180)},
+	} {
+		repo := &fakeRepository{}
+		if _, err := NewService(repo).RecommendDoctors(context.Background(), filter); err != nil || repo.calls != 1 || !repo.filter.Recommended || repo.filter.Latitude != filter.Latitude || repo.filter.Longitude != filter.Longitude || repo.filter.RadiusKM != filter.RadiusKM {
+			t.Fatalf("valid location not preserved: %#v err=%v", repo.filter, err)
+		}
+	}
 }
 
 func (r *fakeRepository) ListDoctors(_ context.Context, filter repository.Filter) (*response.PublicDoctorPage, error) {
