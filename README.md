@@ -12,6 +12,12 @@ dan jadwal sekali atau array hari dijelaskan di
 Katalog pilihan poli Indonesia dan kontrak `master_department_id` dijelaskan di
 [panduan master department](docs/department-master.md).
 
+Rekomendasi dan pencarian dokter dapat menerima `latitude`/`longitude` pasien
+untuk otomatis memprioritaskan lokasi praktik terdekat, dengan `radius_km`
+opsional dan object response `nearest_practice`. Lokasi dipilih dari afiliasi
+aktif yang memenuhi filter poli, RS, dan jadwal. Tanpa koordinat, urutan lama
+tetap berlaku. Kontrak lengkap ada pada panduan lifecycle dan jadwal di atas.
+
 ## Menjalankan secara lokal
 
 Prasyarat:

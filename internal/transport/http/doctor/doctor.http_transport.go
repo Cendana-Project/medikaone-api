@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +29,23 @@ func (ctl *Controller) listDoctors(c *gin.Context, recommended bool) {
 		Query: c.Query("q"), Specialty: c.Query("specialty"), HospitalID: c.Query("hospital_id"),
 		DepartmentCode: c.Query("department_code"), DepartmentID: c.Query("department_id"), City: c.Query("city"),
 		AvailableOn: c.Query("available_on"), BookingMode: c.Query("booking_mode"),
+	}
+	for _, field := range []struct {
+		name   string
+		target **float64
+	}{{"latitude", &filter.Latitude}, {"longitude", &filter.Longitude}, {"radius_km", &filter.RadiusKM}} {
+		if values, exists := c.Request.URL.Query()[field.name]; exists {
+			if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "a single numeric value", "satu nilai angka"))
+				return
+			}
+			value, err := strconv.ParseFloat(values[0], 64)
+			if err != nil {
+				util.HandleError(c, constant.NewInvalidFieldValueError(field.name, "a numeric value", "nilai angka"))
+				return
+			}
+			*field.target = &value
+		}
 	}
 	for key, target := range map[string]*int{"page": &filter.Page, "limit": &filter.Limit} {
 		if value, exists := c.GetQuery(key); exists {

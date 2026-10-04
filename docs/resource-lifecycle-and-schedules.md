@@ -29,16 +29,90 @@ diterbitkan sesudah pembaruan menggunakan format baru yang memuat ID tersebut.
 | Method / path | Perilaku |
 | --- | --- |
 | `GET /v1/departments` | Master pilihan department/poli Indonesia; query `q`, `category`, `hospital_id`, `limit`, `offset`. Gunakan `id` untuk create/update department rumah sakit dan `code` sebagai filter `department_code`. |
-| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
+| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `latitude`, `longitude`, `radius_km`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
 | `GET /v1/doctors/:doctor_id` | Detail dokter dan afiliasi/jadwal aktif. Path menerima UUID atau MedikaOne ID dokter. |
 | `GET /v1/hospitals` | Daftar rumah sakit aktif; query `search`, `city`, `limit` (1-100, default 20), `offset` (0-100000, default 0). |
 | `GET /v1/hospitals/:hospital_id` | Detail rumah sakit berdasarkan UUID. `facilities` adalah JSON, bukan base64. |
-| `GET /v1/recommendations/doctors` | Pasien terautentikasi; dokter dengan afiliasi dan jadwal aktif, diurutkan berdasarkan rating rumah sakit, jumlah jadwal, lalu nama. |
+| `GET /v1/recommendations/doctors` | Pasien terautentikasi; dokter dengan afiliasi dan jadwal aktif. Dengan koordinat, otomatis mendahulukan tempat praktik terdekat yang memenuhi filter; berikutnya rating rumah sakit, jumlah jadwal, lalu nama. Tanpa koordinat memakai urutan rating seperti sebelumnya. |
 | `GET /v1/recommendations/hospitals` | Pasien terautentikasi; rumah sakit dengan dokter dan jadwal aktif, default diurutkan berdasarkan rating. |
 
 Endpoint direktori publik dapat dipakai Website maupun Mobile. Direktori dokter
 menampilkan identitas profesional, tanpa email, telepon pribadi, NIK, atau DOB.
 Resource nonaktif/diarsipkan tidak muncul di direktori.
+
+### Rekomendasi dokter berdasarkan tempat praktik
+
+```http
+GET /v1/recommendations/doctors?latitude=-6.21&longitude=106.81&radius_km=20&page=1&limit=10
+Authorization: Bearer <patient-access-token>
+```
+
+Aplikasi mengirim koordinat pasien setelah memperoleh izin lokasi atau pilihan
+lokasi manual. Backend tidak mengambil GPS sendiri, tidak menebak koordinat dari
+alamat profil/IP, dan tidak menyimpan koordinat request ke profil pasien.
+
+- `latitude` dan `longitude` opsional, tetapi harus dikirim berpasangan. Rentang
+  latitude -90..90 dan longitude -180..180; angka nonfinite, kosong, atau parameter
+  koordinat berulang ditolak dengan HTTP 400 `INVALID_FIELD_VALUE`.
+- `radius_km` opsional, lebih dari 0 sampai 5000, membutuhkan kedua koordinat.
+  Tanpa radius, tidak ada batas jarak implisit.
+- Dengan koordinat, backend memilih satu afiliasi aktif terdekat per dokter.
+  Rumah sakit dan department harus aktif, serta afiliasi tersebut harus memiliki
+  jadwal aktif yang sesuai. Filter `hospital_id`, `department_code`,
+  `department_id`, `city`, `available_on`, dan `booking_mode` harus dipenuhi oleh
+  afiliasi yang sama; tidak boleh mengambil jarak dari praktik lain yang lebih
+  dekat tetapi tidak memenuhi filter.
+- Dokter tetap muncul satu kali. Jadwal rutin aktif dan specific yang belum
+  berakhir dapat digunakan; proposal pending tidak dihitung. `available_on`
+  memeriksa jadwal praktik tanggal pilihan, belum menjamin kapasitas booking.
+- Urutan rekomendasi dengan koordinat: jarak terdekat, lalu rating RS, jumlah
+  jadwal aktif, nama, dan ID. Rating/jumlah jadwal tetap dihitung lintas afiliasi
+  aktif dokter; resource nonaktif tidak ikut ranking. Tanpa koordinat, urutannya
+  rating RS, jumlah jadwal, nama, dan ID seperti sebelumnya.
+- Dokter yang seluruh praktik cocoknya belum mempunyai koordinat berada setelah
+  dokter dengan jarak diketahui. Jika radius digunakan, dokter tersebut tidak
+  masuk hasil. Jika belum ada koordinat pasien, field `nearest_practice` tidak
+  dikirim dan tidak ada penyaringan jarak.
+- Jarak adalah garis lurus permukaan bumi dalam kilometer. Pengurutan, pemilihan
+  afiliasi, filter radius, dan `total` memakai presisi penuh; response membulatkan
+  jarak ke dua desimal. Jarak sama dipecahkan secara deterministik, termasuk
+  memilih afiliasi berdasarkan ID rumah sakit lalu ID afiliasi.
+
+Item response tetap memuat seluruh identitas profesional sebelumnya. Bila jarak
+dapat dihitung, ada object tambahan `nearest_practice`:
+
+```json
+{
+  "doctor_id": "11111111-1111-4111-8111-111111111111",
+  "doctor_medikaone_id": "MDO-1111111111114111",
+  "first_name": "Budi",
+  "last_name": "Santoso",
+  "full_name": "Budi Santoso",
+  "sip_number": "SIP-3174-2026-001",
+  "specialty": "Penyakit Dalam",
+  "nearest_practice": {
+    "affiliation_id": "77777777-7777-4777-8777-777777777777",
+    "hospital_id": "22222222-2222-4222-8222-222222222222",
+    "hospital_name": "RS MedikaOne Jakarta",
+    "department_id": "33333333-3333-4333-8333-333333333333",
+    "department_name": "Poli Penyakit Dalam",
+    "latitude": -6.2,
+    "longitude": 106.816666,
+    "distance_km": 1.33
+  }
+}
+```
+
+Koordinat di dalam object adalah lokasi RS tempat praktik. Jika jarak tidak dapat
+dihitung, `nearest_practice` dihilangkan, bukan berisi angka nol palsu. Nol tetap
+valid ketika pasien berada di lokasi praktik. Pagination tetap `data.items`,
+`page`, `limit`, dan `total`; default rekomendasi 10 item.
+
+`GET /v1/doctors` juga menerima ketiga parameter lokasi tersebut dan otomatis
+mengurutkan berdasarkan jarak lalu nama/ID ketika koordinat dikirim. Tanpa
+koordinat, direktori publik tetap mengurutkan berdasarkan nama/ID. Detail dokter
+tidak berubah. Perubahan ini memakai koordinat hospital yang sudah tersedia;
+tidak membutuhkan migration atau data GPS pasien baru.
 
 ## Update dan delete
 

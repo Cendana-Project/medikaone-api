@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,45 @@ type fakeRepository struct {
 	identity string
 	calls    int
 	err      error
+}
+
+func TestDoctorLocationValidation(t *testing.T) {
+	number := func(v float64) *float64 { return &v }
+	for _, filter := range []repository.Filter{
+		{Latitude: number(0)}, {Longitude: number(0)},
+		{Latitude: number(91), Longitude: number(0)},
+		{Latitude: number(0), Longitude: number(-181)},
+		{Latitude: number(math.NaN()), Longitude: number(0)},
+		{Latitude: number(0), Longitude: number(math.Inf(1))},
+		{RadiusKM: number(10)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(0)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(-1)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(5001)},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(math.NaN())},
+		{Latitude: number(0), Longitude: number(0), RadiusKM: number(math.Inf(-1))},
+	} {
+		for _, recommended := range []bool{false, true} {
+			repo := &fakeRepository{}
+			svc := NewService(repo)
+			method := svc.ListDoctors
+			if recommended {
+				method = svc.RecommendDoctors
+			}
+			if _, err := method(context.Background(), filter); err == nil || repo.calls != 0 {
+				t.Fatalf("invalid location must fail before querying: %#v recommended=%v err=%v", filter, recommended, err)
+			}
+		}
+	}
+	for _, filter := range []repository.Filter{
+		{}, {Latitude: number(0), Longitude: number(0)},
+		{Latitude: number(-90), Longitude: number(180), RadiusKM: number(5000)},
+		{Latitude: number(90), Longitude: number(-180)},
+	} {
+		repo := &fakeRepository{}
+		if _, err := NewService(repo).RecommendDoctors(context.Background(), filter); err != nil || repo.calls != 1 || !repo.filter.Recommended || repo.filter.Latitude != filter.Latitude || repo.filter.Longitude != filter.Longitude || repo.filter.RadiusKM != filter.RadiusKM {
+			t.Fatalf("valid location not preserved: %#v err=%v", repo.filter, err)
+		}
+	}
 }
 
 func (r *fakeRepository) ListDoctors(_ context.Context, filter repository.Filter) (*response.PublicDoctorPage, error) {

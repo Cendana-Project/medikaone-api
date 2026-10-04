@@ -244,6 +244,13 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   harus disertai test dan pembaruan dokumentasi.
 - `available_on` menunjukkan adanya jadwal praktik aktif yang cocok. Nilai itu
   bukan jaminan kapasitas appointment masih tersedia.
+- Filter `latitude`/`longitude` dokter dikirim berpasangan oleh client; backend
+  tidak menebak lokasi pasien. Koordinat otomatis memprioritaskan afiliasi praktik
+  terdekat yang memenuhi seluruh filter dan mempunyai jadwal aktif. Response
+  `nearest_practice` hanya ada jika jarak diketahui. Filter `radius_km`, ranking,
+  dan total pagination memakai jarak presisi penuh, bukan jarak response yang
+  dibulatkan. Tanpa koordinat, pertahankan urutan lama. Jarak tak diketahui di
+  akhir hasil dan dikeluarkan jika radius dipakai.
 
 ### Appointment, pemeriksaan, dan resep
 

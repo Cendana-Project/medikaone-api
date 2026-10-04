@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -44,6 +45,21 @@ func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, def
 	filter.City = strings.TrimSpace(filter.City)
 	filter.AvailableOn = strings.TrimSpace(filter.AvailableOn)
 	filter.BookingMode = strings.ToUpper(strings.TrimSpace(filter.BookingMode))
+	if (filter.Latitude == nil) != (filter.Longitude == nil) {
+		return nil, constant.NewInvalidFieldValueError("coordinates", "latitude and longitude supplied together", "latitude dan longitude dikirim berpasangan")
+	}
+	for _, coordinate := range []struct {
+		name  string
+		value *float64
+		bound float64
+	}{{"latitude", filter.Latitude, 90}, {"longitude", filter.Longitude, 180}} {
+		if coordinate.value != nil && (math.IsNaN(*coordinate.value) || math.IsInf(*coordinate.value, 0) || math.Abs(*coordinate.value) > coordinate.bound) {
+			return nil, constant.NewInvalidFieldValueError(coordinate.name, "a finite coordinate within latitude -90..90 and longitude -180..180", "koordinat angka berhingga dalam latitude -90..90 dan longitude -180..180")
+		}
+	}
+	if filter.RadiusKM != nil && (filter.Latitude == nil || math.IsNaN(*filter.RadiusKM) || math.IsInf(*filter.RadiusKM, 0) || *filter.RadiusKM <= 0 || *filter.RadiusKM > 5000) {
+		return nil, constant.NewInvalidFieldValueError("radius_km", "greater than 0 through 5000, with latitude and longitude", "lebih dari 0 hingga 5000, dengan latitude dan longitude")
+	}
 	if len(filter.Query) > 190 || len(filter.Specialty) > 190 || len(filter.DepartmentCode) > 40 || len(filter.City) > 100 {
 		return nil, constant.NewInvalidFieldLengthError("directory filter", "q/specialty <=190, department_code <=40, and city <=100 characters", "q/specialty <=190, department_code <=40, dan city <=100 karakter")
 	}
