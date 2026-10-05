@@ -120,6 +120,31 @@ koordinat, direktori publik tetap mengurutkan berdasarkan nama/ID. Detail dokter
 tidak berubah. Perubahan ini memakai koordinat hospital yang sudah tersedia;
 tidak membutuhkan migration atau data GPS pasien baru.
 
+## Akses staf ke dokter dan jadwal rumah sakit
+
+`GET /v1/hospitals/:hospital_id/doctors?status=ACTIVE` membutuhkan login dan
+permission `doctor_schedule.view` pada rumah sakit yang dipilih. Role default
+ADMIN, RECEPTIONIST, dan NURSE memiliki permission ini; SUPER_ADMIN dapat
+mengaksesnya tanpa membership. Membership, akun, role, dan permission tenant
+harus aktif. Role global saja tidak memberikan akses ke rumah sakit lain.
+
+Response tetap array `data`, berisi dokter, placement, jadwal aktif pada
+`schedule_groups[].schedules`, dan proposal pada `pending_schedule_changes`.
+Filter `status` opsional (`ACTIVE` atau `SUSPENDED`); kosong mengambil keduanya.
+Frontend resepsionis/perawat dapat menggunakan list ini untuk pilihan dokter
+dan jadwal. Proposal pending tidak boleh dipakai sebagai `schedule_id` booking.
+
+Detail afiliasi yang menyertakan informasi kontrak, pencarian calon dokter untuk
+undangan (`/doctors/search`), undangan/kontrak, dan pengelolaan afiliasi tetap
+khusus ADMIN tenant/SUPER_ADMIN. Hak baca jadwal tidak memberikan hak mengubah
+atau menyetujui jadwal. Tidak ada perubahan payload, schema, atau seed permission.
+
+Lookup dan konfirmasi check-in tetap membutuhkan `appointment.checkin`.
+RECEPTIONIST memilikinya secara default, NURSE tidak. Tampilkan menu Verifikasi
+Pasien berdasarkan permission tenant ini; perawat menangani pasien mulai dari
+`WAITING_VITALS`. Untuk akun tanpa izin, response tetap HTTP 403
+`REQUIRED_PERMISSION_MISSING`.
+
 ## Update dan delete
 
 | Method / path | Akses / perilaku |

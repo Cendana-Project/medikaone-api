@@ -503,7 +503,7 @@ func (t *Transport) InitRoute() {
 			t.doctorHospitalController.ResendInvitation,
 		)
 		tenant.GET("/hospitals/:hospital_id/doctors",
-			transportmw.RequireHospitalAdminOrSuper(t.hospRepo, t.roleRepo),
+			transportmw.RequireHospitalPermissions(t.hospRepo, t.roleRepo, constant.PermissionDoctorScheduleView),
 			t.doctorHospitalController.ListHospitalDoctors,
 		)
 		tenant.GET("/hospitals/:hospital_id/doctor-affiliations/:affiliation_id",

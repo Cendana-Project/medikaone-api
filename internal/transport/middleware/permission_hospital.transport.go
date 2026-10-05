@@ -1,18 +1,43 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
+	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
 	"github.com/Cendana-Project/medikaone-api/internal/util"
 )
 
+type hospitalPermissionResolver interface {
+	ResolveHospitalID(context.Context, string) (string, error)
+}
+
+type hospitalPermissionReader interface {
+	IsUserSuperAdmin(context.Context, string) (bool, error)
+	ListHospitalPermissionsByUser(context.Context, string, string) ([]entity.Permission, error)
+}
+
 func RequireHospitalPermissions(hRepo *hospRepo.Repository, rRepo *roleRepo.Repository, required ...string) gin.HandlerFunc {
+	// Preserve nil dependency checks when adapting concrete repositories to interfaces.
+	var resolver hospitalPermissionResolver
+	var permissions hospitalPermissionReader
+	if hRepo != nil {
+		resolver = hRepo
+	}
+	if rRepo != nil {
+		permissions = rRepo
+	}
+	check := requireHospitalPermissions(resolver, permissions, required...)
+	return func(c *gin.Context) { check(c) }
+}
+
+func requireHospitalPermissions(hRepo hospitalPermissionResolver, rRepo hospitalPermissionReader, required ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		if userID == "" {
