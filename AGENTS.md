@@ -148,6 +148,12 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 
 ### Tenant, department, room, undangan, dan afiliasi
 
+- List dokter tenant `GET /v1/hospitals/:hospital_id/doctors` memakai
+  `doctor_schedule.view`; ADMIN, RECEPTIONIST, dan NURSE dapat membaca dokter
+  serta jadwal dengan izin tenant aktif. Jangan mengembalikannya menjadi
+  admin-only. Detail afiliasi yang memuat kontrak serta operasi pengelolaan
+  afiliasi tetap admin-only. NURSE tidak mendapat `appointment.checkin` secara
+  default; UI verifikasi pasien harus mengikuti permission tenant.
 - Query otorisasi hanya boleh memakai user, role, rumah sakit, membership, dan
   resource yang masih aktif/tidak dihapus.
 - Department dan room yang dipilih pada undangan harus berasal dari rumah sakit

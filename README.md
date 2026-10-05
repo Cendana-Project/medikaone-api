@@ -346,6 +346,12 @@ Operasi tenant menggunakan `:hospital_id` pada path atau header `X-Hospital-ID`/
 - Hospital admin aktif hanya dapat membuat staff pada hospital tempat ia masih menjadi member aktif.
 - Endpoint staff menerima `DOCTOR`, `NURSE`, `RECEPTIONIST`, atau `BOD`; role `ADMIN` harus melalui endpoint khusus super admin.
 
+`GET /v1/hospitals/:hospital_id/doctors` memakai permission tenant
+`doctor_schedule.view`, sehingga ADMIN, RECEPTIONIST, dan NURSE dapat membaca
+daftar dokter beserta jadwalnya pada RS tempat mereka memiliki izin aktif.
+Detail afiliasi/kontrak dan pengelolaan dokter tetap memakai akses admin.
+Lihat [aturan akses staf](docs/resource-lifecycle-and-schedules.md#akses-staf-ke-dokter-dan-jadwal-rumah-sakit).
+
 ## Check-in resepsionis dan walk-in
 
 Check-in bukan self-service. Hanya petugas rumah sakit dengan permission
@@ -353,6 +359,10 @@ Check-in bukan self-service. Hanya petugas rumah sakit dengan permission
 kedatangan. Pencarian tersedia melalui QR opsional, pasangan nomor appointment
 dan kode verifikasi, atau minimal dua fakta identitas. Pencarian identitas memakai
 body `POST` agar data pribadi tidak masuk query string/access log.
+
+Default RECEPTIONIST memiliki `appointment.checkin`, sedangkan NURSE tidak.
+Frontend menampilkan menu Verifikasi Pasien hanya jika permission tenant ini
+tersedia, walaupun kedua role dapat membaca daftar dokter/jadwal dan antrean.
 
 Alur yang direkomendasikan:
 

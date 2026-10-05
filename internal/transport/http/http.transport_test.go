@@ -56,6 +56,12 @@ func TestLifecycleRoutesRegisterAndRetainGuards(t *testing.T) {
 		{stdhttp.MethodDelete, "/v1/hospitals/:hospital_id/doctor-invitations/:invitation_id", "RequireHospitalAdminOrSuper", true},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/doctor-invitations/:invitation_id/contract", "RequireHospitalAdminOrSuper", true},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/doctor-affiliations/:affiliation_id", "RequireHospitalAdminOrSuper", true},
+		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/doctors", "RequireHospitalPermissions", true},
+		{stdhttp.MethodPatch, "/v1/hospitals/:hospital_id/doctors/:doctor_id/status", "RequireHospitalAdminOrSuper", true},
+		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/appointments", "RequireHospitalPermissions", true},
+		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/appointment-queue", "RequireHospitalPermissions", true},
+		{stdhttp.MethodPost, "/v1/hospitals/:hospital_id/appointments/check-in/lookup", "RequireHospitalPermissions", true},
+		{stdhttp.MethodPost, "/v1/hospitals/:hospital_id/appointments/:appointment_id/check-in", "RequireHospitalPermissions", true},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id/doctors/search", "RequireHospitalAdminOrSuper", true},
 		{stdhttp.MethodDelete, "/v1/hospitals/:hospital_id/doctors/:doctor_id", "RequireHospitalAdminOrSuper", true},
 		{stdhttp.MethodPost, "/v1/doctor/specific-schedules", "RequirePermissions", false},
@@ -90,6 +96,9 @@ func TestLifecycleRoutesRegisterAndRetainGuards(t *testing.T) {
 			}
 			if test.guard != "" && !strings.Contains(chain, test.guard) {
 				t.Fatalf("missing %s guard: %s", test.guard, chain)
+			}
+			if test.guard == "RequireHospitalPermissions" && strings.Contains(chain, "RequireHospitalAdminOrSuper") {
+				t.Fatalf("permission-based route must not also require an administrator: %s", chain)
 			}
 			if got := strings.Contains(chain, "TenantContext"); got != test.tenant {
 				t.Fatalf("tenant middleware mismatch: %s", chain)
