@@ -268,6 +268,12 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 
 ### Appointment, pemeriksaan, dan resep
 
+- Kalender booking `/v1/appointments/availability/grouped` memakai izin global
+  `appointment.view` dan query `doctor_id` wajib. Semua tanggal (maksimal 31)
+  berisi kelompok RS lalu slot/sesi AVAILABLE/FULL/CLOSED. Tanggal/jam lokal
+  tidak boleh diturunkan dari substring timestamp UTC. Kapasitas memakai helper
+  yang sama dengan availability lama; proposal pending bukan slot bookable.
+  Kontrak lengkap ada di `docs/grouped-appointment-availability.md`.
 - Create/reschedule appointment dan walk-in harus mempertahankan idempotensi.
   Jangan gunakan ulang idempotency key untuk operasi berbeda.
 - Alokasi slot, kapasitas, nomor appointment/antrean, walk-in, check-in, dan klaim

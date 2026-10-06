@@ -68,6 +68,7 @@ const (
 	MsgNotificationMarkedRead             MessageCode = "NOTIFICATION_MARKED_READ"
 
 	MsgAppointmentAvailabilityListed         MessageCode = "APPOINTMENT_AVAILABILITY_LISTED"
+	MsgAppointmentAvailabilityGrouped        MessageCode = "APPOINTMENT_AVAILABILITY_GROUPED"
 	MsgAppointmentCreated                    MessageCode = "APPOINTMENT_CREATED"
 	MsgAppointmentCreationReplayed           MessageCode = "APPOINTMENT_CREATION_REPLAYED"
 	MsgPatientAppointmentsListed             MessageCode = "PATIENT_APPOINTMENTS_LISTED"
@@ -222,6 +223,7 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgNotificationsListed:                   successDetail("Notifications retrieved", "Daftar notifikasi berhasil diambil"),
 	MsgNotificationMarkedRead:                successDetail("Notification marked as read", "Notifikasi berhasil ditandai sudah dibaca"),
 	MsgAppointmentAvailabilityListed:         successDetail("Appointment availability retrieved", "Ketersediaan appointment berhasil diambil"),
+	MsgAppointmentAvailabilityGrouped:        successDetail("Grouped appointment availability retrieved", "Ketersediaan appointment per tanggal dan rumah sakit berhasil diambil"),
 	MsgAppointmentCreated:                    successDetail("Appointment created", "Appointment berhasil dibuat"),
 	MsgAppointmentCreationReplayed:           successDetail("Existing appointment returned for idempotent retry", "Appointment yang sudah ada dikembalikan untuk percobaan idempoten"),
 	MsgPatientAppointmentsListed:             successDetail("Patient appointments retrieved", "Daftar appointment pasien berhasil diambil"),

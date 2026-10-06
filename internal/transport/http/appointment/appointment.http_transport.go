@@ -2,6 +2,7 @@ package appointment
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,30 @@ func NewController(service *service.Service) *Controller { return &Controller{se
 func (ctl *Controller) ListAvailability(c *gin.Context) {
 	result, err := ctl.service.ListAvailability(c.Request.Context(), strings.TrimSpace(c.Query("hospital_id")), strings.TrimSpace(c.Query("doctor_id")), strings.TrimSpace(c.Query("date_from")), strings.TrimSpace(c.Query("date_to")))
 	respond(c, constant.MsgAppointmentAvailabilityListed, http.StatusOK, result, err)
+}
+
+func (ctl *Controller) ListGroupedAvailability(c *gin.Context) {
+	queryValues, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		util.HandleError(c, constant.NewInvalidFieldValueError("query", "valid URL query parameters", "parameter query URL yang valid"))
+		return
+	}
+	for _, key := range []string{"doctor_id", "hospital_id", "date_from", "date_to"} {
+		if values, provided := queryValues[key]; provided && (len(values) != 1 || strings.TrimSpace(values[0]) == "") {
+			util.HandleError(c, constant.NewInvalidFieldValueError(key, "one non-empty value", "satu nilai yang tidak kosong"))
+			return
+		}
+	}
+	query := request.GroupedAvailabilityQuery{
+		DoctorID: strings.TrimSpace(queryValues.Get("doctor_id")), HospitalID: strings.TrimSpace(queryValues.Get("hospital_id")),
+		DateFrom: strings.TrimSpace(queryValues.Get("date_from")), DateTo: strings.TrimSpace(queryValues.Get("date_to")),
+	}
+	if err := util.ValidateStruct(query); err != nil {
+		util.HandleError(c, err)
+		return
+	}
+	result, err := ctl.service.ListGroupedAvailability(c.Request.Context(), query)
+	respond(c, constant.MsgAppointmentAvailabilityGrouped, http.StatusOK, result, err)
 }
 
 func (ctl *Controller) CreateAppointment(c *gin.Context) {

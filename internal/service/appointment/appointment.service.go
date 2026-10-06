@@ -41,6 +41,7 @@ const (
 )
 
 type Repository interface {
+	GetAvailabilityDoctor(context.Context, string) (*response.AvailabilityDoctor, error)
 	ListActiveSchedules(context.Context, repository.AvailabilityFilter) ([]repository.Schedule, error)
 	GetActiveSchedule(context.Context, string) (*repository.Schedule, error)
 	ReservedCounts(context.Context, string, string, repository.AvailabilityFilter) ([]repository.ReservedCount, error)
@@ -85,6 +86,12 @@ func NewService(repo Repository, sender email.Sender, secret string) *Service {
 }
 
 func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fromRaw, toRaw string) ([]response.DoctorScheduleAvailability, error) {
+	return s.listAvailability(ctx, hospitalID, doctorID, fromRaw, toRaw, s.now(), false)
+}
+
+// Both representations share schedule expansion and reservation counts. The
+// grouped view retains full/closed choices; the legacy view remains bookable-only.
+func (s *Service) listAvailability(ctx context.Context, hospitalID, doctorID, fromRaw, toRaw string, now time.Time, includeUnavailable bool) ([]response.DoctorScheduleAvailability, error) {
 	if hospitalID == "" && doctorID == "" {
 		return nil, constant.NewFieldRequiredError("hospital_id or doctor_id")
 	}
@@ -95,7 +102,6 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 			}
 		}
 	}
-	now := s.now()
 	from, to, err := normalizeDateRange(fromRaw, toRaw, now)
 	if err != nil {
 		return nil, err
@@ -138,16 +144,19 @@ func (s *Service) ListAvailability(ctx context.Context, hospitalID, doctorID, fr
 			if schedule.BookingMode == entity.BookingModeSessionQueue {
 				used := reserved[availabilityKey(schedule.ID, row.Date, sessionStart)]
 				row.AvailableCapacity = maxInt(schedule.Capacity-used, 0)
-				if sessionStart.After(now.Add(MinimumBookingLeadTime)) && !sessionStart.After(now.Add(BookingHorizon)) && row.AvailableCapacity > 0 {
+				if includeUnavailable || (sessionStart.After(now.Add(MinimumBookingLeadTime)) && !sessionStart.After(now.Add(BookingHorizon)) && row.AvailableCapacity > 0) {
 					row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: sessionStart, EndAt: sessionEnd, AvailableCapacity: row.AvailableCapacity, Capacity: schedule.Capacity})
 				}
 			} else {
+				if schedule.SlotDurationMinutes <= 0 {
+					return nil, constant.ErrInternalServerError
+				}
 				for start := sessionStart; !start.Add(time.Duration(schedule.SlotDurationMinutes) * time.Minute).After(sessionEnd); start = start.Add(time.Duration(schedule.SlotDurationMinutes) * time.Minute) {
 					end := start.Add(time.Duration(schedule.SlotDurationMinutes) * time.Minute)
 					used := reserved[availabilityKey(schedule.ID, row.Date, start)]
 					available := maxInt(schedule.Capacity-used, 0)
 					row.AvailableCapacity += available
-					if start.After(now.Add(MinimumBookingLeadTime)) && !start.After(now.Add(BookingHorizon)) && available > 0 {
+					if includeUnavailable || (start.After(now.Add(MinimumBookingLeadTime)) && !start.After(now.Add(BookingHorizon)) && available > 0) {
 						row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: start, EndAt: end, AvailableCapacity: available, Capacity: schedule.Capacity})
 					}
 				}

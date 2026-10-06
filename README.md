@@ -352,6 +352,14 @@ daftar dokter beserta jadwalnya pada RS tempat mereka memiliki izin aktif.
 Detail afiliasi/kontrak dan pengelolaan dokter tetap memakai akses admin.
 Lihat [aturan akses staf](docs/resource-lifecycle-and-schedules.md#akses-staf-ke-dokter-dan-jadwal-rumah-sakit).
 
+## Kalender booking pasien
+
+Kalender booking pasien tersedia melalui
+`GET /v1/appointments/availability/grouped?doctor_id=<uuid>&date_from=<date>&date_to=<date>`.
+Response dikelompokkan menjadi tanggal, rumah sakit, lalu slot/sesi; pilihan
+penuh dan tutup booking tetap ditampilkan dengan status yang jelas. Kontrak
+lengkap ada di [kalender slot dokter](docs/grouped-appointment-availability.md).
+
 ## Check-in resepsionis dan walk-in
 
 Check-in bukan self-service. Hanya petugas rumah sakit dengan permission
