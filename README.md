@@ -27,7 +27,7 @@ parameter, field profil pengalaman, dan migration yang diperlukan.
 
 Prasyarat:
 
-- Go sesuai versi pada `go.mod`;
+- Go 1.26.9 sesuai versi pada `go.mod`;
 - PostgreSQL;
 - Redis lokal atau Redis Cloud;
 - akun SMTP jika alur registrasi/reset password ingin digunakan;
@@ -558,8 +558,16 @@ make vuln
 
 CI memeriksa format, `go vet`, race-enabled tests, `govulncheck`, serta integration test pada service PostgreSQL disposable. Test database destruktif hanya aktif dengan DSN test dan token konfirmasi khusus. Regression test migration juga menolak operasi penghancur schema/table di bagian Goose `Up`.
 
+Baseline keamanan toolchain memakai Go 1.26.9 dan `golang.org/x/net` v0.60.0
+beserta dependency transitifnya (`x/crypto` v0.57.0, `x/sys` v0.48.0,
+`x/text` v0.42.0, dan `x/sync` v0.23.0). Upgrade ini menutup temuan reachable
+GO-2026-6629, GO-2026-6617, GO-2026-6613, GO-2026-6612, GO-2026-6611,
+GO-2026-6610, GO-2026-6608, GO-2026-6607, GO-2026-6605, dan GO-2026-6603.
+CI mengambil versi Go dari `go.mod`; security scan tetap wajib dijalankan.
+
 ## Catatan deployment
 
+- Build lokal dan deployment harus memakai Go sesuai `go.mod` (minimal 1.26.9). Pada Render, perbarui `GO_VERSION` bila environment tersebut mem-pin toolchain lama, lalu rebuild; upgrade dependency saja tidak memperbaiki kerentanan standard library pada binary yang sudah berjalan.
 - Jangan memasukkan credential ke Git atau log.
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
