@@ -11,7 +11,7 @@ periksa riwayat Git dan perbarui panduan bersamaan dengan perubahan kode.
 MedikaOne API adalah backend monolitik untuk aplikasi pasien/dokter dan website
 rumah sakit. Stack utama:
 
-- Go 1.25, Cobra, Gin, GORM, dan pgx;
+- Go 1.26.9 sesuai `go.mod`, Cobra, Gin, GORM, dan pgx;
 - PostgreSQL dengan migration Goose;
 - Redis untuk challenge PIN, rate limit, rotasi refresh token, session version,
   blacklist access token, dan maintenance guard;
