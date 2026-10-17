@@ -567,7 +567,7 @@ CI mengambil versi Go dari `go.mod`; security scan tetap wajib dijalankan.
 
 ## Catatan deployment
 
-- Build lokal dan deployment harus memakai Go sesuai `go.mod` (minimal 1.26.9). Pada Render, perbarui `GO_VERSION` bila environment tersebut mem-pin toolchain lama, lalu rebuild; upgrade dependency saja tidak memperbaiki kerentanan standard library pada binary yang sudah berjalan.
+- Build lokal dan deployment harus memakai Go minimal sesuai `go.mod` (1.26.9). [Runtime Go native Render](https://render.com/docs/language-support) otomatis memakai rilis stabil terbaru pada deployment berikutnya dan tidak mendukung pin versi Go; gunakan Docker jika perlu versi eksak. Pastikan branch deployment `staging` dan deploy commit perbaikan keamanan atau yang lebih baru. Rebuild tetap diperlukan karena upgrade dependency tidak mengubah binary yang sudah berjalan.
 - Jangan memasukkan credential ke Git atau log.
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
