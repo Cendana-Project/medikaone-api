@@ -229,6 +229,10 @@ func (t *Transport) InitRoute() {
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
 			t.appointmentController.ListAvailability,
 		)
+		protected.GET("/appointments/availability/grouped",
+			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentView),
+			t.appointmentController.ListGroupedAvailability,
+		)
 		protected.POST("/appointments",
 			transportmw.RequirePermissions(t.roleRepo, constant.PermissionAppointmentCreate),
 			t.appointmentController.CreateAppointment,

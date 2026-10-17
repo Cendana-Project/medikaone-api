@@ -35,6 +35,8 @@ func TestLifecycleRoutesRegisterAndRetainGuards(t *testing.T) {
 	}{
 		{stdhttp.MethodGet, "/v1/doctors", "", false},
 		{stdhttp.MethodGet, "/v1/doctors/:doctor_id", "", false},
+		{stdhttp.MethodGet, "/v1/appointments/availability", "RequirePermissions", false},
+		{stdhttp.MethodGet, "/v1/appointments/availability/grouped", "RequirePermissions", false},
 		{stdhttp.MethodGet, "/v1/departments", "", false},
 		{stdhttp.MethodGet, "/v1/hospitals", "", false},
 		{stdhttp.MethodGet, "/v1/hospitals/:hospital_id", "", false},

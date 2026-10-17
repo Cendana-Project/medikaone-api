@@ -64,7 +64,7 @@ func TestDoctorResponsesPreservePublicIdentityColumnMapping(t *testing.T) {
 	// Explicit aliases are required: GORM's default for MedikaOne is medika_one.
 	for _, value := range []any{
 		PublicDoctor{}, DoctorSearchResult{}, DoctorHospitalInvitation{}, HospitalDoctor{},
-		DoctorScheduleAvailability{}, DoctorTodaySchedule{}, Appointment{}, ScheduleChangeRequest{},
+		DoctorScheduleAvailability{}, AvailabilityDoctor{}, GroupedDoctorAvailability{}, DoctorTodaySchedule{}, Appointment{}, ScheduleChangeRequest{},
 		MedicalEncounter{}, MedicalEncounterSummary{}, Prescription{}, PrescriptionSummary{}, PrescriptionVerification{},
 	} {
 		typeOf := reflect.TypeOf(value)

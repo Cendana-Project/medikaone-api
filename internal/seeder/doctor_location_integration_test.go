@@ -207,7 +207,9 @@ func testDoctorLocationIntegration(t *testing.T, db *gorm.DB) {
 			{"suspended affiliation", "UPDATE doctor_hospital_affiliations SET status = 'SUSPENDED' WHERE id = ?", []any{near.affiliation}},
 			{"deleted affiliation", "UPDATE doctor_hospital_affiliations SET deleted_at = NOW() WHERE id = ?", []any{near.affiliation}},
 			{"inactive schedule", "UPDATE doctor_hospital_schedules SET is_active = FALSE WHERE id = ?", []any{near.schedule}},
-			{"expired specific", "UPDATE doctor_hospital_schedules SET schedule_date = CURRENT_DATE - 2, day_of_week = EXTRACT(DOW FROM CURRENT_DATE - 2) WHERE id = ?", []any{near.schedule}},
+			// Use a different time from the other practice so this fixture remains
+			// valid when CURRENT_DATE - 2 happens to be a Monday.
+			{"expired specific", "UPDATE doctor_hospital_schedules SET schedule_date = CURRENT_DATE - 2, day_of_week = EXTRACT(DOW FROM CURRENT_DATE - 2), start_time = '12:00', end_time = '13:00' WHERE id = ?", []any{near.schedule}},
 			{"unknown coordinates", "UPDATE hospitals SET latitude = NULL, longitude = NULL WHERE id = ?", []any{near.hospital}},
 		} {
 			t.Run("ignore "+test.name, func(t *testing.T) {

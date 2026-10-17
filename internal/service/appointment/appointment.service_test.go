@@ -29,6 +29,10 @@ type fakeRepository struct {
 	overrideAllowed  bool
 }
 
+func (f *fakeRepository) GetAvailabilityDoctor(_ context.Context, doctorID string) (*response.AvailabilityDoctor, error) {
+	return &response.AvailabilityDoctor{DoctorID: doctorID, DoctorMedikaOneID: "MDO-0123456789ABCDEF", DoctorName: "Doctor Test"}, nil
+}
+
 func (f *fakeRepository) ListActiveSchedules(_ context.Context, filter repository.AvailabilityFilter) ([]repository.Schedule, error) {
 	f.scheduleFilter = filter
 	return f.schedules, nil

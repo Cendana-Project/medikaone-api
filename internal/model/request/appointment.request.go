@@ -1,5 +1,12 @@
 package request
 
+type GroupedAvailabilityQuery struct {
+	DoctorID   string `json:"doctor_id" validate:"required,uuid"`
+	HospitalID string `json:"hospital_id" validate:"omitempty,uuid"`
+	DateFrom   string `json:"date_from" validate:"omitempty,datetime=2006-01-02"`
+	DateTo     string `json:"date_to" validate:"omitempty,datetime=2006-01-02"`
+}
+
 type CreateScheduleChangeRequest struct {
 	AffiliationID string                            `json:"affiliation_id" validate:"required,uuid"`
 	Reason        *string                           `json:"reason,omitempty" validate:"omitempty,max=1000"`

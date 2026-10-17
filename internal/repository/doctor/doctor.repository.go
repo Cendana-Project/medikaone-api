@@ -294,3 +294,20 @@ func (r *Repository) GetDoctor(ctx context.Context, identity string) (*response.
 	}
 	return &out, nil
 }
+
+// GetAvailabilityDoctor also returns an eligible doctor who has no active
+// schedules, so an empty calendar retains the doctor's public identity.
+func (r *Repository) GetAvailabilityDoctor(ctx context.Context, doctorID string) (*response.AvailabilityDoctor, error) {
+	var out response.AvailabilityDoctor
+	result := r.db.WithContext(ctx).Raw(`SELECT doctor.id::text AS doctor_id,
+		profile.medikaone_id AS doctor_medikaone_id,
+		TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS doctor_name
+		`+publicDoctorFrom+` AND doctor.id = ?`, doctorID).Scan(&out)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &out, nil
+}

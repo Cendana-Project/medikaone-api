@@ -122,6 +122,12 @@ tidak membutuhkan migration atau data GPS pasien baru.
 
 ## Akses staf ke dokter dan jadwal rumah sakit
 
+Untuk kalender booking pasien lintas RS, gunakan endpoint
+`GET /v1/appointments/availability/grouped` yang dijelaskan pada
+[kontrak kalender slot dokter](grouped-appointment-availability.md).
+Ini menampilkan slot berdasarkan tanggal dan kapasitas, berbeda dari list
+jadwal praktik operasional pada bagian berikut.
+
 `GET /v1/hospitals/:hospital_id/doctors?status=ACTIVE` membutuhkan login dan
 permission `doctor_schedule.view` pada rumah sakit yang dipilih. Role default
 ADMIN, RECEPTIONIST, dan NURSE memiliki permission ini; SUPER_ADMIN dapat
