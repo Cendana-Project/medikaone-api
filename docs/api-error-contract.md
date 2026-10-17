@@ -155,3 +155,16 @@ menggunakan HTTP 400 `INVALID_FIELD_VALUE` untuk koordinat tidak berpasangan,
 angka tidak valid/nonfinite, latitude di luar -90..90, longitude di luar
 -180..180, atau radius di luar (0, 5000] km/tanpa koordinat. Parameter lokasi
 kosong atau berulang juga ditolak. Client harus memperbaiki input sebelum retry.
+
+## Master spesialisasi dokter
+
+- `GET /v1/specialties` memakai `SPECIALTIES_LISTED`; pencarian tanpa hasil
+  tetap 200 dengan `data: []`.
+- Format `specialty_id` yang salah ditolak 400. Memilih master yang hilang atau
+  nonaktif ditolak 404 `MASTER_SPECIALTY_NOT_FOUND`; field profil lain dalam
+  request yang sama tidak tersimpan sebagian.
+- Input body lama `specialty` ditolak `UNKNOWN_FIELD`. Filter query lama
+  `specialty` ditolak `INVALID_FIELD_VALUE`, bukan dijalankan tanpa filter.
+- Filter ID/code valid yang tidak menemukan dokter menghasilkan daftar kosong,
+  bukan `MASTER_SPECIALTY_NOT_FOUND`. Jika keduanya dikirim, berlaku AND.
+

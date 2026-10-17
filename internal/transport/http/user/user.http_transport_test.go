@@ -185,7 +185,7 @@ func TestDoctorProfileJSONKeepsAllNullableFields(t *testing.T) {
 	if !ok {
 		t.Fatalf("doctor_profile = %#v, want object", payload["doctor_profile"])
 	}
-	for _, field := range []string{"sip_number", "specialty"} {
+	for _, field := range []string{"sip_number", "specialty", "specialty_id", "specialty_code"} {
 		value, exists := doctorProfile[field]
 		if !exists {
 			t.Errorf("doctor_profile.%s is missing", field)

@@ -55,7 +55,7 @@ func TestDemoDoctorsHaveDistinctProfessionalProfiles(t *testing.T) {
 		if fixture.RoleSlug != "DOCTOR" {
 			continue
 		}
-		if fixture.SIPNumber == "" || fixture.Specialty == "" || seen[fixture.SIPNumber] {
+		if fixture.SIPNumber == "" || fixture.SpecialtyCode == "" || seen[fixture.SIPNumber] {
 			t.Fatalf("doctor fixture %s needs a distinct SIP and specialty", fixture.Email)
 		}
 		seen[fixture.SIPNumber] = true

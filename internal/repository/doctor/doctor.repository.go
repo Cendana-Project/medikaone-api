@@ -24,7 +24,8 @@ type Filter struct {
 	AvailableTo        string
 	OnlyAvailable      bool
 	Query              string
-	Specialty          string
+	SpecialtyID        string
+	SpecialtyCode      string
 	HospitalID         string
 	DepartmentCode     string
 	DepartmentID       string
@@ -43,13 +44,15 @@ const publicDoctorColumns = `
 	doctor.id::text AS doctor_id, profile.medikaone_id AS doctor_medikaone_id,
 	COALESCE(doctor.first_name, '') AS first_name, COALESCE(doctor.last_name, '') AS last_name,
 	TRIM(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) AS full_name,
-	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(profile.specialty, '') AS specialty,
+	COALESCE(profile.sip_number, '') AS sip_number, COALESCE(specialty.name, '') AS specialty,
+	COALESCE(specialty.id::text, '') AS specialty_id, COALESCE(specialty.code, '') AS specialty_code,
 	doctor.gender, profile.practice_started_on::text,
 	EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, profile.practice_started_on))::integer AS experience_years`
 
 const publicDoctorTables = `
 	FROM users doctor
-	JOIN doctor_profiles profile ON profile.user_id = doctor.id`
+	JOIN doctor_profiles profile ON profile.user_id = doctor.id
+	LEFT JOIN master_specialties specialty ON specialty.id = profile.specialty_id`
 
 const publicDoctorConditions = `
 	WHERE doctor.status = 'active' AND doctor.deleted_at IS NULL AND doctor.verified_at IS NOT NULL
@@ -132,12 +135,16 @@ func filterQuery(filter Filter) (string, []any) {
 		pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(filter.Query)) + "%"
 		where += ` AND (LOWER(CONCAT_WS(' ', doctor.first_name, doctor.last_name)) LIKE ?
 			OR LOWER(profile.medikaone_id) LIKE ? OR LOWER(profile.sip_number) LIKE ?
-			OR LOWER(COALESCE(profile.specialty, '')) LIKE ?)`
-		args = append(args, pattern, pattern, pattern, pattern)
+			OR LOWER(COALESCE(specialty.name, '')) LIKE ? OR LOWER(COALESCE(specialty.code, '')) LIKE ?)`
+		args = append(args, pattern, pattern, pattern, pattern, pattern)
 	}
-	if filter.Specialty != "" {
-		where += ` AND LOWER(profile.specialty) = LOWER(?)`
-		args = append(args, filter.Specialty)
+	if filter.SpecialtyID != "" {
+		where += ` AND specialty.id = ?`
+		args = append(args, filter.SpecialtyID)
+	}
+	if filter.SpecialtyCode != "" {
+		where += ` AND specialty.code = ?`
+		args = append(args, filter.SpecialtyCode)
 	}
 	if filter.Gender != "" {
 		where += " AND doctor.gender = ?"

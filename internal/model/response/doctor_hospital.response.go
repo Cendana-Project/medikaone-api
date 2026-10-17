@@ -15,6 +15,8 @@ type DoctorSearchResult struct {
 	LastName          string `json:"last_name"`
 	SIPNumber         string `json:"sip_number" gorm:"column:sip_number"`
 	Specialty         string `json:"specialty"`
+	SpecialtyID       string `json:"specialty_id"`
+	SpecialtyCode     string `json:"specialty_code"`
 }
 
 type DoctorHospitalSchedule struct {
@@ -93,6 +95,8 @@ type DoctorHospitalInvitation struct {
 	DoctorLastName     string                   `json:"doctor_last_name"`
 	SIPNumber          string                   `json:"sip_number" gorm:"column:sip_number"`
 	Specialty          string                   `json:"specialty"`
+	SpecialtyID        string                   `json:"specialty_id"`
+	SpecialtyCode      string                   `json:"specialty_code"`
 	DepartmentID       string                   `json:"department_id"`
 	DepartmentName     string                   `json:"department_name"`
 	RoomID             *string                  `json:"room_id,omitempty"`
@@ -122,6 +126,8 @@ type HospitalDoctor struct {
 	LastName               string                   `json:"last_name"`
 	SIPNumber              string                   `json:"sip_number" gorm:"column:sip_number"`
 	Specialty              string                   `json:"specialty"`
+	SpecialtyID            string                   `json:"specialty_id"`
+	SpecialtyCode          string                   `json:"specialty_code"`
 	DepartmentID           string                   `json:"department_id"`
 	Department             string                   `json:"department"`
 	RoomID                 *string                  `json:"room_id,omitempty"`

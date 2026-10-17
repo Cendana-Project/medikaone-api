@@ -90,10 +90,15 @@ Pesan mengikuti envelope bilingual standar.
 
 ## Migration dan seeder
 
-Jalankan migration `20261004065141_doctor_practice_experience.sql` sebelum
-menjalankan server baru. Migration hanya menambah kolom nullable; data dokter
-lama tidak diberi pengalaman buatan. Startup memeriksa versi schema ini.
-Gunakan workflow migration repo dan `DATABASE_ADMIN_DSN` untuk production.
+Jalankan seluruh migration, termasuk `20261004065141_doctor_practice_experience.sql`
+dan `20261017120000_specialty_master.sql`, sebelum menjalankan server baru.
+Pengalaman tetap nullable; data dokter lama tidak diberi pengalaman buatan.
+Spesialisasi memakai referensi master: filter `specialty_id`/`specialty_code`
+menggantikan teks `specialty` pada list dan rekomendasi dokter. Pencarian `q`
+menggunakan nama/kode master, bukan arsip teks lama. Kontrak dan retensi data
+ada pada [master spesialisasi](../README.md#master-spesialisasi-dokter).
+Startup staging/production memeriksa versi schema terbaru. Gunakan workflow
+migration repo dan `DATABASE_ADMIN_DSN` untuk production.
 Seeder development mengisi tanggal mulai praktik berbeda pada tiga dokter demo
 dan tetap idempoten. Bruno Mobile/Website memuat filter, saved examples, dan
 request pembaruan profil terkait. Payload create schedule tetap sama.

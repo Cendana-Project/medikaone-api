@@ -36,7 +36,7 @@ const (
 
 type Repository interface {
 	GetByID(context.Context, string) (*entity.User, error)
-	GetDoctorProfileByUserID(context.Context, string) (*string, *string, error)
+	GetDoctorProfile(context.Context, string) (*response.DoctorProfile, error)
 	ExistsUsernameExcludingUser(context.Context, string, string) (bool, error)
 	ExistsNIKExcludingUser(context.Context, string, string) (bool, error)
 	ExistsSIPExcludingUser(context.Context, string, string) (bool, error)
@@ -114,11 +114,11 @@ func (s *Service) Update(ctx context.Context, userID string, input request.Updat
 		return constant.ErrDoctorRoleRequired
 	}
 	if doctorUpdateRequested && !input.DoctorProfile.SIPNumber.IsSet() {
-		currentSIP, _, err := s.repo.GetDoctorProfileByUserID(ctx, userID)
+		currentProfile, err := s.repo.GetDoctorProfile(ctx, userID)
 		if err != nil {
 			return constant.ErrInternalServerError
 		}
-		if currentSIP == nil || strings.TrimSpace(*currentSIP) == "" {
+		if currentProfile == nil || currentProfile.SIPNumber == nil || strings.TrimSpace(*currentProfile.SIPNumber) == "" {
 			return constant.NewFieldRequiredError("doctor_profile.sip_number")
 		}
 	}
@@ -315,11 +315,12 @@ func (s *Service) Update(ctx context.Context, userID string, input request.Updat
 			}
 			doctorUpdates["sip_number"] = value
 		}
-		if value, present := input.DoctorProfile.Specialty.Get(); present {
+		if value, present := input.DoctorProfile.SpecialtyID.Get(); present {
+			doctorUpdates["specialty_legacy"] = nil
 			if value == nil {
-				doctorUpdates["specialty"] = nil
+				doctorUpdates["specialty_id"] = nil
 			} else {
-				doctorUpdates["specialty"] = nullableTrimmed(*value)
+				doctorUpdates["specialty_id"] = *value
 			}
 		}
 	}
@@ -471,11 +472,11 @@ func validateUnifiedProfileInput(input request.UpdateUserProfileRequest) error {
 	}
 	if input.DoctorProfile != nil {
 		doctor := struct {
-			SIPNumber *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
-			Specialty *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
+			SIPNumber   *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
+			SpecialtyID *string `json:"specialty_id,omitempty" validate:"omitempty,uuid"`
 		}{
-			SIPNumber: patchValue(input.DoctorProfile.SIPNumber),
-			Specialty: patchValue(input.DoctorProfile.Specialty),
+			SIPNumber:   patchValue(input.DoctorProfile.SIPNumber),
+			SpecialtyID: patchValue(input.DoctorProfile.SpecialtyID),
 		}
 		if err := util.ValidateStruct(&doctor); err != nil {
 			return util.MapValidationError(err)
@@ -501,7 +502,7 @@ func hasPatientProfileUpdate(profile *request.UpdatePatientProfileRequest) bool 
 }
 
 func hasDoctorProfileUpdate(profile *request.UpdateDoctorProfileRequest) bool {
-	return profile != nil && (profile.SIPNumber.IsSet() || profile.Specialty.IsSet() || profile.PracticeStartedOn.IsSet())
+	return profile != nil && (profile.SIPNumber.IsSet() || profile.SpecialtyID.IsSet() || profile.PracticeStartedOn.IsSet())
 }
 
 func nullableTrimmed(value string) any {
@@ -530,6 +531,9 @@ func isNIK(value string) bool {
 }
 
 func mapProfileUpdateError(err error) error {
+	if errors.Is(err, repository.ErrDoctorSpecialtyNotFound) {
+		return constant.ErrMasterSpecialtyNotFound
+	}
 	if errors.Is(err, repository.ErrHospitalWorkerDOBRequired) {
 		return constant.NewFieldRequiredError("dob")
 	}

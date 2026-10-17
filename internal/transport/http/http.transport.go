@@ -13,6 +13,7 @@ import (
 	examinationCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
 	prescriptionCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/prescription"
+	specialtyCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/specialty"
 	userCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupCtrl "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
 	transportmw "github.com/Cendana-Project/medikaone-api/internal/transport/middleware"
@@ -27,6 +28,7 @@ type Transport struct {
 	router                   *gin.Engine
 	authController           *authCtrl.Controller
 	doctorController         *doctorCtrl.Controller
+	specialtyController      *specialtyCtrl.Controller
 	userController           *userCtrl.Controller
 	hospitalController       *hospCtrl.Controller
 	doctorHospitalController *doctorHospitalCtrl.Controller
@@ -49,6 +51,10 @@ func (t *Transport) WithAuthController(c *authCtrl.Controller) *Transport {
 }
 func (t *Transport) WithDoctorController(c *doctorCtrl.Controller) *Transport {
 	t.doctorController = c
+	return t
+}
+func (t *Transport) WithSpecialtyController(c *specialtyCtrl.Controller) *Transport {
+	t.specialtyController = c
 	return t
 }
 func (t *Transport) WithUserController(c *userCtrl.Controller) *Transport {
@@ -108,6 +114,7 @@ func (t *Transport) InitRoute() {
 	v1.GET("/doctors", t.doctorController.ListDoctors)
 	v1.GET("/doctors/:doctor_id", t.doctorController.GetDoctor)
 	v1.GET("/departments", t.hospitalController.ListDepartmentOptions)
+	v1.GET("/specialties", t.specialtyController.ListSpecialties)
 	v1.GET("/hospitals", t.hospitalController.ListHospitals)
 	v1.GET("/hospitals/:hospital_id", t.hospitalController.GetHospital)
 	v1.GET("/hospitals/:hospital_id/images", t.hospitalController.ListImages)

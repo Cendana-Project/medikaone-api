@@ -134,7 +134,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 	}
 
 	resetPublicSchema(t, sqlDB)
-	applyMigrations(t, sqlDB)
+	assertSpecialtyMigrationRetention(t, sqlDB)
 	db := openIntegrationGORM(t, sqlDB)
 
 	if ok := t.Run("goose bootstraps empty schema", func(t *testing.T) {
@@ -145,6 +145,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			"users", "roles", "permissions", "user_roles", "role_permissions",
 			"patient_profiles", "doctor_profiles", "hospitals", "user_hospitals",
 			"hospital_user_roles", "hospital_departments", "hospital_rooms",
+			"master_departments", "master_specialties",
 			"doctor_hospital_invitations", "doctor_hospital_contracts",
 			"doctor_hospital_invitation_events", "doctor_hospital_invitation_schedules",
 			"doctor_hospital_affiliations", "doctor_hospital_affiliation_events",
@@ -214,12 +215,14 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			t.Fatalf("insert patient profile: %v", err)
 		}
 		if _, err := sqlDB.Exec(`
-			INSERT INTO doctor_profiles (user_id, sip_number, specialty)
-			VALUES ($1, 'SIP-ORIGINAL', 'General'), ($2, 'SIP-CONFLICT', 'Neurology')
+			INSERT INTO doctor_profiles (user_id, sip_number, specialty_id)
+			VALUES ($1, 'SIP-ORIGINAL', (SELECT id FROM master_specialties WHERE code = 'SP-UMUM')),
+			       ($2, 'SIP-CONFLICT', (SELECT id FROM master_specialties WHERE code = 'SP-SARAF'))
 		`, primaryUserID, conflictingUserID); err != nil {
 			t.Fatalf("insert doctor profiles: %v", err)
 		}
 
+		cardiologyID := scalarString(t, sqlDB, `SELECT id::text FROM master_specialties WHERE code = 'SP-JANTUNG'`)
 		repository := userrepo.NewRepository(db)
 		exists, err := repository.ExistsSIPExcludingUser(context.Background(), "  sip-conflict  ", primaryUserID)
 		if err != nil || !exists {
@@ -228,7 +231,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		if err := repository.ApplyUnifiedProfileUpdate(context.Background(), primaryUserID, userrepo.UnifiedProfileUpdate{
 			UserFields:    map[string]any{"first_name": "After"},
 			PatientFields: map[string]any{"height_cm": 180, "allergies": nil},
-			DoctorFields:  map[string]any{"specialty": "Cardiology"},
+			DoctorFields:  map[string]any{"specialty_id": cardiologyID},
 		}); err != nil {
 			t.Fatalf("ApplyUnifiedProfileUpdate() success path: %v", err)
 		}
@@ -254,11 +257,11 @@ func TestPostgresSeederIntegration(t *testing.T) {
 			t.Fatalf("patient patch = height %d weight %d allergies %#v history %q", height, weight, allergies, medicalHistory)
 		}
 		var sipNumber, specialty string
-		if err := sqlDB.QueryRow(`SELECT sip_number, specialty FROM doctor_profiles WHERE user_id = $1`, primaryUserID).
+		if err := sqlDB.QueryRow(`SELECT sip_number, specialty_id::text FROM doctor_profiles WHERE user_id = $1`, primaryUserID).
 			Scan(&sipNumber, &specialty); err != nil {
 			t.Fatalf("read updated doctor profile: %v", err)
 		}
-		if sipNumber != "SIP-ORIGINAL" || specialty != "Cardiology" {
+		if sipNumber != "SIP-ORIGINAL" || specialty != cardiologyID {
 			t.Fatalf("doctor patch = sip %q specialty %q; omitted SIP must be preserved", sipNumber, specialty)
 		}
 
@@ -304,6 +307,8 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		testDoctorLocationIntegration(t, db)
 		testDirectoryFiltersIntegration(t, db)
 		testGroupedAvailabilityIntegration(t, db)
+		assertSpecialtyCatalogIntegration(t, db)
+		assertSpecialtyProfileIntegration(t, db)
 		testAccountDeletionIntegration(t, db)
 		testResourceLifecycleIntegration(t, db)
 		testInvitationRejectionIntegration(t, db)

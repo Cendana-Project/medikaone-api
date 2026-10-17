@@ -125,9 +125,56 @@ func testDirectoryFiltersIntegration(t *testing.T, db *gorm.DB) {
 		if e != nil || profile.ExperienceYears == nil || *profile.ExperienceYears != 10 {
 			t.Fatalf("profile projection: %#v %v", profile, e)
 		}
-		if e := users.UpsertDoctorProfile(ctx, map[string]any{"user_id": a.doctor, "sip_number": "FILTER-" + a.doctor, "specialty": "Mata"}); e != nil {
+		var specialtyID string
+		if err := tx.Raw(`SELECT id::text FROM master_specialties WHERE code = 'SP-MATA'`).Scan(&specialtyID).Error; err != nil || specialtyID == "" {
+			t.Fatalf("resolve SP-MATA: %q %v", specialtyID, err)
+		}
+		if e := users.UpsertDoctorProfile(ctx, map[string]any{"user_id": a.doctor, "sip_number": "FILTER-" + a.doctor, "specialty_id": specialtyID}); e != nil {
 			t.Fatal(e)
 		}
+		for _, recommended := range []bool{false, true} {
+			for _, filter := range []doctorrepo.Filter{
+				{SpecialtyID: specialtyID},
+				{SpecialtyCode: "SP-MATA"},
+				{SpecialtyID: specialtyID, SpecialtyCode: "SP-MATA"},
+			} {
+				filter.Recommended = recommended
+				page := list(filter)
+				if page.Total != 1 || page.Items[0].DoctorID != a.doctor || page.Items[0].SpecialtyID != specialtyID || page.Items[0].SpecialtyCode != "SP-MATA" || page.Items[0].Specialty != "Mata" {
+					t.Fatalf("canonical specialty projection/filter: %#v", page)
+				}
+			}
+			if page := list(doctorrepo.Filter{Recommended: recommended, SpecialtyID: specialtyID, SpecialtyCode: "SP-UMUM"}); page.Total != 0 {
+				t.Fatalf("mismatched specialty filters must AND: %#v", page)
+			}
+		}
+		for _, query := range []string{"SP-MATA", "Mata"} {
+			page, err := doctors.ListDoctors(ctx, doctorrepo.Filter{Query: query, SpecialtyID: specialtyID, Page: 1, Limit: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, item := range page.Items {
+				found = found || item.DoctorID == a.doctor
+			}
+			if !found {
+				t.Fatalf("canonical specialty search %q omitted fixture", query)
+			}
+		}
+		exec(`UPDATE master_specialties SET is_active=FALSE WHERE id=?`, specialtyID)
+		for _, recommended := range []bool{false, true} {
+			if page := list(doctorrepo.Filter{Recommended: recommended, SpecialtyID: specialtyID}); page.Total != 1 || page.Items[0].DoctorID != a.doctor {
+				t.Fatalf("inactive referenced specialty lost ID match: %#v", page)
+			}
+			if page := list(doctorrepo.Filter{Recommended: recommended, SpecialtyCode: "SP-MATA"}); page.Total != 1 || page.Items[0].DoctorID != a.doctor {
+				t.Fatalf("inactive referenced specialty lost code match: %#v", page)
+			}
+		}
+		inactive, err := doctors.GetDoctor(ctx, a.doctor)
+		if err != nil || inactive.Specialty != "Mata" || inactive.SpecialtyID != specialtyID || inactive.SpecialtyCode != "SP-MATA" {
+			t.Fatalf("inactive referenced specialty lost canonical metadata: %#v %v", inactive, err)
+		}
+		exec(`UPDATE master_specialties SET is_active=TRUE WHERE id=?`, specialtyID)
 		profile, e = users.GetDoctorProfile(ctx, a.doctor)
 		if e != nil || profile.PracticeStartedOn == nil {
 			t.Fatal("omitting start date cleared existing experience")

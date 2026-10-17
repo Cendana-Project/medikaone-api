@@ -276,6 +276,54 @@ Perubahan profil pekerja rumah sakit juga mensyaratkan DOB efektif dengan usia
 lebih dari 15 tahun. Update field umum dan profil khusus role disimpan dalam satu
 transaksi database.
 
+### Master spesialisasi dokter
+
+`GET /v1/specialties` adalah katalog publik tanpa login. Query opsional:
+`q` (nama/kode, maksimal 190 karakter), `code` (kode lokal uppercase exact),
+`category` (`GENERAL`, `MEDICAL_SPECIALIST`, `DENTAL_SPECIALIST`),
+`limit` (1–100, default 100), dan `offset` (>=0, default 0).
+Parameter yang diberikan tetapi kosong, berulang, atau malformed ditolak 400.
+Respons `SPECIALTIES_LISTED` berisi array `data` dengan `id`, `code`, `name`,
+dan `category`; hasil kosong adalah `[]`. Urutan stabil: sort_order, name, id.
+
+```http
+GET /v1/specialties?category=MEDICAL_SPECIALIST&limit=100&offset=0
+GET /v1/specialties?code=SP-MATA
+```
+
+Katalog awal memuat 36 pilihan terkurasi (termasuk dokter umum dan dokter gigi
+umum pada kategori GENERAL), bukan daftar lengkap seluruh subspesialisasi.
+Kode `SP-*` adalah kode internal MedikaOne, bukan SATUSEHAT, KKI, atau SNOMED CT.
+Katalog terpisah dari poli rumah sakit; memilih spesialisasi tidak memverifikasi
+kredensial dokter. Sumber dan batas katalog ada pada
+[panduan master](docs/department-master.md#master-spesialisasi-dokter).
+
+Gunakan UUID `id` dari katalog pada `doctor_profile.specialty_id` untuk
+`PATCH /v1/profile`, atau `profile.specialty_id` untuk set-profile role DOCTOR.
+Field opsional; omitted mempertahankan pilihan lama, `null` menghapusnya, dan
+UUID aktif menggantinya. Profil baru tanpa pilihan tetap null. Format UUID salah
+ditolak 400; master hilang/nonaktif ditolak 404 `MASTER_SPECIALTY_NOT_FOUND`.
+Body teks bebas `specialty` tidak diterima lagi. Respons yang sebelumnya
+memuat specialty tetap menampilkan nama kanonis tersebut, ditambah
+`specialty_id` dan `specialty_code`. Master yang kemudian dinonaktifkan tetap
+terbaca pada referensi lama, tetapi tidak tersedia untuk pilihan baru.
+
+`GET /v1/doctors` dan `GET /v1/recommendations/doctors` menerima
+`specialty_id` dan `specialty_code`; keduanya memakai AND jika dikirim bersama.
+ID dan code valid tetapi tidak cocok menghasilkan daftar kosong. Filter lama
+`specialty` ditolak 400, bukan diabaikan. Pencarian `q` pada direktori dan
+pencarian dokter tenant menggunakan nama/kode master; filter poli tetap terpisah.
+
+Migration `20261017120000_specialty_master.sql` wajib dijalankan sebelum deploy.
+Migration memasang master, mengganti penyimpanan pilihan menjadi FK nullable,
+dan mempertahankan teks lama pada kolom privat `specialty_legacy`. Hanya nama/
+kode exact setelah trim/case-fold dan alias eksplisit `Umum`/`Paru` yang dipetakan.
+Nilai tidak dikenal/ambigu tidak ditebak dan tidak ditampilkan sebagai pilihan
+kanonis; operator dapat meninjau `specialty_id IS NULL AND specialty_legacy IS
+NOT NULL` melalui akses database admin. Seleksi/clear eksplisit menghapus arsip
+lama; update yang tidak mengirim spesialisasi mempertahankannya. Seeder idempoten
+tidak diperlukan untuk memasang katalog di production.
+
 `PUT /v1/profile/patient` dan `PUT /v1/profile/doctor` hanya dipertahankan sebagai
 endpoint kompatibilitas sementara. Response keduanya membawa header `Deprecation`
 dan `Link` menuju `PATCH /v1/profile`; client baru wajib menggunakan endpoint
@@ -572,7 +620,7 @@ CI mengambil versi Go dari `go.mod`; security scan tetap wajib dijalankan.
 - Gunakan sender email yang telah diverifikasi; `SMTP_FROM` palsu akan ditolak provider seperti SendGrid.
 - Setelah credential pernah dibagikan di chat/log, rotasi password database, password Redis, API key SMTP, dan seluruh token/JWT secret sebelum penggunaan nyata.
 - Untuk server staging, set `ENV=staging`; jangan memakai `production` jika ingin menggunakan command reset staging yang dijaga.
-- Server memerlukan seluruh migration sampai `20260928043302_schedule_deactivation.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Rangkaian migration terbaru memasang perlindungan bentrok jadwal dokter lintas rumah sakit/timezone, katalog master department, dukungan beberapa proposal specific schedule yang masih pending, serta penonaktifan seluruh jadwal atau satu hari rutin dengan approval. Kontrak jadwal ada di [panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md). Kontrak profil hospital, galeri, review terverifikasi, jam operasional, dan pencarian jarak ada di [panduan direktori hospital](docs/hospital-directory.md). Buat bucket private `hospital-images` sebelum memakai upload foto.
+- Server memerlukan seluruh migration sampai `20261017120000_specialty_master.sql`; jalankan seluruh migration pending sebelum deployment baru menerima traffic. Perubahan ini memasang katalog spesialisasi dan memigrasikan profil/filter ke referensi master. Update client bersamaan: input teks `specialty` diganti `specialty_id`, filter menjadi `specialty_id`/`specialty_code`. Startup staging/production menolak schema lama. Kontrak jadwal ada di [panduan lifecycle dan jadwal](docs/resource-lifecycle-and-schedules.md); kontrak direktori hospital ada di [panduan direktori hospital](docs/hospital-directory.md).
 - Response jadwal kini hanya mengirim row pada `schedule_groups[].schedules`; array `schedules` sejajar dihapus dari undangan, afiliasi, detail dokter publik, dan proposal perubahan jadwal (termasuk nested pending). Sesuaikan pembacaan response client; body request create/update tetap sama. Perubahan representasi ini tidak membutuhkan migration database tambahan.
 - Kontrak auth `/v1` berubah (`challenge_id`, refresh `idempotency_key`, dan claim token baru). Koordinasikan backend dan client sebagai hard cutover, jangan menjalankan versi lama dan baru bersamaan, lalu minta semua pengguna login ulang.
 - Proses web Render hanya menjalankan server: build command `go build -o medikaone-api .` dan start command `./medikaone-api server`. Berikan `DATABASE_DSN` least-privilege kepada web service dan **jangan** menyimpan `DATABASE_ADMIN_DSN` di environment web.

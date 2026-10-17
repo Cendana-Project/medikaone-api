@@ -239,10 +239,16 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
 
 ### Direktori dan rekomendasi pasien
 
-- Direktori publik dokter mendukung pencarian/filter mobile seperti specialty,
+- Direktori publik dokter memakai referensi master `specialty_id`/`specialty_code`,
   hospital, department code/ID, city, tanggal tersedia, dan booking mode.
 - Direktori rumah sakit hanya menampilkan rumah sakit aktif dan dapat difilter
   dengan department serta atribut direktori yang terdokumentasi.
+- `GET /v1/specialties` adalah katalog publik aktif terpisah dari poli. Kode
+  `SP-*` lokal, bukan SATUSEHAT; pilihan bukan bukti kredensial. Input profil
+  hanya menerima `specialty_id` nullable, bukan teks `specialty`. Output nama
+  `specialty` berasal dari join master dan menyertakan ID/code. Referensi master
+  nonaktif tetap terbaca, tetapi tidak dapat dipilih ulang. Kolom privat
+  `specialty_legacy` hanya retensi data lama, tidak dipakai pencarian/output.
 - `GET /v1/recommendations/doctors` dan
   `GET /v1/recommendations/hospitals` hanya untuk pasien terautentikasi.
 - Rekomendasi hanya boleh memakai dokter/rumah sakit/department/afiliasi/jadwal

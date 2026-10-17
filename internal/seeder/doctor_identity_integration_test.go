@@ -41,7 +41,7 @@ func testDoctorIdentityIntegration(t *testing.T, db *gorm.DB) {
 			t.Fatalf("seeded doctor profile public identity = %#v, %v", profile, err)
 		}
 		originalID := profile.DoctorMedikaOneID
-		if err := users.UpsertDoctorProfile(ctx, map[string]any{"user_id": doctorID, "sip_number": profile.SIPNumber, "specialty": "Integration Specialty"}); err != nil {
+		if err := users.UpsertDoctorProfile(ctx, map[string]any{"user_id": doctorID, "sip_number": profile.SIPNumber, "specialty_id": profile.SpecialtyID}); err != nil {
 			t.Fatal(err)
 		}
 		profile, err = users.GetDoctorProfile(ctx, doctorID)
@@ -110,6 +110,24 @@ func testDoctorIdentityIntegration(t *testing.T, db *gorm.DB) {
 		eligible, err := doctorhospitalrepo.NewRepository(tx).SearchEligibleDoctors(ctx, originalID, 20)
 		if err != nil || len(eligible) != 1 || eligible[0].DoctorMedikaOneID != originalID {
 			t.Fatalf("hospital invitation doctor search = %#v, %v", eligible, err)
+		}
+		for _, query := range []string{"SP-UMUM", "Dokter Umum"} {
+			matches, err := doctorhospitalrepo.NewRepository(tx).SearchEligibleDoctors(ctx, query, 50)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, item := range matches {
+				if item.ID == doctorID {
+					found = true
+					if item.SpecialtyID == "" || item.SpecialtyCode != "SP-UMUM" || item.Specialty != "Dokter Umum" {
+						t.Fatalf("eligible doctor specialty projection: %#v", item)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("eligible doctor canonical specialty search %q omitted fixture", query)
+			}
 		}
 		testDoctorDirectoryAffiliation(t, tx, doctorID, originalID)
 		if err := tx.Exec(`UPDATE users SET deleted_at = NOW() WHERE id = ?`, doctorID).Error; err != nil {

@@ -96,7 +96,31 @@ type DoctorProfileRequest struct {
 	Address           *string `json:"address,omitempty" validate:"omitempty,max=1000"`
 	Gender            *string `json:"gender,omitempty" validate:"omitempty,oneof=L P"`
 	SIPNumber         *string `json:"sip_number,omitempty" validate:"omitempty,max=64"`
-	Specialty         *string `json:"specialty,omitempty" validate:"omitempty,max=100"`
+	SpecialtyID       *string `json:"specialty_id,omitempty" validate:"omitempty,uuid"`
+
+	specialtyIDPresent bool
+}
+
+// UnmarshalJSON retains explicit null while continuing to reject unknown inputs.
+func (request *DoctorProfileRequest) UnmarshalJSON(data []byte) error {
+	type alias DoctorProfileRequest
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*request = DoctorProfileRequest(decoded)
+	_, request.specialtyIDPresent = fields["specialty_id"]
+	return nil
+}
+
+func (request DoctorProfileRequest) SpecialtyIDIsSet() bool {
+	return request.specialtyIDPresent || request.SpecialtyID != nil
 }
 
 // PatchField preserves the difference between an omitted JSON property and a
@@ -202,7 +226,7 @@ type UpdatePatientProfileRequest struct {
 type UpdateDoctorProfileRequest struct {
 	PracticeStartedOn PatchField[string] `json:"practice_started_on,omitempty"`
 	SIPNumber         PatchField[string] `json:"sip_number,omitempty"`
-	Specialty         PatchField[string] `json:"specialty,omitempty"`
+	SpecialtyID       PatchField[string] `json:"specialty_id,omitempty"`
 }
 
 type LogoutRequest struct {

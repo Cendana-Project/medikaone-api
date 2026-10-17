@@ -737,6 +737,9 @@ func patientProfilePersistenceError(err error) error {
 }
 
 func doctorProfilePersistenceError(err error) error {
+	if errors.Is(err, userrepo.ErrDoctorSpecialtyNotFound) {
+		return constant.ErrMasterSpecialtyNotFound
+	}
 	if errors.Is(err, userrepo.ErrDoctorSIPConflict) || errors.Is(err, gorm.ErrDuplicatedKey) {
 		return constant.ErrDoctorSIPAlreadyExists
 	}
@@ -1879,7 +1882,9 @@ func (s *Service) completeDoctorProfile(ctx context.Context, users *userrepo.Rep
 	prof := map[string]any{
 		"user_id":    userID,
 		"sip_number": sipNumber,
-		"specialty":  req.Specialty,
+	}
+	if req.SpecialtyIDIsSet() {
+		prof["specialty_id"] = req.SpecialtyID
 	}
 	if req.PracticeStartedOn != nil {
 		prof["practice_started_on"] = *req.PracticeStartedOn
@@ -1932,14 +1937,6 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		}
 		sipNumber := strings.TrimSpace(*input.SIPNumber)
 		input.SIPNumber = &sipNumber
-		if input.Specialty != nil {
-			specialty := strings.TrimSpace(*input.Specialty)
-			if specialty == "" {
-				input.Specialty = nil
-			} else {
-				input.Specialty = &specialty
-			}
-		}
 		doctorRequest = &input
 	default:
 		return nil, constant.ErrSelfServiceRoleUnavailable
@@ -2023,6 +2020,7 @@ func (s *Service) SetProfile(ctx context.Context, userID, roleSlugUpper string, 
 		}
 		if doctorProfile != nil {
 			prof.SIPNumber, prof.Specialty = doctorProfile.SIPNumber, doctorProfile.Specialty
+			prof.SpecialtyID, prof.SpecialtyCode = doctorProfile.SpecialtyID, doctorProfile.SpecialtyCode
 			prof.DoctorMedikaOneID = doctorProfile.DoctorMedikaOneID
 			prof.PracticeStartedOn = doctorProfile.PracticeStartedOn
 			prof.ExperienceYears = doctorProfile.ExperienceYears
