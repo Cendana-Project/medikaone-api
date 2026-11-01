@@ -69,6 +69,11 @@ Status terminal seperti CANCELLED tidak menguranginya. Aturan ini mengikuti API
 availability dan booking. Search tidak menahan slot; booking tetap memvalidasi
 kapasitas secara atomik karena bisa berubah setelah hasil pencarian diterima.
 
+Hasil pencarian bukan ID slot booking. Setelah memilih dokter/RS, ambil
+availability dan kirim `slot_id` pilihan tersebut saat create/reschedule.
+Metadata `schedule_id`, tanggal, dan jam tetap berguna untuk tampilan serta
+perhitungan kapasitas internal, bukan field selection request booking.
+
 Pada RS, dokter yang tersedia harus berada di poli pilihan pada RS tersebut.
 Pada dokter dengan banyak afiliasi, filter lokasi, poli, rumah sakit, tanggal,
 jam, dan kapasitas harus terpenuhi pada afiliasi yang sama. Semua filter

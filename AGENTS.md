@@ -280,6 +280,14 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   tidak boleh diturunkan dari substring timestamp UTC. Kapasitas memakai helper
   yang sama dengan availability lama; proposal pending bukan slot bookable.
   Kontrak lengkap ada di `docs/grouped-appointment-availability.md`.
+- Availability flat/grouped memberi `slot_id` opaque yang sama untuk kejadian
+  jadwal/interval UTC yang sama. Create dan reschedule pasien/staf hanya memakai
+  ID ini sebagai pilihan jadwal; request legacy schedule/date/start_time ditolak.
+  Jangan menyamakan `slot_id` dengan UUID jadwal atau `appointment_id`.
+- Slot ID bukan grant otorisasi atau reservasi. Resolver harus memakai timezone
+  dan jadwal aktif saat ini, lalu memeriksa interval/durasi/grid secara tepat
+  sebelum transaksi revalidasi kapasitas/konflik. SESSION_QUEUE memakai satu ID
+  untuk seluruh sesi. Walk-in tetap memakai schedule/time hari berjalan.
 - Create/reschedule appointment dan walk-in harus mempertahankan idempotensi.
   Jangan gunakan ulang idempotency key untuk operasi berbeda.
 - Alokasi slot, kapasitas, nomor appointment/antrean, walk-in, check-in, dan klaim
@@ -315,6 +323,18 @@ dan nilai eksplisit ketika PATCH memang mempunyai semantik berbeda.
   confirmation token yang diminta command.
 - Seeder development harus idempoten. Jika kontrak baru memerlukan fixture agar
   flow bisa diuji, perbarui seeder dan integration test bersamaan.
+- Seed dasar tetap database-only. `seed --with-workflows` menambahkan skenario
+  website/mobile dengan kontrak dan resep PDF yang benar-benar diunggah melalui
+  Storage terkonfigurasi; tidak boleh membuat metadata/path Storage palsu.
+- Workflow dokter memerlukan role global self-service `DOCTOR` selain role
+  tenant. Jangan memberikan role global staf atau membership lintas RS hanya
+  agar smoke test lolos.
+- Rerun workflow mempertahankan anchor, progres appointment/klinis, keputusan
+  undangan, dan jadwal yang diubah tester. Reset demo harus gagal aman ketika
+  referensi klinis masih ada; jangan menonaktifkan trigger atau menghapus audit.
+- `--bruno-env <path>` mengekspor UUID/tanggal aktual dalam format environment
+  YAML Bruno. Tidak boleh mengekspor secret server, JWT, refresh token, token QR,
+  atau kode check-in; file hasil generate bukan bagian commit.
 
 ## Cara mengimplementasikan perubahan API
 

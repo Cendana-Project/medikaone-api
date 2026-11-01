@@ -47,6 +47,8 @@ tanggal itu, termasuk jika semua pilihannya FULL/CLOSED.
 
 Setiap slot memuat:
 
+- `slot_id`: ID opaque untuk satu kejadian slot/sesi; dipakai langsung pada
+  request create/reschedule, bukan UUID jadwal;
 - `schedule_id`, `affiliation_id`, `department_id`, `department_name`, serta
   `room_id`/`room_name` jika tersedia;
 - `schedule_type`: RECURRING atau SPECIFIC;
@@ -102,9 +104,9 @@ jadwal, dan jumlah reservasi secara batch; tidak ada query per slot/hari.
    sesuai alasannya. Hanya pilihan `is_bookable=true` boleh dipilih.
 4. Warna pilihan dan tombol Lihat lebih lengkap dikelola frontend; endpoint
    mengembalikan semua pilihan pada rentang yang diminta tanpa pagination slot.
-5. POST `/v1/appointments` tetap memakai `schedule_id`, `appointment_date` dari
-   `dates[].date`, dan `start_time` lokal (wajib FIXED_SLOT; SESSION_QUEUE boleh
-   kosong atau awal sesi), beserta alasan kunjungan dan consent seperti biasa.
+5. Kirim `slot_id` dari pilihan tersebut ke POST `/v1/appointments`, beserta
+   alasan kunjungan dan consent. Tanggal/jam ditentukan server dari ID; client
+   tidak lagi mengirim `schedule_id`, `appointment_date`, atau `start_time`.
 
 Availability tidak menahan kapasitas dan tidak memeriksa bentrok appointment
 pribadi pasien. Booking tetap memvalidasi kapasitas, konflik pasien, eligibility,
@@ -116,3 +118,56 @@ mengisi `slots` dengan pilihan bookable. Perhitungan ekspansi/kapasitas digunaka
 bersama oleh kedua endpoint. Tidak ada perubahan schema atau migration baru;
 fixture seeder aktif yang ada dapat dipakai dengan tanggal praktik yang sesuai.
 Bruno: `Mobile/Appointment/8 Grouped Doctor Availability`.
+
+## Booking dan reschedule dengan slot_id
+
+ID yang sama dikembalikan pada availability flat dan grouped untuk jadwal dan
+interval UTC yang sama. ID berawalan `slt1_`, bukan UUID; perlakukan sebagai
+string opaque dan salin apa adanya, tanpa membangun atau menguraikannya di
+frontend. Setiap interval FIXED_SLOT mempunyai ID sendiri; SESSION_QUEUE memakai
+satu ID untuk seluruh sesi, yang dapat dipakai beberapa pasien sampai kapasitas
+habis. Perubahan kapasitas tidak mengganti identitas slot.
+
+Contoh body Create Appointment menggunakan variable hasil inquiry Bruno:
+
+```json
+{
+  "slot_id": "{{slotId}}",
+  "reason_for_visit": "Konsultasi kesehatan",
+  "consent_accepted": true,
+  "consent_version": "appointment-consent-v1"
+}
+```
+
+Tetap gunakan bearer pasien dan `Idempotency-Key` UUID baru untuk booking baru;
+retry request yang sama menggunakan key dan body yang sama. Booking baru
+menghasilkan HTTP 201, sedangkan replay sukses HTTP 200.
+
+Reschedule pasien pada POST `/v1/appointments/:appointment_id/reschedule` dan
+reschedule staf pada POST
+`/v1/hospitals/:hospital_id/appointments/:appointment_id/reschedule` memakai body:
+
+```json
+{
+  "slot_id": "{{slotId}}",
+  "reason": "Mengubah jadwal kunjungan"
+}
+```
+
+Pilih ID tujuan dari availability terbaru dan gunakan token serta permission
+yang sesuai client. `slot_id` bukan token otorisasi, reservasi kapasitas, atau
+pengganti `appointment_id`. Server memuat jadwal aktif, menentukan tanggal lokal
+berdasarkan timezone jadwal, memeriksa interval/grid/durasi, lalu tetap
+memvalidasi waktu, kapasitas, konflik pasien, dan idempotensi.
+
+Kontrak request lama sudah dihapus: mengirim `schedule_id`, `appointment_date`,
+atau `start_time`, bahkan bersama `slot_id`, menghasilkan HTTP 400
+`UNKNOWN_FIELD`. ID tidak valid menghasilkan `INVALID_FIELD_VALUE`; jika slot
+sudah penuh/tutup atau jadwal berubah/nonaktif, muat ulang availability dan
+pilih opsi yang tersedia. Jangan mengubah sebagian isi ID atau melakukan retry
+tanpa batas pada slot yang ditolak.
+
+Metadata jadwal, tanggal, jam, dan `slot_position` pada response appointment
+tetap tersedia. Walk-in tetap memakai kontrak schedule/time hari berjalan;
+bukan alur booking pasien melalui availability. Cutover ini tidak menambah
+tabel slot atau migration database.

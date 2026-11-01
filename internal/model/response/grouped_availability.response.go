@@ -29,6 +29,7 @@ type AvailabilityHospital struct {
 }
 
 type GroupedAvailabilitySlot struct {
+	SlotID              string    `json:"slot_id"`
 	ScheduleID          string    `json:"schedule_id"`
 	AffiliationID       string    `json:"affiliation_id"`
 	DepartmentID        string    `json:"department_id"`

@@ -307,6 +307,7 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		testDoctorLocationIntegration(t, db)
 		testDirectoryFiltersIntegration(t, db)
 		testGroupedAvailabilityIntegration(t, db)
+		testSlotBookingIntegration(t, db)
 		assertSpecialtyCatalogIntegration(t, db)
 		assertSpecialtyProfileIntegration(t, db)
 		testAccountDeletionIntegration(t, db)
@@ -314,6 +315,9 @@ func TestPostgresSeederIntegration(t *testing.T) {
 		testInvitationRejectionIntegration(t, db)
 		testInvitationContractReplacementIntegration(t, db)
 		testDirectorySeedsIntegration(t, db, sqlDB)
+		assertDemoPracticeWorkflows(t, db)
+		runDemoClinicalIntegration(t, db)
+		assertDemoWorkflowOrchestration(t, db)
 		currentIDs := map[string]string{
 			"doctor_medikaone": scalarString(t, sqlDB, `SELECT profile.medikaone_id FROM doctor_profiles profile JOIN users doctor ON doctor.id = profile.user_id WHERE doctor.email = 'doctor001@medikaone.id'`),
 			"user":             scalarString(t, sqlDB, `SELECT id::text FROM users WHERE email = 'superadmin@medikaone.id' AND deleted_at IS NULL`),

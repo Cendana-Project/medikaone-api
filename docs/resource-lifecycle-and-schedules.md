@@ -141,7 +141,9 @@ Response tetap array `data`, berisi dokter, placement, jadwal aktif pada
 `schedule_groups[].schedules`, dan proposal pada `pending_schedule_changes`.
 Filter `status` opsional (`ACTIVE` atau `SUSPENDED`); kosong mengambil keduanya.
 Frontend resepsionis/perawat dapat menggunakan list ini untuk pilihan dokter
-dan jadwal. Proposal pending tidak boleh dipakai sebagai `schedule_id` booking.
+dan jadwal. Proposal pending tidak menghasilkan slot bookable. Untuk booking
+terjadwal/reschedule, ambil `slot_id` melalui availability, bukan UUID schedule
+atau UUID proposal dari daftar ini. Walk-in tetap menggunakan jadwal aktif.
 
 Detail afiliasi yang menyertakan informasi kontrak, pencarian calon dokter untuk
 undangan (`/doctors/search`), undangan/kontrak, dan pengelolaan afiliasi tetap
@@ -324,7 +326,8 @@ jadwal rutin pada `schedule_groups[].schedules` berisi snapshot baru dengan ID
 baru, sementara specific schedule aktif tetap memakai ID lamanya. Untuk `ADD`, jadwal usulan
 ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
 ID pada item snapshot pending adalah ID item proposal, bukan `schedule_id` aktif;
-ID tersebut tidak boleh dipakai untuk booking atau delete schedule.
+ID tersebut tidak boleh dipakai untuk delete schedule. Booking terjadwal memakai
+`slot_id` dari availability, bukan ID item proposal atau UUID jadwal langsung.
 
 ### Konflik ketika pengajuan dibuat
 
@@ -413,6 +416,8 @@ Row specific tetap memiliki `schedule_date` dan `day_of_week: []`. Pada proposal
 DEACTIVATE, object nested juga menyertakan `target_schedule_id`; ID object
 sendiri tetap ID item proposal.
 Group bukan resource baru dan tidak memiliki satu ID untuk booking/delete.
+Booking terjadwal mengambil `slot_id` dari availability; penghapusan jadwal
+tetap memakai `schedule_id` asli.
 Status snapshot invitation dapat tidak ada; status invitation tetap berada pada
 object induk. Endpoint availability, jadwal hari ini, dan appointment tetap
 menyajikan satu sesi/kunjungan per item sesuai tanggalnya, bukan snapshot rutin.

@@ -67,6 +67,16 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 - `500`: kesalahan internal yang tidak boleh membocorkan detail implementasi.
 - `502`/`503`: dependency atau kapasitas layanan sementara tidak tersedia.
 
+## Kode pilihan slot appointment
+
+| Kode | HTTP | Tindakan client |
+| --- | --- | --- |
+| `FIELD_REQUIRED` | 400 | Pilih `slot_id` dari availability sebelum create/reschedule. |
+| `INVALID_FIELD_VALUE` | 400 | ID slot malformed/tidak didukung; jangan membangun ID sendiri, ambil dari inquiry terbaru. |
+| `UNKNOWN_FIELD` | 400 | Hapus field selection legacy `schedule_id`, `appointment_date`, dan `start_time` pada create/reschedule; kirim `slot_id`. |
+| `APPOINTMENT_SLOT_UNAVAILABLE` | 409 | Slot penuh/tutup atau interval tidak lagi cocok dengan jadwal aktif; muat ulang availability. Reschedule yang gagal tidak membatalkan appointment asal. |
+
+
 ## Contoh kode auth yang perlu ditangani client
 
 | Kode | Tindakan client |

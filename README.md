@@ -139,7 +139,7 @@ Environment variable utama untuk deployment:
 
 Nilai pool, timeout server, dan timeout SMTP lain tersedia di `config.yml.example`. AWS dan Stripe tidak dikonfigurasi karena tidak digunakan repo ini.
 
-Validasi konfigurasi mengikuti command: `server` memerlukan konfigurasi web lengkap; `seed`/migration lokal hanya memerlukan bagian database; migration/reset staging juga memerlukan Redis dan write timeout untuk drain; `database-fingerprint` hanya memerlukan admin DSN; dan `migrate --action=create` hanya membuat file lokal tanpa membuka koneksi database. Karena email bersifat opt-in, deployment env-only harus menetapkan `SMTP_ENABLED=true` secara eksplisit saat ingin mengirim PIN. Alias lama `JWT_ACCESS_TTL_MINUTES` dan `JWT_REFRESH_TTL_DAYS` tetap diterima bila nilai duration baru tidak diisi, tetapi sebaiknya migrasikan ke `JWT_ACCESS_TTL` dan `JWT_REFRESH_TTL`.
+Validasi konfigurasi mengikuti command: `server` memerlukan konfigurasi web lengkap; `seed` dasar/migration lokal hanya memerlukan bagian database; `seed --with-workflows` juga memerlukan Storage dan `SERVER_BASE_URL`; migration/reset staging juga memerlukan Redis dan write timeout untuk drain; `database-fingerprint` hanya memerlukan admin DSN; dan `migrate --action=create` hanya membuat file lokal tanpa membuka koneksi database. Karena email bersifat opt-in, deployment env-only harus menetapkan `SMTP_ENABLED=true` secara eksplisit saat ingin mengirim PIN. Alias lama `JWT_ACCESS_TTL_MINUTES` dan `JWT_REFRESH_TTL_DAYS` tetap diterima bila nilai duration baru tidak diisi, tetapi sebaiknya migrasikan ke `JWT_ACCESS_TTL` dan `JWT_REFRESH_TTL`.
 
 ### Pemisahan koneksi database
 
@@ -408,6 +408,14 @@ Response dikelompokkan menjadi tanggal, rumah sakit, lalu slot/sesi; pilihan
 penuh dan tutup booking tetap ditampilkan dengan status yang jelas. Kontrak
 lengkap ada di [kalender slot dokter](docs/grouped-appointment-availability.md).
 
+Setiap pilihan pada availability flat maupun grouped menyertakan `slot_id`
+opaque. Create Appointment dan reschedule pasien/staf memakai ID pilihan ini;
+field request lama `schedule_id`, `appointment_date`, dan `start_time` sudah
+tidak diterima. Alasan kunjungan, consent, bearer, dan `Idempotency-Key` tetap
+berlaku. Ambil ID dari inquiry terbaru; ID bukan reservasi kapasitas. Metadata
+jadwal pada response serta kontrak walk-in tidak berubah, dan tidak diperlukan
+migration baru untuk cutover ini.
+
 ## Check-in resepsionis dan walk-in
 
 Check-in bukan self-service. Hanya petugas rumah sakit dengan permission
@@ -540,7 +548,7 @@ Keduanya dilengkapi deskripsi, alamat/koordinat, telepon, email/website demo ber
 
 Dokter `001`, `002`, dan `003` memiliki spesialisasi Umum, Mata, dan Paru, SIP berbeda, serta `medikaone_id` yang dibuat database dan dipertahankan saat rerun. Pasien memiliki profil awal tinggi/berat badan; rerun mempertahankan pengukuran, alergi, dan riwayat yang kemudian diisi lewat aplikasi.
 
-Seeder ini hanya membutuhkan database. Galeri diisi melalui Upload Hospital Image; rating berasal dari review kunjungan selesai. Undangan, kontrak, afiliasi, dan jadwal diisi melalui alur registrasi dokter di Bruno dengan PDF kontrak yang benar-benar tersedia. Seeder tidak membuat referensi Storage dummy. Setelah dokter menerima undangan, gunakan contoh jadwal `FIXED_SLOT`, `SESSION_QUEUE`, atau Create Specific Schedule; `day_of_week` jadwal dokter berupa array, sedangkan hari pada `opening_hours` hospital berupa integer.
+Seed dasar (`go run . seed`) hanya membutuhkan database dan tidak membuat workflow atau file. Galeri diisi melalui Upload Hospital Image; tidak ada URL Storage dummy. Untuk mengisi undangan, afiliasi, jadwal, dan kunjungan secara manual, gunakan alur registrasi dokter di Bruno dengan PDF kontrak yang benar-benar tersedia. Untuk skenario yang siap diuji, gunakan mode workflow di bawah.
 
 Seeder juga menerima akun environment-managed melalui env-only `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SUPERADMIN_FIRST_NAME`, dan `SUPERADMIN_LAST_NAME`. Jika email diisi, password wajib diisi. Email canonical `superadmin@medikaone.id` mengganti detail/password fixture tersebut; email lain menambahkan satu akun superadmin fixture di samping akun development hardcoded yang memang dipertahankan by design. Berikan variabel ini hanya kepada job seed/reset, bukan proses web, dan perlakukan password-nya sebagai secret yang dikelola serta dirotasi.
 
@@ -557,6 +565,81 @@ go run . migrate --action up
 go run . seed
 ```
 
+### Workflow website/mobile dan environment Bruno
+
+Setelah migration pada database lokal/disposable, jalankan:
+
+```sh
+go run . seed --with-workflows --bruno-env ../demo-bruno.yml
+```
+
+Mode ini memakai konfigurasi Storage server: `STORAGE_ENABLED=true`, provider
+Supabase, `SUPABASE_URL`, dan `SUPABASE_SECRET_KEY`, dengan bucket private
+`SUPABASE_STORAGE_BUCKET` serta `SUPABASE_MEDICAL_STORAGE_BUCKET` yang sudah
+tersedia. Set `SERVER_BASE_URL` ke API yang akan dipakai client. Seeder
+menghasilkan dan mengunggah **PDF kontrak serta resep asli**. Kegagalan upload
+membatalkan transaksi dan membersihkan hanya objek baru dari percobaan tersebut;
+dokumen milik data sebelumnya tidak dihapus.
+
+Data tambahan:
+
+- Empat afiliasi aktif: doctor001 di Jakarta 08:00–12:00 setiap hari dan Bandung
+  15:00–18:00 Senin–Jumat; doctor002 di Poli Mata Jakarta 13:00–17:00 setiap hari;
+  doctor003 di Poli Paru Jakarta 09:00–12:00 setiap hari.
+- `FIXED_SLOT` 30 menit dan `SESSION_QUEUE` kapasitas tiga, satu jadwal specific
+  yang sudah disetujui, satu pengajuan jadwal menunggu persetujuan, dan undangan
+  doctor003 ke Bandung yang belum dijawab.
+- Role self-service `DOCTOR` untuk ketiga dokter agar login Mobile dapat
+  menggunakan `/v1/doctor/*`, selain role tenant Jakarta. Staf lain tidak
+  memperoleh role global dokter atau akses tenant Bandung.
+- Katalog lokal Paracetamol 500 mg dan Salbutamol 2 mg, tanpa kode KFA rekaan;
+  SOAP, diagnosis, vital, audit, riwayat, review kunjungan selesai, resep DRAFT,
+  serta resep ISSUED yang PDF-nya dapat diunduh.
+
+Delapan skenario awal berikut memakai `Asia/Jakarta`. Hari relatif mengacu pada
+`demoAnchorDate`, yaitu tanggal seed workflow pertama, bukan tanggal setiap rerun.
+
+| Variable Bruno | Pasien | Status awal | Hari |
+| --- | --- | --- | --- |
+| `confirmedAppointmentId` | patient001 | CONFIRMED | Besok |
+| `waitingVitalsAppointmentId` | patient002 | WAITING_VITALS | Hari anchor |
+| `waitingDoctorAppointmentId` | patient003 | WAITING_DOCTOR | Hari anchor |
+| `inConsultationAppointmentId` | patient001 | IN_CONSULTATION; SOAP dan resep DRAFT | Hari anchor |
+| `completedAppointmentId` | patient001 | COMPLETED; NO_MEDICATION | Kemarin |
+| `completedPrescriptionAppointmentId` | patient002 | COMPLETED; resep ISSUED | Kemarin |
+| `cancelledAppointmentId` | patient003 | CANCELLED | Besok |
+| `queueAppointmentId` | patient003 | CONFIRMED; SESSION_QUEUE | Besok |
+
+Semua akun bawaan memakai `Password123`, kecuali superadmin yang dioverride
+konfigurasi. Website login memakai `hospital_code: HSP-MO-001`; pasien dan dokter
+memakai login Mobile. Import file hasil generate sebagai environment Bruno.
+File berisi UUID aktual, alias skenario, akun demo publik, serta `slotId`
+booking yang dipilih dari availability sebenarnya. Tanggal/jam dan `scheduleId`
+tetap tersedia sebagai metadata tampilan/walk-in, bukan input create/reschedule.
+Ini bukan reservasi slot: cek ulang availability jika kapasitas sudah dipakai
+tester lain.
+`--bruno-env` opsional, hanya berlaku bersama `--with-workflows`, dan menimpa
+file yang disebut secara eksplisit. Jangan commit file hasil generate atau
+memasukkan secret database/Supabase ke Bruno. JWT, refresh token, kode check-in,
+dan token verifikasi resep **tidak diekspor**; ambil melalui login/API/PDF.
+
+Jalankan `go run . server` dengan database, Redis, dan Storage yang sama.
+Urutan pergantian aktor dan URL setiap skenario tersedia di README koleksi Bruno,
+`flows/appointment.md`, dan `flows/prescription.md`. Check-in tetap mengikuti
+tanggal serta jendela waktu API; untuk demo langsung, pakai kunjungan yang sudah
+WAITING_VITALS atau WAITING_DOCTOR. Foto profil, galeri, serta lampiran medis
+tambahan diunggah lewat API masing-masing; seeder tidak membuat path file palsu.
+
+Rerun **dengan `--with-workflows`** mempertahankan ID, tanggal anchor, keputusan
+undangan, perubahan/nonaktif jadwal, serta progres klinis yang dibuat tester.
+Password dan identitas dasar fixture tetap direkonsiliasi seperti seed dasar.
+Jangan mengharapkan rerun membatalkan konsultasi atau menerbitkan ulang resep.
+Untuk skenario harian yang benar-benar baru, gunakan database disposable baru
+atau full reset staging yang telah diotorisasi. Tidak ada migration schema baru
+untuk fitur seeder ini.
+
+### Reset staging
+
 Perubahan kode seeder tidak otomatis menambah data ke Supabase production. Gunakan migration untuk schema production; akun demo tetap dibatasi oleh guard environment/target database di atas.
 
 Reset seluruh staging menghapus seluruh data aplikasi, menjalankan migration `Up`, lalu seed ulang:
@@ -564,6 +647,18 @@ Reset seluruh staging menghapus seluruh data aplikasi, menjalankan migration `Up
 ```bash
 make staging-reset-all CONFIRM=RESET-ALL-STAGING-DATA
 ```
+
+Untuk membangun skenario lengkap setelah full reset yang memang diotorisasi,
+flag yang sama tersedia pada command CLI:
+
+```sh
+go run . staging-reset-all --confirm RESET-ALL-STAGING-DATA --with-workflows --bruno-env ../demo-bruno.yml
+```
+
+Semua guard staging, fingerprint, maintenance, dan admin DSN tetap wajib.
+Full reset menghapus data aplikasi, bukan objek lama di Storage; gunakan bucket
+testing terpisah dan kelola retensi objeknya. Kegagalan export file lokal setelah
+seed berhasil tidak meninggalkan API dalam maintenance.
 
 Reset fixture demo saja:
 
@@ -573,7 +668,7 @@ make staging-reset-seed CONFIRM=RESET-DEMO-STAGING-DATA
 
 Nilai `CONFIRM` wajib ditulis pada command line invocation yang sama. Makefile menolak nilai yang berasal dari environment, jadi jangan menyimpan atau mengekspor `CONFIRM` pada service maupun job.
 
-Reset demo hanya menghapus user yang memiliki `seed_key` internal milik fixture; email atau code publik tidak pernah dipakai sebagai bukti kepemilikan. Data turunan akun fixture ikut terhapus melalui foreign key, sedangkan user nyata, role assignment mereka, membership mereka, dan hospital tetap dipertahankan. Hospital/RBAC bawaan disinkronkan berdasarkan identitas internal yang sama.
+Reset demo hanya menghapus user yang memiliki `seed_key` internal milik fixture; email atau code publik tidak pernah dipakai sebagai bukti kepemilikan. Data turunan yang aman dihapus mengikuti foreign key; user nyata, role assignment mereka, membership mereka, dan hospital tetap dipertahankan. Hospital/RBAC bawaan disinkronkan berdasarkan identitas internal yang sama. Jika akun fixture sudah direferensikan data operasional/klinis, command **menolak reset** dan mempertahankan riwayat. Jangan menonaktifkan trigger atau memaksa cascade untuk mengulang demo; gunakan database disposable atau full reset yang diotorisasi.
 
 Migration tidak menandai fixture lama berdasarkan email/code karena itu dapat salah mengklaim data nyata. Setelah upgrade database lama, lakukan satu kali `staging-reset-all` untuk membentuk provenance fixture dari keadaan kosong. `staging-reset-seed` akan gagal aman jika menemukan row lama tanpa `seed_key` yang memakai identitas fixture; selesaikan konflik secara manual atau lakukan full reset jika staging memang boleh dikosongkan.
 

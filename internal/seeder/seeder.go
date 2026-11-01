@@ -1,6 +1,7 @@
 package seeder
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -209,6 +210,10 @@ func resetDemoUsers(tx *gorm.DB) error {
 	}
 	result := tx.Exec(`DELETE FROM users WHERE seed_key IN ?`, demoUserSeedKeys())
 	if result.Error != nil {
+		var state interface{ SQLState() string }
+		if errors.Is(result.Error, gorm.ErrForeignKeyViolated) || (errors.As(result.Error, &state) && state.SQLState() == "23503") {
+			return fmt.Errorf("refusing demo-only reset: operational or clinical records still reference demo accounts; preserve history or use the explicitly guarded full reset on an authorized disposable target: %w", result.Error)
+		}
 		return fmt.Errorf("delete demo users: %w", result.Error)
 	}
 	fmt.Printf("[seeder] removed %d recognized demo users\n", result.RowsAffected)

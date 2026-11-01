@@ -145,7 +145,11 @@ func (s *Service) listAvailability(ctx context.Context, hospitalID, doctorID, fr
 				used := reserved[availabilityKey(schedule.ID, row.Date, sessionStart)]
 				row.AvailableCapacity = maxInt(schedule.Capacity-used, 0)
 				if includeUnavailable || (sessionStart.After(now.Add(MinimumBookingLeadTime)) && !sessionStart.After(now.Add(BookingHorizon)) && row.AvailableCapacity > 0) {
-					row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: sessionStart, EndAt: sessionEnd, AvailableCapacity: row.AvailableCapacity, Capacity: schedule.Capacity})
+					slotID, err := encodeSlotID(schedule.ID, sessionStart, sessionEnd)
+					if err != nil {
+						return nil, constant.ErrInternalServerError
+					}
+					row.Slots = append(row.Slots, response.AvailabilitySlot{SlotID: slotID, StartAt: sessionStart, EndAt: sessionEnd, AvailableCapacity: row.AvailableCapacity, Capacity: schedule.Capacity})
 				}
 			} else {
 				if schedule.SlotDurationMinutes <= 0 {
@@ -157,7 +161,11 @@ func (s *Service) listAvailability(ctx context.Context, hospitalID, doctorID, fr
 					available := maxInt(schedule.Capacity-used, 0)
 					row.AvailableCapacity += available
 					if includeUnavailable || (start.After(now.Add(MinimumBookingLeadTime)) && !start.After(now.Add(BookingHorizon)) && available > 0) {
-						row.Slots = append(row.Slots, response.AvailabilitySlot{StartAt: start, EndAt: end, AvailableCapacity: available, Capacity: schedule.Capacity})
+						slotID, err := encodeSlotID(schedule.ID, start, end)
+						if err != nil {
+							return nil, constant.ErrInternalServerError
+						}
+						row.Slots = append(row.Slots, response.AvailabilitySlot{SlotID: slotID, StartAt: start, EndAt: end, AvailableCapacity: available, Capacity: schedule.Capacity})
 					}
 				}
 			}
@@ -174,8 +182,8 @@ func (s *Service) CreateAppointment(ctx context.Context, patientID, idempotencyK
 	if !req.ConsentAccepted {
 		return nil, false, constant.ErrAppointmentConsentRequired
 	}
-	input, err := s.prepareBookInput(ctx, patientID, idempotencyKey, clientIP, userAgent, req.ScheduleID,
-		req.AppointmentDate, req.StartTime, req.ReasonForVisit, req.Note, req.ConsentVersion)
+	input, err := s.prepareBookInput(ctx, patientID, idempotencyKey, clientIP, userAgent, req.SlotID,
+		req.ReasonForVisit, req.Note, req.ConsentVersion)
 	if err != nil {
 		return nil, false, err
 	}
@@ -388,8 +396,8 @@ func (s *Service) reschedule(ctx context.Context, old *response.Appointment, act
 	if old.PatientID == nil {
 		return nil, false, constant.ErrAppointmentInvalidState
 	}
-	input, err := s.prepareBookInput(ctx, *old.PatientID, idempotencyKey, clientIP, userAgent, req.ScheduleID,
-		req.AppointmentDate, req.StartTime, old.ReasonForVisit, old.Note, old.ConsentVersion)
+	input, err := s.prepareBookInput(ctx, *old.PatientID, idempotencyKey, clientIP, userAgent, req.SlotID,
+		old.ReasonForVisit, old.Note, old.ConsentVersion)
 	if err != nil {
 		return nil, false, err
 	}
@@ -603,39 +611,40 @@ func (s *Service) sendReminderEmails(ctx context.Context, reminder response.Appo
 	}
 }
 
-func (s *Service) prepareBookInput(ctx context.Context, patientID, idempotencyKey, clientIP, userAgent, scheduleID, appointmentDate string, startTime *string, reason string, note *string, consentVersion string) (repository.BookInput, error) {
-	if _, err := uuid.Parse(scheduleID); err != nil {
-		return repository.BookInput{}, constant.ErrInvalidUUIDFormat
+func (s *Service) prepareBookInput(ctx context.Context, patientID, idempotencyKey, clientIP, userAgent, slotID, reason string, note *string, consentVersion string) (repository.BookInput, error) {
+	if slotID == "" {
+		return repository.BookInput{}, constant.NewFieldRequiredError("slot_id")
 	}
-	date, err := time.Parse("2006-01-02", strings.TrimSpace(appointmentDate))
+	slot, err := decodeSlotID(slotID)
 	if err != nil {
-		return repository.BookInput{}, constant.ErrInvalidDateFormat
+		return repository.BookInput{}, constant.NewInvalidFieldValueError("slot_id", "a valid slot reference", "berupa referensi slot yang valid")
 	}
-	schedule, err := s.repo.GetActiveSchedule(ctx, scheduleID)
+	schedule, err := s.repo.GetActiveSchedule(ctx, slot.scheduleID)
 	if err != nil {
 		return repository.BookInput{}, mapRepositoryError(err)
 	}
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		return repository.BookInput{}, constant.ErrScheduleNotFound
+	}
+	date := slot.start.In(location)
 	sessionStart, sessionEnd, err := scheduleWindow(*schedule, date)
 	if err != nil || !util.ScheduleMatchesDate(schedule.DayOfWeek, schedule.ScheduleDate, date) {
 		return repository.BookInput{}, constant.ErrScheduleNotFound
 	}
-	start, end := sessionStart, sessionEnd
-	if schedule.BookingMode == entity.BookingModeFixedSlot {
-		if startTime == nil {
-			return repository.BookInput{}, constant.NewFieldRequiredError("start_time")
-		}
-		parsed, parseErr := time.Parse("15:04", strings.TrimSpace(*startTime))
-		if parseErr != nil {
-			return repository.BookInput{}, constant.NewInvalidFieldValueError("start_time", "a valid HH:mm time", "berupa waktu HH:mm yang valid")
-		}
-		location, _ := time.LoadLocation(schedule.Timezone)
-		start = time.Date(date.Year(), date.Month(), date.Day(), parsed.Hour(), parsed.Minute(), 0, 0, location).UTC()
-		end = start.Add(time.Duration(schedule.SlotDurationMinutes) * time.Minute)
-		if start.Before(sessionStart) || end.After(sessionEnd) || int(start.Sub(sessionStart).Minutes())%schedule.SlotDurationMinutes != 0 {
+	start, end := slot.start, slot.end
+	switch schedule.BookingMode {
+	case entity.BookingModeFixedSlot:
+		duration := time.Duration(schedule.SlotDurationMinutes) * time.Minute
+		if duration <= 0 || start.Before(sessionStart) || end.After(sessionEnd) || end.Sub(start) != duration || start.Sub(sessionStart)%duration != 0 {
 			return repository.BookInput{}, constant.ErrAppointmentSlotUnavailable
 		}
-	} else if startTime != nil && strings.TrimSpace(*startTime) != schedule.StartTime {
-		return repository.BookInput{}, constant.NewInvalidFieldValueError("start_time", "empty or equal to the session start for SESSION_QUEUE", "kosong atau sama dengan awal sesi untuk SESSION_QUEUE")
+	case entity.BookingModeSessionQueue:
+		if !start.Equal(sessionStart) || !end.Equal(sessionEnd) {
+			return repository.BookInput{}, constant.ErrAppointmentSlotUnavailable
+		}
+	default:
+		return repository.BookInput{}, constant.ErrAppointmentSlotUnavailable
 	}
 	now := s.now()
 	if start.Before(now.Add(MinimumBookingLeadTime)) || start.After(now.Add(BookingHorizon)) {
@@ -660,9 +669,9 @@ func (s *Service) prepareBookInput(ctx context.Context, patientID, idempotencyKe
 		userAgent = userAgent[:512]
 	}
 	hashPayload, _ := json.Marshal(struct {
-		PatientID, ScheduleID, AppointmentDate, StartAt, Reason, ConsentVersion string
-		Note                                                                    *string
-	}{patientID, scheduleID, appointmentDate, start.UTC().Format(time.RFC3339Nano), reason, consentVersion, note})
+		PatientID, SlotID, Reason, ConsentVersion string
+		Note                                      *string
+	}{patientID, slotID, reason, consentVersion, note})
 	hash := sha256.Sum256(hashPayload)
 	return repository.BookInput{
 		PatientID: patientID, CreatedBy: patientID, Schedule: *schedule, AppointmentDate: date.Format("2006-01-02"),

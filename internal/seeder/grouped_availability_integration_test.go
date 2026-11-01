@@ -76,8 +76,12 @@ func testGroupedAvailabilityIntegration(t *testing.T, db *gorm.DB) {
 		}
 		a := create("Alpha", "09:00", "10:00", "FIXED_SLOT", false)
 		b := create("Beta", "13:00", "14:00", "SESSION_QUEUE", true)
-		start := "09:00"
-		booked, _, err := svc.CreateAppointment(ctx, patientID, uuid.NewString(), "", "integration", request.CreateAppointmentRequest{ScheduleID: a.schedule, AppointmentDate: dateText, StartTime: &start, ReasonForVisit: "Test visit", ConsentAccepted: true, ConsentVersion: "test-v1"})
+		available := get(query)
+		selected := available.Dates[0].Hospitals[0].Slots[0]
+		if selected.ScheduleID != a.schedule || selected.SlotID == "" {
+			t.Fatalf("unexpected inquiry selection: %#v", selected)
+		}
+		booked, _, err := svc.CreateAppointment(ctx, patientID, uuid.NewString(), "", "integration", request.CreateAppointmentRequest{SlotID: selected.SlotID, ReasonForVisit: "Test visit", ConsentAccepted: true, ConsentVersion: "test-v1"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,6 +92,9 @@ func testGroupedAvailabilityIntegration(t *testing.T, db *gorm.DB) {
 		slots := result.Dates[0].Hospitals[0].Slots
 		if len(slots) != 2 || slots[0].Status != "FULL" || slots[0].AvailableCapacity != 0 || slots[1].Status != "AVAILABLE" || slots[0].RoomID == nil || *slots[0].RoomID != a.room {
 			t.Fatalf("reserved fixed slots: %#v", slots)
+		}
+		if slots[0].SlotID != selected.SlotID || slots[1].SlotID == "" || slots[0].SlotID == slots[1].SlotID {
+			t.Fatalf("full and available choices lost stable identities: %#v", slots)
 		}
 		if result.Dates[0].Hospitals[1].Slots[0].ScheduleType != "SPECIFIC" || len(result.Dates[0].Hospitals[1].Slots) != 1 {
 			t.Fatal("queue session was split into fixed slots")

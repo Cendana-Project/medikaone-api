@@ -32,9 +32,7 @@ type DeactivateSchedulesRequest struct {
 }
 
 type CreateAppointmentRequest struct {
-	ScheduleID      string  `json:"schedule_id" validate:"required,uuid"`
-	AppointmentDate string  `json:"appointment_date" validate:"required,datetime=2006-01-02"`
-	StartTime       *string `json:"start_time,omitempty"`
+	SlotID          string  `json:"slot_id" validate:"required,max=128"`
 	ReasonForVisit  string  `json:"reason_for_visit" validate:"required,max=2000"`
 	Note            *string `json:"note,omitempty" validate:"omitempty,max=2000"`
 	ConsentAccepted bool    `json:"consent_accepted" validate:"required"`
@@ -46,10 +44,8 @@ type CancelAppointmentRequest struct {
 }
 
 type RescheduleAppointmentRequest struct {
-	ScheduleID      string  `json:"schedule_id" validate:"required,uuid"`
-	AppointmentDate string  `json:"appointment_date" validate:"required,datetime=2006-01-02"`
-	StartTime       *string `json:"start_time,omitempty"`
-	Reason          string  `json:"reason" validate:"required,max=1000"`
+	SlotID string `json:"slot_id" validate:"required,max=128"`
+	Reason string `json:"reason" validate:"required,max=1000"`
 }
 
 type VerifyAppointmentRequest struct {
