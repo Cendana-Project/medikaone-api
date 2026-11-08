@@ -36,7 +36,7 @@ func TestUpdateProfilePatchFieldsPreserveOmittedAndNull(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{
 		"phone": null,
 		"patient_profile": {"height_cm": null},
-		"doctor_profile": {"specialty": "Cardiology"}
+		"doctor_profile": {"specialty_id": "11111111-1111-4111-8111-111111111111"}
 	}`), &input); err != nil {
 		t.Fatalf("decode update profile: %v", err)
 	}
@@ -49,8 +49,8 @@ func TestUpdateProfilePatchFieldsPreserveOmittedAndNull(t *testing.T) {
 	if value, present := input.PatientProfile.HeightCM.Get(); !present || value != nil {
 		t.Fatalf("height presence/value = %v/%v, want present null", present, value)
 	}
-	if value, present := input.DoctorProfile.Specialty.Get(); !present || value == nil || *value != "Cardiology" {
-		t.Fatalf("specialty presence/value = %v/%v", present, value)
+	if value, present := input.DoctorProfile.SpecialtyID.Get(); !present || value == nil || *value != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("specialty_id presence/value = %v/%v", present, value)
 	}
 }
 
@@ -72,5 +72,32 @@ func TestUpdateProfileCustomDecoderStillRejectsUnknownNestedFields(t *testing.T)
 	err := util.UnmarshalStrictJSON([]byte(`{"patient_profile":{"unknown":true}}`), &input)
 	if err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("unknown nested field error = %v, want rejection", err)
+	}
+}
+
+func TestUpdateProfileRejectsLegacySpecialtyInput(t *testing.T) {
+	var input request.UpdateUserProfileRequest
+	err := util.UnmarshalStrictJSON([]byte(`{"doctor_profile":{"specialty":"Mata"}}`), &input)
+	if err == nil || !strings.Contains(err.Error(), "specialty") {
+		t.Fatalf("legacy specialty input must be rejected, got %v", err)
+	}
+}
+
+func TestInitialDoctorProfileTracksSpecialtySelectionPresence(t *testing.T) {
+	for _, test := range []struct {
+		body    string
+		present bool
+	}{
+		{body: `{}`, present: false},
+		{body: `{"specialty_id":null}`, present: true},
+		{body: `{"specialty_id":"11111111-1111-4111-8111-111111111111"}`, present: true},
+	} {
+		var input request.DoctorProfileRequest
+		if err := util.UnmarshalStrictJSON([]byte(test.body), &input); err != nil {
+			t.Fatal(err)
+		}
+		if input.SpecialtyIDIsSet() != test.present {
+			t.Fatalf("%s selection presence = %v", test.body, input.SpecialtyIDIsSet())
+		}
 	}
 }

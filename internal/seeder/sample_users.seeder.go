@@ -23,7 +23,7 @@ type sampleUserSeed struct {
 	DOB               string
 	Address           string
 	SIPNumber         string
-	Specialty         string
+	SpecialtyCode     string
 	PracticeStartedOn string
 	HeightCM          int
 	WeightKG          int
@@ -76,7 +76,7 @@ func sampleUserSeeds() []sampleUserSeed {
 			Password:          "Password123",
 			RoleSlug:          constant.RoleDoctor,
 			SIPNumber:         fmt.Sprintf("SIP-DEMO-DOCTOR-%03d", i),
-			Specialty:         []string{"Umum", "Mata", "Paru"}[i-1],
+			SpecialtyCode:     []string{"SP-UMUM", "SP-MATA", "SP-PARU"}[i-1],
 			PracticeStartedOn: []string{"2010-07-01", "2015-07-01", "2020-07-01"}[i-1],
 			Phone:             fmt.Sprintf("081210000%03d", i),
 			Gender:            []string{"L", "P"}[i%2],
@@ -157,10 +157,14 @@ func SeedSampleUsers(db *gorm.DB) error {
 		if user.RoleSlug == constant.RoleDoctor {
 			// Omit medikaone_id so new fixtures receive the database default and
 			// repeated runs preserve each doctor's immutable public identifier.
-			if err := db.Exec(`INSERT INTO doctor_profiles (user_id, sip_number, specialty, practice_started_on, created_at, updated_at)
+			var specialtyID string
+			if err := db.Raw(`SELECT id::text FROM master_specialties WHERE code = ? AND is_active = TRUE`, user.SpecialtyCode).Scan(&specialtyID).Error; err != nil || specialtyID == "" {
+				return fmt.Errorf("resolve specialty %s for %s: id=%q error=%v", user.SpecialtyCode, user.Email, specialtyID, err)
+			}
+			if err := db.Exec(`INSERT INTO doctor_profiles (user_id, sip_number, specialty_id, practice_started_on, created_at, updated_at)
 				VALUES (?, ?, ?, ?::date, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE
-				SET sip_number = EXCLUDED.sip_number, specialty = EXCLUDED.specialty, practice_started_on = EXCLUDED.practice_started_on, updated_at = NOW()`,
-				created.ID, user.SIPNumber, user.Specialty, user.PracticeStartedOn).Error; err != nil {
+				SET sip_number = EXCLUDED.sip_number, specialty_id = EXCLUDED.specialty_id, specialty_legacy = NULL, practice_started_on = EXCLUDED.practice_started_on, updated_at = NOW()`,
+				created.ID, user.SIPNumber, specialtyID, user.PracticeStartedOn).Error; err != nil {
 				return fmt.Errorf("seed doctor profile for %s: %w", user.Email, err)
 			}
 		}

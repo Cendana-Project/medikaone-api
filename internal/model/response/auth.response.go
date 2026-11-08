@@ -69,6 +69,8 @@ type UserProfile struct {
 	DoctorMedikaOneID string  `json:"doctor_medikaone_id,omitempty"`
 	SIPNumber         *string `json:"sip_number,omitempty"`
 	Specialty         *string `json:"specialty,omitempty"`
+	SpecialtyID       *string `json:"specialty_id,omitempty"`
+	SpecialtyCode     *string `json:"specialty_code,omitempty"`
 
 	// Timestamps opsional (kalau suatu saat diperlukan)
 	CreatedAt *time.Time `json:"created_at,omitempty"`

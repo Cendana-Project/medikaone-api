@@ -90,9 +90,11 @@ const eligibleDoctorSelect = `
 	       COALESCE(u.first_name, '') AS first_name,
 	       COALESCE(u.last_name, '') AS last_name,
 	       COALESCE(dp.sip_number, '') AS sip_number,
-	       COALESCE(dp.specialty, '') AS specialty
+	       COALESCE(specialty.name, '') AS specialty,
+	       COALESCE(specialty.id::text, '') AS specialty_id, COALESCE(specialty.code, '') AS specialty_code
 	FROM users u
 	JOIN doctor_profiles dp ON dp.user_id = u.id
+	LEFT JOIN master_specialties specialty ON specialty.id = dp.specialty_id
 	JOIN roles role ON UPPER(role.slug) = ?
 	WHERE role.active = TRUE
 	  AND role.deleted_at IS NULL
@@ -133,7 +135,8 @@ func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string,
 	       OR LOWER(COALESCE(u.first_name, '')) LIKE ?
 	       OR LOWER(COALESCE(u.last_name, '')) LIKE ?
 	       OR LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE ?
-	       OR LOWER(COALESCE(dp.specialty, '')) LIKE ?
+	       OR LOWER(COALESCE(specialty.name, '')) LIKE ?
+	       OR LOWER(COALESCE(specialty.code, '')) LIKE ?
 	       OR (? <> '' AND REGEXP_REPLACE(COALESCE(u.phone, ''), '[^0-9]', '', 'g') = ?)
 	  )
 	ORDER BY CASE
@@ -155,7 +158,7 @@ func (r *Repository) SearchEligibleDoctors(ctx context.Context, identity string,
 		identity,
 		strings.ToUpper(identity),
 		containsPattern, containsPattern, containsPattern, containsPattern,
-		containsPattern, containsPattern, containsPattern,
+		containsPattern, containsPattern, containsPattern, containsPattern,
 		normalizedPhone, normalizedPhone,
 		identity, loweredIdentity, loweredIdentity, loweredIdentity,
 		normalizedPhone, normalizedPhone, loweredIdentity,
@@ -634,7 +637,8 @@ const invitationSelect = `
 	       i.hospital_id, h.code AS hospital_code, h.name AS hospital_name,
 	       i.doctor_id, dp.medikaone_id AS doctor_medikaone_id, u.email AS doctor_email, u.first_name AS doctor_first_name,
 	       u.last_name AS doctor_last_name, COALESCE(dp.sip_number, '') AS sip_number,
-	       COALESCE(dp.specialty, '') AS specialty,
+	       COALESCE(specialty.name, '') AS specialty,
+	       COALESCE(specialty.id::text, '') AS specialty_id, COALESCE(specialty.code, '') AS specialty_code,
 	       i.department_id, department.name AS department_name,
 	       i.room_id, room.name AS room_name, i.invited_by, i.supersedes_invitation_id,
 	       i.status, i.message,
@@ -645,6 +649,7 @@ const invitationSelect = `
 	JOIN hospitals h ON h.id = i.hospital_id
 	JOIN users u ON u.id = i.doctor_id
 	JOIN doctor_profiles dp ON dp.user_id = i.doctor_id
+	LEFT JOIN master_specialties specialty ON specialty.id = dp.specialty_id
 	JOIN hospital_departments department ON department.id = i.department_id
 	LEFT JOIN hospital_rooms room ON room.id = i.room_id
 	JOIN doctor_hospital_contracts contract ON contract.invitation_id = i.id
@@ -1053,7 +1058,8 @@ func (r *Repository) getAffiliationDetail(ctx context.Context, ownerWhere string
 		       affiliation.doctor_id, profile.medikaone_id AS doctor_medikaone_id,
 		       doctor.email, doctor.first_name, doctor.last_name,
 		       COALESCE(profile.sip_number, '') AS sip_number,
-		       COALESCE(profile.specialty, '') AS specialty,
+		       COALESCE(specialty.name, '') AS specialty,
+		       COALESCE(specialty.id::text, '') AS specialty_id, COALESCE(specialty.code, '') AS specialty_code,
 		       affiliation.department_id, department.name AS department,
 		       affiliation.room_id, room.name AS room,
 		       affiliation.status, affiliation.joined_at,
@@ -1066,6 +1072,7 @@ func (r *Repository) getAffiliationDetail(ctx context.Context, ownerWhere string
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users doctor ON doctor.id = affiliation.doctor_id
 		JOIN doctor_profiles profile ON profile.user_id = affiliation.doctor_id
+		LEFT JOIN master_specialties specialty ON specialty.id = profile.specialty_id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
 		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 		JOIN doctor_hospital_invitations invitation ON invitation.id = affiliation.invitation_id
@@ -1127,7 +1134,8 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 		       hospital.name AS hospital_name,
 		       affiliation.doctor_id, dp.medikaone_id AS doctor_medikaone_id, u.email, u.first_name, u.last_name,
 		       COALESCE(dp.sip_number, '') AS sip_number,
-		       COALESCE(dp.specialty, '') AS specialty,
+		       COALESCE(specialty.name, '') AS specialty,
+		       COALESCE(specialty.id::text, '') AS specialty_id, COALESCE(specialty.code, '') AS specialty_code,
 		       affiliation.department_id, department.name AS department,
 		       affiliation.room_id, room.name AS room,
 		       affiliation.status, affiliation.joined_at
@@ -1135,6 +1143,7 @@ func (r *Repository) listAffiliations(ctx context.Context, hospitalID, doctorID,
 		JOIN hospitals hospital ON hospital.id = affiliation.hospital_id
 		JOIN users u ON u.id = affiliation.doctor_id
 		JOIN doctor_profiles dp ON dp.user_id = affiliation.doctor_id
+		LEFT JOIN master_specialties specialty ON specialty.id = dp.specialty_id
 		JOIN hospital_departments department ON department.id = affiliation.department_id
 		LEFT JOIN hospital_rooms room ON room.id = affiliation.room_id
 		WHERE `+where+`

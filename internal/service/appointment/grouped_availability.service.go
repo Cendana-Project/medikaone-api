@@ -64,6 +64,7 @@ func (s *Service) ListGroupedAvailability(ctx context.Context, query request.Gro
 			hospital := &day.Hospitals[index]
 			for _, slot := range row.Slots {
 				item := response.GroupedAvailabilitySlot{
+					SlotID:     slot.SlotID,
 					ScheduleID: row.ScheduleID, AffiliationID: row.AffiliationID,
 					DepartmentID: row.DepartmentID, DepartmentName: row.DepartmentName, RoomID: row.RoomID, RoomName: row.RoomName,
 					ScheduleType: "RECURRING", BookingMode: row.BookingMode, Timezone: row.Timezone,

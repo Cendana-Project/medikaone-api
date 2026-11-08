@@ -484,3 +484,28 @@ func TestRegistrationUsernameRejectsAmbiguousLoginIdentities(t *testing.T) {
 		}
 	}
 }
+
+func TestSetProfileRejectsLegacySpecialtyInput(t *testing.T) {
+	service := &Service{}
+	profile := json.RawMessage(`{"first_name":"Doctor","last_name":"Self","dob":"1988-05-20","sip_number":"SIP-001","specialty":"Mata"}`)
+	if _, err := service.SetProfile(context.Background(), "doctor-1", constant.RoleDoctor, &profile); !errors.Is(err, constant.NewUnknownFieldError("specialty")) {
+		t.Fatalf("legacy specialty input error = %v", err)
+	}
+}
+
+func TestSetProfileRejectsMalformedSpecialtyUUID(t *testing.T) {
+	for _, value := range []string{"", "Mata", " 11111111-1111-4111-8111-111111111111 "} {
+		profile, err := json.Marshal(map[string]any{
+			"first_name": "Doctor", "last_name": "Self", "dob": "1988-05-20",
+			"sip_number": "SIP-001", "specialty_id": value,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := json.RawMessage(profile)
+		service := &Service{}
+		if _, err := service.SetProfile(context.Background(), "doctor-1", constant.RoleDoctor, &raw); !errors.Is(err, constant.ErrInvalidUUIDFormat) {
+			t.Fatalf("specialty UUID %q error = %v", value, err)
+		}
+	}
+}

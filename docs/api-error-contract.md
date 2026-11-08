@@ -67,6 +67,16 @@ Semua endpoint MedikaOne menggunakan bentuk error yang sama:
 - `500`: kesalahan internal yang tidak boleh membocorkan detail implementasi.
 - `502`/`503`: dependency atau kapasitas layanan sementara tidak tersedia.
 
+## Kode pilihan slot appointment
+
+| Kode | HTTP | Tindakan client |
+| --- | --- | --- |
+| `FIELD_REQUIRED` | 400 | Pilih `slot_id` dari availability sebelum create/reschedule. |
+| `INVALID_FIELD_VALUE` | 400 | ID slot malformed/tidak didukung; jangan membangun ID sendiri, ambil dari inquiry terbaru. |
+| `UNKNOWN_FIELD` | 400 | Hapus field selection legacy `schedule_id`, `appointment_date`, dan `start_time` pada create/reschedule; kirim `slot_id`. |
+| `APPOINTMENT_SLOT_UNAVAILABLE` | 409 | Slot penuh/tutup atau interval tidak lagi cocok dengan jadwal aktif; muat ulang availability. Reschedule yang gagal tidak membatalkan appointment asal. |
+
+
 ## Contoh kode auth yang perlu ditangani client
 
 | Kode | Tindakan client |
@@ -155,3 +165,16 @@ menggunakan HTTP 400 `INVALID_FIELD_VALUE` untuk koordinat tidak berpasangan,
 angka tidak valid/nonfinite, latitude di luar -90..90, longitude di luar
 -180..180, atau radius di luar (0, 5000] km/tanpa koordinat. Parameter lokasi
 kosong atau berulang juga ditolak. Client harus memperbaiki input sebelum retry.
+
+## Master spesialisasi dokter
+
+- `GET /v1/specialties` memakai `SPECIALTIES_LISTED`; pencarian tanpa hasil
+  tetap 200 dengan `data: []`.
+- Format `specialty_id` yang salah ditolak 400. Memilih master yang hilang atau
+  nonaktif ditolak 404 `MASTER_SPECIALTY_NOT_FOUND`; field profil lain dalam
+  request yang sama tidak tersimpan sebagian.
+- Input body lama `specialty` ditolak `UNKNOWN_FIELD`. Filter query lama
+  `specialty` ditolak `INVALID_FIELD_VALUE`, bukan dijalankan tanpa filter.
+- Filter ID/code valid yang tidak menemukan dokter menghasilkan daftar kosong,
+  bukan `MASTER_SPECIALTY_NOT_FOUND`. Jika keduanya dikirim, berlaku AND.
+

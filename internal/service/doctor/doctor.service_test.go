@@ -134,8 +134,8 @@ func TestGetDoctorMapsMissingAndStorageErrors(t *testing.T) {
 
 func TestListDoctorsNormalizesAndBoundsQueries(t *testing.T) {
 	repo := &fakeRepository{}
-	_, err := NewService(repo).ListDoctors(context.Background(), repository.Filter{Query: "  dr. Dian ", Specialty: " Cardiology "})
-	if err != nil || repo.filter.Page != 1 || repo.filter.Limit != 20 || repo.filter.Query != "dr. Dian" || repo.filter.Specialty != "Cardiology" {
+	_, err := NewService(repo).ListDoctors(context.Background(), repository.Filter{Query: "  dr. Dian ", SpecialtyCode: " sp-mata "})
+	if err != nil || repo.filter.Page != 1 || repo.filter.Limit != 20 || repo.filter.Query != "dr. Dian" || repo.filter.SpecialtyCode != "SP-MATA" {
 		t.Fatalf("ListDoctors() filter = %#v, error = %v", repo.filter, err)
 	}
 	for _, filter := range []repository.Filter{

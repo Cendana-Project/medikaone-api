@@ -38,6 +38,14 @@ func TestDoctorLocationQueryParsing(t *testing.T) {
 			{"latitude=0&longitude=0", http.StatusOK},
 			{"", http.StatusOK},
 			{"gender=P&min_experience_years=0&max_experience_years=10", http.StatusOK},
+			{"specialty_code=sp-mata&specialty_id=00000000-0000-4000-8000-000000000001", http.StatusOK},
+			{"specialty=Mata", http.StatusBadRequest},
+			{"specialty=", http.StatusBadRequest},
+			{"specialty_id=invalid", http.StatusBadRequest},
+			{"specialty_id=", http.StatusBadRequest},
+			{"specialty_id=00000000-0000-4000-8000-000000000001&specialty_id=00000000-0000-4000-8000-000000000002", http.StatusBadRequest},
+			{"specialty_code=", http.StatusBadRequest},
+			{"specialty_code=SP-MATA&specialty_code=SP-UMUM", http.StatusBadRequest},
 			{"available_on=" + time.Now().UTC().AddDate(0, 0, 3).Format("2006-01-02") + "&available_from=09:00&available_to=10:00&only_available=true", http.StatusOK},
 			{"gender=X", http.StatusBadRequest},
 			{"min_experience_years=", http.StatusBadRequest},
@@ -73,6 +81,9 @@ func TestDoctorLocationQueryParsing(t *testing.T) {
 					t.Fatal("invalid query reached repository")
 				}
 				if test.status == http.StatusOK {
+					if strings.HasPrefix(test.query, "specialty_code=sp-mata") && (repo.filter.SpecialtyCode != "SP-MATA" || repo.filter.SpecialtyID != "00000000-0000-4000-8000-000000000001") {
+						t.Fatalf("specialty filters not forwarded: %#v", repo.filter)
+					}
 					if test.query == "gender=P&min_experience_years=0&max_experience_years=10" && (repo.filter.Gender != "P" || repo.filter.MinExperienceYears == nil || *repo.filter.MinExperienceYears != 0 || repo.filter.MaxExperienceYears == nil || *repo.filter.MaxExperienceYears != 10) {
 						t.Fatal("experience/gender query not forwarded")
 					}

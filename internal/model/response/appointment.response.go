@@ -3,6 +3,7 @@ package response
 import "time"
 
 type AvailabilitySlot struct {
+	SlotID            string    `json:"slot_id"`
 	StartAt           time.Time `json:"start_at"`
 	EndAt             time.Time `json:"end_at"`
 	AvailableCapacity int       `json:"available_capacity"`

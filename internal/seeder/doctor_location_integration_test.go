@@ -41,7 +41,7 @@ func testDoctorLocationIntegration(t *testing.T, db *gorm.DB) {
 			exec(`INSERT INTO users (id, email, password_hash, first_name, status, verified_at)
 				VALUES (?, ?, 'test-only-hash', ?, 'active', NOW())`, id, id+"@example.test", "LocationFixture "+name)
 			exec(`INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE slug = 'DOCTOR'`, id)
-			exec(`UPDATE doctor_profiles SET sip_number = ?, specialty = 'Location Specialty' WHERE user_id = ?`, "LOC-"+id, id)
+			exec(`UPDATE doctor_profiles SET sip_number = ?, specialty_id = (SELECT id FROM master_specialties WHERE code = 'SP-UMUM') WHERE user_id = ?`, "LOC-"+id, id)
 			return id
 		}
 		type practice struct{ hospital, department, affiliation, schedule string }

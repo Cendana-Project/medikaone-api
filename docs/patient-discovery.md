@@ -69,6 +69,11 @@ Status terminal seperti CANCELLED tidak menguranginya. Aturan ini mengikuti API
 availability dan booking. Search tidak menahan slot; booking tetap memvalidasi
 kapasitas secara atomik karena bisa berubah setelah hasil pencarian diterima.
 
+Hasil pencarian bukan ID slot booking. Setelah memilih dokter/RS, ambil
+availability dan kirim `slot_id` pilihan tersebut saat create/reschedule.
+Metadata `schedule_id`, tanggal, dan jam tetap berguna untuk tampilan serta
+perhitungan kapasitas internal, bukan field selection request booking.
+
 Pada RS, dokter yang tersedia harus berada di poli pilihan pada RS tersebut.
 Pada dokter dengan banyak afiliasi, filter lokasi, poli, rumah sakit, tanggal,
 jam, dan kapasitas harus terpenuhi pada afiliasi yang sama. Semua filter
@@ -90,10 +95,15 @@ Pesan mengikuti envelope bilingual standar.
 
 ## Migration dan seeder
 
-Jalankan migration `20261004065141_doctor_practice_experience.sql` sebelum
-menjalankan server baru. Migration hanya menambah kolom nullable; data dokter
-lama tidak diberi pengalaman buatan. Startup memeriksa versi schema ini.
-Gunakan workflow migration repo dan `DATABASE_ADMIN_DSN` untuk production.
+Jalankan seluruh migration, termasuk `20261004065141_doctor_practice_experience.sql`
+dan `20261017120000_specialty_master.sql`, sebelum menjalankan server baru.
+Pengalaman tetap nullable; data dokter lama tidak diberi pengalaman buatan.
+Spesialisasi memakai referensi master: filter `specialty_id`/`specialty_code`
+menggantikan teks `specialty` pada list dan rekomendasi dokter. Pencarian `q`
+menggunakan nama/kode master, bukan arsip teks lama. Kontrak dan retensi data
+ada pada [master spesialisasi](../README.md#master-spesialisasi-dokter).
+Startup staging/production memeriksa versi schema terbaru. Gunakan workflow
+migration repo dan `DATABASE_ADMIN_DSN` untuk production.
 Seeder development mengisi tanggal mulai praktik berbeda pada tiga dokter demo
 dan tetap idempoten. Bruno Mobile/Website memuat filter, saved examples, dan
 request pembaruan profil terkait. Payload create schedule tetap sama.

@@ -200,6 +200,7 @@ var MessageCatalog = map[MessageCode]response.MessageDetail{
 	MsgHospitalDepartmentCreated:             successDetail("Hospital department created", "Departemen rumah sakit berhasil dibuat"),
 	MsgHospitalDepartmentsListed:             successDetail("Hospital departments retrieved", "Daftar departemen rumah sakit berhasil diambil"),
 	MsgDepartmentsListed:                     successDetail("Departments retrieved", "Daftar pilihan departemen berhasil diambil"),
+	MsgSpecialtiesListed:                     successDetail("Specialties retrieved", "Daftar spesialisasi berhasil diambil"),
 	MsgDoctorRecommendationsListed:           successDetail("Doctor recommendations retrieved", "Rekomendasi dokter berhasil diambil"),
 	MsgHospitalRecommendationsListed:         successDetail("Hospital recommendations retrieved", "Rekomendasi rumah sakit berhasil diambil"),
 	MsgHospitalRoomCreated:                   successDetail("Hospital room created", "Ruangan rumah sakit berhasil dibuat"),

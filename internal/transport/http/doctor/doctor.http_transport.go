@@ -29,9 +29,19 @@ func (ctl *Controller) listDoctors(c *gin.Context, recommended bool) {
 		util.HandleError(c, err)
 		return
 	}
+	if _, exists := c.Request.URL.Query()["specialty"]; exists {
+		util.HandleError(c, constant.NewInvalidFieldValueError("specialty", "use specialty_id or specialty_code", "gunakan specialty_id atau specialty_code"))
+		return
+	}
+	for _, name := range []string{"specialty_id", "specialty_code"} {
+		if values, exists := c.Request.URL.Query()[name]; exists && (len(values) != 1 || strings.TrimSpace(values[0]) == "") {
+			util.HandleError(c, constant.NewInvalidFieldValueError(name, "one non-empty value", "satu nilai tidak kosong"))
+			return
+		}
+	}
 	filter := repository.Filter{
 		Gender: c.Query("gender"), AvailableFrom: c.Query("available_from"), AvailableTo: c.Query("available_to"),
-		Query: c.Query("q"), Specialty: c.Query("specialty"), HospitalID: c.Query("hospital_id"),
+		Query: c.Query("q"), SpecialtyID: c.Query("specialty_id"), SpecialtyCode: c.Query("specialty_code"), HospitalID: c.Query("hospital_id"),
 		DepartmentCode: c.Query("department_code"), DepartmentID: c.Query("department_id"), City: c.Query("city"),
 		AvailableOn: c.Query("available_on"), BookingMode: c.Query("booking_mode"),
 	}

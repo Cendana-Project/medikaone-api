@@ -83,14 +83,15 @@ func TestGroupedAvailabilityCombinesHospitalsRetainsFullSlotsAndEmptyDates(t *te
 	oldBookable, newBookable := map[string]int{}, map[string]int{}
 	for _, row := range legacy {
 		for _, slot := range row.Slots {
-			oldBookable[availabilityKey(row.ScheduleID, row.Date, slot.StartAt)] = slot.AvailableCapacity
+			oldBookable[slot.SlotID] = slot.AvailableCapacity
 		}
 	}
 	for _, day := range result.Dates {
 		for _, hospital := range day.Hospitals {
 			for _, slot := range hospital.Slots {
+				assertSlotReference(t, slot.SlotID, slot.ScheduleID, slot.StartAt, slot.EndAt)
 				if slot.IsBookable {
-					newBookable[availabilityKey(slot.ScheduleID, day.Date, slot.StartAt)] = slot.AvailableCapacity
+					newBookable[slot.SlotID] = slot.AvailableCapacity
 				}
 			}
 		}
@@ -137,6 +138,7 @@ func TestGroupedAvailabilityKeepsLocalDateAndClosedChoices(t *testing.T) {
 			t.Fatal(err)
 		}
 		slot := result.Dates[0].Hospitals[0].Slots[0]
+		assertSlotReference(t, slot.SlotID, repo.schedules[0].ID, slot.StartAt, slot.EndAt)
 		if result.Dates[0].Date != date || slot.StartAt.Format("2006-01-02") != "2026-10-07" || slot.StartTime != "00:30" || slot.Status != "CLOSED" || result.Dates[0].HasAvailableSlots || result.Dates[0].Hospitals[0].HasAvailableSlots {
 			t.Fatalf("mode=%s calendar=%#v slot=%#v", mode, result, slot)
 		}

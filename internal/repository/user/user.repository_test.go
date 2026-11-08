@@ -51,7 +51,7 @@ func TestMapDoctorProfileWriteError(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := mapDoctorProfileWriteError(test.err)
+			got := mapDoctorProfileWriteError(test.err, nil)
 			if errors.Is(got, ErrDoctorSIPConflict) != test.wantConflict {
 				t.Fatalf("mapDoctorProfileWriteError() = %v, conflict = %v", got, test.wantConflict)
 			}
@@ -59,5 +59,32 @@ func TestMapDoctorProfileWriteError(t *testing.T) {
 				t.Fatalf("mapped error must preserve cause %v: %v", test.err, got)
 			}
 		})
+	}
+}
+
+func TestMapDoctorSpecialtyConstraintErrors(t *testing.T) {
+	for _, constraint := range []string{"doctor_profiles_specialty_id_fkey", "doctor_profiles_active_specialty", "unrelated_fk"} {
+		t.Run(constraint, func(t *testing.T) {
+			cause := &pgconn.PgError{Code: "23503", ConstraintName: constraint}
+			got := mapDoctorProfileWriteError(cause, nil)
+			wantMissing := constraint != "unrelated_fk"
+			if errors.Is(got, ErrDoctorSpecialtyNotFound) != wantMissing || !errors.Is(got, cause) {
+				t.Fatalf("mapped specialty constraint = %v, missing=%v", got, wantMissing)
+			}
+			if errors.Is(got, ErrDoctorSIPConflict) {
+				t.Fatalf("foreign key failure must not be reported as duplicate SIP: %v", got)
+			}
+		})
+	}
+}
+
+func TestTranslatedDoctorForeignKeyRequiresSelectedSpecialty(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, selection := range []any{nil, (*string)(nil), id, &id} {
+		got := mapDoctorProfileWriteError(gorm.ErrForeignKeyViolated, selection)
+		wantMissing := selection == id || selection == &id
+		if errors.Is(got, ErrDoctorSpecialtyNotFound) != wantMissing || !errors.Is(got, gorm.ErrForeignKeyViolated) {
+			t.Fatalf("selection=%#v mapped translated error=%v", selection, got)
+		}
 	}
 }

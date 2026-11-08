@@ -153,3 +153,30 @@ masuk katalog master global.
 
 Jalankan migration sebelum deploy backend. Seeder menyinkronkan 45 definisi
 master secara idempoten dan menghubungkan fixture department ke master yang sama.
+
+## Master spesialisasi dokter
+
+Spesialisasi/kualifikasi klinis dokter bukan unit layanan rumah sakit. Gunakan
+`GET /v1/specialties`, bukan daftar poli, untuk mengisi pilihan profil dokter.
+Kontrak lengkap, query, filter, dan migrasi data lama dijelaskan di
+[README](../README.md#master-spesialisasi-dokter).
+
+Katalog awal berisi 36 pilihan lokal terkurasi: dua pilihan GENERAL, 26
+MEDICAL_SPECIALIST, dan delapan DENTAL_SPECIALIST. Bedah/penunjang tetap
+MEDICAL_SPECIALIST karena ini kategori kualifikasi, bukan kategori poli.
+Subspesialisasi dan gelar akademik tidak disimpulkan dari pilihan ini.
+Kode stabil `SP-*` tidak memiliki arti sebagai kode resmi SATUSEHAT/KKI/SNOMED CT.
+
+Rujukan nomenklatur:
+- [KMK HK.01.07/MENKES/1320/2023](https://jdih.kemkes.go.id/storage/documents/pdfs/2023kepmenkes1320.pdf)
+  memuat tambahan jenis spesialisasi untuk pendayagunaan dokter spesialis,
+  bukan katalog lengkap seluruh kualifikasi.
+- [Data tenaga medis RS Online Kemenkes](https://sirs.kemkes.go.id/fo/home/profile_rs/3374373)
+  mencantumkan kelompok dokter gigi spesialis yang dipakai pada katalog awal.
+- Bidang inti mengikuti nomenklatur klinis pada katalog lokal sebelumnya;
+  daftar pilihan tetap kurasi aplikasi, bukan sinkronisasi registri resmi.
+- [Practitioner SATUSEHAT](https://satusehat.kemkes.go.id/platform/docs/id/fhir/resources/practitioner/)
+  menjelaskan kualifikasi individual. Integrasi/verifikasi kualifikasi memerlukan
+  kontrak serta pemetaan eksternal tersendiri; pemilihan di MedikaOne bukan bukti
+  sertifikasi atau lisensi.
+

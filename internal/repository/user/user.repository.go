@@ -27,6 +27,9 @@ var (
 // key error does not retain the PostgreSQL constraint name.
 var ErrDoctorSIPConflict = errors.New("doctor SIP conflicts with another profile")
 
+// ErrDoctorSpecialtyNotFound covers nonexistent and inactive master selections.
+var ErrDoctorSpecialtyNotFound = errors.New("doctor specialty is missing or inactive")
+
 // UnifiedProfileUpdate groups the independently optional profile fragments
 // written by PATCH /v1/profile. ApplyUnifiedProfileUpdate persists all
 // non-empty fragments in one database transaction.
@@ -109,6 +112,9 @@ func (r *Repository) ApplyUnifiedProfileUpdate(ctx context.Context, userID strin
 		}
 
 		if len(update.DoctorFields) > 0 {
+			if err := validateActiveDoctorSpecialty(tx, update.DoctorFields["specialty_id"]); err != nil {
+				return err
+			}
 			values := cloneFields(update.DoctorFields)
 			values["user_id"] = userID
 			values["updated_at"] = now
@@ -120,7 +126,7 @@ func (r *Repository) ApplyUnifiedProfileUpdate(ctx context.Context, userID strin
 					DoUpdates: clause.Assignments(assignments),
 				}).
 				Create(values).Error; err != nil {
-				return mapDoctorProfileWriteError(err)
+				return mapDoctorProfileWriteError(err, update.DoctorFields["specialty_id"])
 			}
 		}
 
@@ -420,32 +426,80 @@ func (r *Repository) UpsertPatientProfile(ctx context.Context, p map[string]any)
 }
 
 func (r *Repository) UpsertDoctorProfile(ctx context.Context, p map[string]any) error {
-	params := make(map[string]any, len(p)+2)
-	for key, value := range p {
-		params[key] = value
-	}
-	value, present := p["practice_started_on"]
-	params["practice_started_on"], params["has_practice_started_on"] = value, present
-	err := r.db.WithContext(ctx).Exec(`
-		INSERT INTO doctor_profiles (user_id, sip_number, specialty, practice_started_on, created_at, updated_at)
-		VALUES (@user_id, @sip_number, @specialty, @practice_started_on, NOW(), NOW())
-		ON CONFLICT (user_id) DO UPDATE SET
-		  sip_number = EXCLUDED.sip_number,
-		  specialty  = EXCLUDED.specialty,
-		  practice_started_on = CASE WHEN @has_practice_started_on THEN EXCLUDED.practice_started_on ELSE doctor_profiles.practice_started_on END,
-		  updated_at = NOW();
-	`, params).Error
-	return mapDoctorProfileWriteError(err)
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := validateActiveDoctorSpecialty(tx, p["specialty_id"]); err != nil {
+			return err
+		}
+		params := make(map[string]any, len(p)+3)
+		for key, value := range p {
+			params[key] = value
+		}
+		value, present := p["practice_started_on"]
+		params["practice_started_on"], params["has_practice_started_on"] = value, present
+		specialtyID, specialtyPresent := p["specialty_id"]
+		params["specialty_id"] = specialtyID
+		specialtyUpdate := ""
+		if specialtyPresent {
+			specialtyUpdate = "specialty_id = EXCLUDED.specialty_id, specialty_legacy = NULL,"
+		}
+		err := tx.Exec(fmt.Sprintf(`
+			INSERT INTO doctor_profiles (user_id, sip_number, specialty_id, specialty_legacy, practice_started_on, created_at, updated_at)
+			VALUES (@user_id, @sip_number, @specialty_id, NULL, @practice_started_on, NOW(), NOW())
+			ON CONFLICT (user_id) DO UPDATE SET
+			  sip_number = EXCLUDED.sip_number,
+			  %s
+			  practice_started_on = CASE WHEN @has_practice_started_on THEN EXCLUDED.practice_started_on ELSE doctor_profiles.practice_started_on END,
+			  updated_at = NOW();
+		`, specialtyUpdate), params).Error
+		return mapDoctorProfileWriteError(err, specialtyID)
+	})
 }
 
-func mapDoctorProfileWriteError(err error) error {
+// The SECURITY DEFINER write trigger locks the master row and rechecks activity,
+// so runtime users need only SELECT privileges for this optimistic validation.
+func validateActiveDoctorSpecialty(tx *gorm.DB, specialtyID any) error {
+	if id, ok := specialtyID.(*string); ok {
+		if id == nil {
+			return nil
+		}
+		specialtyID = *id
+	}
+	if specialtyID == nil {
+		return nil
+	}
+	var id string
+	result := tx.Raw(`SELECT id FROM master_specialties WHERE id = ? AND is_active = TRUE`, specialtyID).Scan(&id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrDoctorSpecialtyNotFound
+	}
+	return nil
+}
+
+func mapDoctorProfileWriteError(err error, specialtyID any) error {
 	if err == nil {
 		return nil
+	}
+	if id, ok := specialtyID.(*string); ok && id == nil {
+		specialtyID = nil
+	}
+	// The workflows lock the owning user before writing. When GORM erases the
+	// constraint name, a selected specialty is the only reference that can race.
+	if errors.Is(err, gorm.ErrForeignKeyViolated) && specialtyID != nil {
+		return fmt.Errorf("%w: %w", ErrDoctorSpecialtyNotFound, err)
 	}
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return fmt.Errorf("%w: %w", ErrDoctorSIPConflict, err)
 	}
 	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23503" {
+		switch postgresError.ConstraintName {
+		case "doctor_profiles_specialty_id_fkey", "doctor_profiles_active_specialty":
+			return fmt.Errorf("%w: %w", ErrDoctorSpecialtyNotFound, err)
+		}
+	}
 	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
 		switch postgresError.ConstraintName {
 		case "doctor_profiles_sip_number_key", "ux_doctor_profiles_sip_number_normalized":
@@ -581,32 +635,14 @@ func (r *Repository) GetPatientProfileByUserID(ctx context.Context, userID strin
 	return out.HeightCM, out.WeightKG, out.Allergies, out.MedicalHist, nil
 }
 
-// GetDoctorProfileByUserID mengambil data doctor_profiles untuk user tertentu.
-// GetDoctorProfileByUserID mengambil data doctor_profiles untuk user tertentu.
-func (r *Repository) GetDoctorProfileByUserID(ctx context.Context, userID string) (sipNumber, specialty *string, err error) {
-	type row struct {
-		SipNumber *string `gorm:"column:sip_number"`
-		Specialty *string `gorm:"column:specialty"`
-	}
-	var out row
-	err = r.db.WithContext(ctx).Raw(`
-		SELECT sip_number, specialty
-		FROM doctor_profiles
-		WHERE user_id = ?
-		LIMIT 1
-	`, userID).Scan(&out).Error
-	if err != nil {
-		return nil, nil, err
-	}
-	return out.SipNumber, out.Specialty, nil
-}
-
 // GetDoctorProfile returns the immutable public identity alongside professional fields.
 func (r *Repository) GetDoctorProfile(ctx context.Context, userID string) (*response.DoctorProfile, error) {
 	var profile response.DoctorProfile
 	result := r.db.WithContext(ctx).Raw(`
-		SELECT medikaone_id, sip_number, specialty, practice_started_on::text,
-		EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, practice_started_on))::integer AS experience_years FROM doctor_profiles WHERE user_id = ?
+		SELECT dp.medikaone_id, dp.sip_number, ms.name AS specialty,
+		dp.specialty_id, ms.code AS specialty_code, dp.practice_started_on::text,
+		EXTRACT(YEAR FROM AGE((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, dp.practice_started_on))::integer AS experience_years
+		FROM doctor_profiles dp LEFT JOIN master_specialties ms ON ms.id = dp.specialty_id WHERE dp.user_id = ?
 	`, userID).Scan(&profile)
 	if result.Error != nil {
 		return nil, result.Error

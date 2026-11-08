@@ -15,6 +15,7 @@ import (
 	"github.com/Cendana-Project/medikaone-api/internal/constant"
 	"github.com/Cendana-Project/medikaone-api/internal/model/entity"
 	"github.com/Cendana-Project/medikaone-api/internal/model/request"
+	"github.com/Cendana-Project/medikaone-api/internal/model/response"
 	repository "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	"github.com/Cendana-Project/medikaone-api/internal/storage"
 	"gorm.io/gorm"
@@ -50,7 +51,7 @@ func TestPracticeStartPatchPresenceValidationAndRole(t *testing.T) {
 	}{
 		{`{"doctor_profile":{"practice_started_on":"2015-07-01"}}`, true, true, true, "2015-07-01"},
 		{`{"doctor_profile":{"practice_started_on":null}}`, true, true, true, nil},
-		{`{"doctor_profile":{"specialty":"Mata"}}`, true, true, false, nil},
+		{`{"doctor_profile":{"specialty_id":"11111111-1111-4111-8111-111111111111"}}`, true, true, false, nil},
 		{`{"doctor_profile":{"practice_started_on":""}}`, true, false, false, nil},
 		{`{"doctor_profile":{"practice_started_on":"2999-01-01"}}`, true, false, false, nil},
 		{`{"doctor_profile":{"practice_started_on":"2015-07-01"}}`, false, false, false, nil},
@@ -81,8 +82,8 @@ func TestPracticeStartPatchPresenceValidationAndRole(t *testing.T) {
 }
 
 func (f *fakeRepository) GetByID(context.Context, string) (*entity.User, error) { return f.user, nil }
-func (f *fakeRepository) GetDoctorProfileByUserID(context.Context, string) (*string, *string, error) {
-	return f.currentSIP, nil, nil
+func (f *fakeRepository) GetDoctorProfile(context.Context, string) (*response.DoctorProfile, error) {
+	return &response.DoctorProfile{SIPNumber: f.currentSIP}, nil
 }
 func (f *fakeRepository) ExistsUsernameExcludingUser(_ context.Context, value, _ string) (bool, error) {
 	f.usernameChecks = append(f.usernameChecks, value)
@@ -241,7 +242,7 @@ func TestUpdateRoleSpecificFieldsRequireMatchingRole(t *testing.T) {
 		want error
 	}{
 		{name: "patient", body: `{"patient_profile":{"allergies":"dust"}}`, want: constant.ErrPatientRoleRequired},
-		{name: "doctor", body: `{"doctor_profile":{"specialty":"Cardiology"}}`, want: constant.ErrDoctorRoleRequired},
+		{name: "doctor", body: `{"doctor_profile":{"specialty_id":"11111111-1111-4111-8111-111111111111"}}`, want: constant.ErrDoctorRoleRequired},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -288,7 +289,7 @@ func TestUpdateDoctorSpecialtyRequiresExistingSIP(t *testing.T) {
 			}
 			service := NewService(repo, &fakeStorage{}, maxProfilePhotoSize, time.Minute)
 			input := request.UpdateUserProfileRequest{DoctorProfile: &request.UpdateDoctorProfileRequest{
-				Specialty: request.NewPatchValue("Cardiology"),
+				SpecialtyID: request.NewPatchValue("11111111-1111-4111-8111-111111111111"),
 			}}
 			want := constant.NewFieldRequiredError("doctor_profile.sip_number")
 			if err := service.Update(context.Background(), "doctor-1", input); !errors.Is(err, want) {
@@ -307,13 +308,16 @@ func TestUpdateDoctorSpecialtyPreservesExistingSIP(t *testing.T) {
 	}
 	service := NewService(repo, &fakeStorage{}, maxProfilePhotoSize, time.Minute)
 	input := request.UpdateUserProfileRequest{DoctorProfile: &request.UpdateDoctorProfileRequest{
-		Specialty: request.NewPatchValue("Cardiology"),
+		SpecialtyID: request.NewPatchValue("11111111-1111-4111-8111-111111111111"),
 	}}
 	if err := service.Update(context.Background(), "doctor-1", input); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if got := repo.profileUpdate.DoctorFields["specialty"]; got != "Cardiology" {
-		t.Fatalf("specialty = %#v, want Cardiology", got)
+	if got := repo.profileUpdate.DoctorFields["specialty_id"]; got != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("specialty_id = %#v", got)
+	}
+	if legacy, exists := repo.profileUpdate.DoctorFields["specialty_legacy"]; !exists || legacy != nil {
+		t.Fatalf("selection must clear archived text: %#v", repo.profileUpdate.DoctorFields)
 	}
 	if _, exists := repo.profileUpdate.DoctorFields["sip_number"]; exists {
 		t.Fatalf("omitted existing SIP must not be rewritten: %#v", repo.profileUpdate.DoctorFields)
@@ -497,13 +501,16 @@ func TestUpdateNullableDoctorSpecialty(t *testing.T) {
 	}
 	service := NewService(repo, &fakeStorage{}, maxProfilePhotoSize, time.Minute)
 	input := request.UpdateUserProfileRequest{DoctorProfile: &request.UpdateDoctorProfileRequest{
-		Specialty: request.NewPatchNull[string](),
+		SpecialtyID: request.NewPatchNull[string](),
 	}}
 	if err := service.Update(context.Background(), "doctor-1", input); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if value, exists := repo.profileUpdate.DoctorFields["specialty"]; !exists || value != nil {
+	if value, exists := repo.profileUpdate.DoctorFields["specialty_id"]; !exists || value != nil {
 		t.Fatalf("specialty null was not persisted: %#v", repo.profileUpdate.DoctorFields)
+	}
+	if legacy, exists := repo.profileUpdate.DoctorFields["specialty_legacy"]; !exists || legacy != nil {
+		t.Fatalf("clear must remove archived text: %#v", repo.profileUpdate.DoctorFields)
 	}
 }
 
@@ -564,4 +571,42 @@ func validPNG(t *testing.T) []byte {
 		t.Fatalf("encode PNG: %v", err)
 	}
 	return output.Bytes()
+}
+
+func TestUpdateSpecialtyRejectsMalformedUUIDBeforePersistence(t *testing.T) {
+	for _, value := range []string{"", "Mata", "not-a-uuid", " 11111111-1111-4111-8111-111111111111 "} {
+		t.Run(value, func(t *testing.T) {
+			repo := &fakeRepository{}
+			service := NewService(repo, nil, maxProfilePhotoSize, time.Minute)
+			input := request.UpdateUserProfileRequest{DoctorProfile: &request.UpdateDoctorProfileRequest{
+				SpecialtyID: request.NewPatchValue(value),
+			}}
+			if err := service.Update(context.Background(), "doctor-1", input); !errors.Is(err, constant.ErrInvalidUUIDFormat) {
+				t.Fatalf("malformed specialty UUID error = %v", err)
+			}
+			if repo.profileUpdateAttempted {
+				t.Fatal("malformed selection reached persistence")
+			}
+		})
+	}
+}
+
+func TestUpdateOmittedSpecialtyPreservesReferenceAndArchive(t *testing.T) {
+	sip := "SIP-EXISTING"
+	repo := &fakeRepository{
+		user: &entity.User{ID: "doctor-1"}, currentSIP: &sip,
+		globalRoles: map[string]bool{constant.RoleDoctor: true},
+	}
+	service := NewService(repo, nil, maxProfilePhotoSize, time.Minute)
+	input := request.UpdateUserProfileRequest{DoctorProfile: &request.UpdateDoctorProfileRequest{
+		PracticeStartedOn: request.NewPatchNull[string](),
+	}}
+	if err := service.Update(context.Background(), "doctor-1", input); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"specialty_id", "specialty_legacy"} {
+		if _, exists := repo.profileUpdate.DoctorFields[key]; exists {
+			t.Fatalf("omitted specialty wrote %s: %#v", key, repo.profileUpdate.DoctorFields)
+		}
+	}
 }

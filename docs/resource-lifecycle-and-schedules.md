@@ -29,7 +29,8 @@ diterbitkan sesudah pembaruan menggunakan format baru yang memuat ID tersebut.
 | Method / path | Perilaku |
 | --- | --- |
 | `GET /v1/departments` | Master pilihan department/poli Indonesia; query `q`, `category`, `hospital_id`, `limit`, `offset`. Gunakan `id` untuk create/update department rumah sakit dan `code` sebagai filter `department_code`. |
-| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `latitude`, `longitude`, `radius_km`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. |
+| `GET /v1/specialties` | Master pilihan spesialisasi dokter, terpisah dari poli; query `q`, `code`, `category`, `limit`, `offset`. Gunakan `id` untuk profil dan `code`/`id` pada filter direktori dokter. |
+| `GET /v1/doctors` | Direktori dokter aktif; query `q`, `specialty_id`, `specialty_code`, `hospital_id`, `department_code`, `department_id`, `city`, `available_on`, `booking_mode`, `latitude`, `longitude`, `radius_km`, `page`, `limit` (maksimum 100). Data berisi `items`, `page`, `limit`, `total`. Filter spesialisasi memakai AND; input lama `specialty` ditolak 400. |
 | `GET /v1/doctors/:doctor_id` | Detail dokter dan afiliasi/jadwal aktif. Path menerima UUID atau MedikaOne ID dokter. |
 | `GET /v1/hospitals` | Daftar rumah sakit aktif; query `search`, `city`, `limit` (1-100, default 20), `offset` (0-100000, default 0). |
 | `GET /v1/hospitals/:hospital_id` | Detail rumah sakit berdasarkan UUID. `facilities` adalah JSON, bukan base64. |
@@ -96,6 +97,8 @@ dapat dihitung, ada object tambahan `nearest_practice`:
   "full_name": "Budi Santoso",
   "sip_number": "SIP-3174-2026-001",
   "specialty": "Penyakit Dalam",
+  "specialty_id": "99999999-9999-4999-8999-000000000001",
+  "specialty_code": "SP-PENYAKIT-DALAM",
   "nearest_practice": {
     "affiliation_id": "77777777-7777-4777-8777-777777777777",
     "hospital_id": "22222222-2222-4222-8222-222222222222",
@@ -138,7 +141,9 @@ Response tetap array `data`, berisi dokter, placement, jadwal aktif pada
 `schedule_groups[].schedules`, dan proposal pada `pending_schedule_changes`.
 Filter `status` opsional (`ACTIVE` atau `SUSPENDED`); kosong mengambil keduanya.
 Frontend resepsionis/perawat dapat menggunakan list ini untuk pilihan dokter
-dan jadwal. Proposal pending tidak boleh dipakai sebagai `schedule_id` booking.
+dan jadwal. Proposal pending tidak menghasilkan slot bookable. Untuk booking
+terjadwal/reschedule, ambil `slot_id` melalui availability, bukan UUID schedule
+atau UUID proposal dari daftar ini. Walk-in tetap menggunakan jadwal aktif.
 
 Detail afiliasi yang menyertakan informasi kontrak, pencarian calon dokter untuk
 undangan (`/doctors/search`), undangan/kontrak, dan pengelolaan afiliasi tetap
@@ -321,7 +326,8 @@ jadwal rutin pada `schedule_groups[].schedules` berisi snapshot baru dengan ID
 baru, sementara specific schedule aktif tetap memakai ID lamanya. Untuk `ADD`, jadwal usulan
 ditambahkan; untuk `REMOVE`, `target_schedule_id` dinonaktifkan.
 ID pada item snapshot pending adalah ID item proposal, bukan `schedule_id` aktif;
-ID tersebut tidak boleh dipakai untuk booking atau delete schedule.
+ID tersebut tidak boleh dipakai untuk delete schedule. Booking terjadwal memakai
+`slot_id` dari availability, bukan ID item proposal atau UUID jadwal langsung.
 
 ### Konflik ketika pengajuan dibuat
 
@@ -410,6 +416,8 @@ Row specific tetap memiliki `schedule_date` dan `day_of_week: []`. Pada proposal
 DEACTIVATE, object nested juga menyertakan `target_schedule_id`; ID object
 sendiri tetap ID item proposal.
 Group bukan resource baru dan tidak memiliki satu ID untuk booking/delete.
+Booking terjadwal mengambil `slot_id` dari availability; penghapusan jadwal
+tetap memakai `schedule_id` asli.
 Status snapshot invitation dapat tidak ada; status invitation tetap berada pada
 object induk. Endpoint availability, jadwal hari ini, dan appointment tetap
 menyajikan satu sesi/kunjungan per item sesuai tanggalnya, bukan snapshot rutin.

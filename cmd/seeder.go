@@ -54,12 +54,20 @@ var seedCmd = &cobra.Command{
 		if err := requireDemoSeedEnvironment(); err != nil {
 			return err
 		}
+		options, err := prepareDemoSeed(cmd)
+		if err != nil {
+			return err
+		}
 		db, closeDB, err := openSeederDB(config.Env.Database.DSN)
 		if err != nil {
 			return err
 		}
 		defer closeDB()
-		return seeder.Run(db)
+		manifest, err := seedDemoData(cmd.Context(), db, options, false)
+		if err != nil {
+			return err
+		}
+		return exportDemoEnvironment(cmd, options, manifest)
 	},
 }
 
@@ -108,8 +116,13 @@ func newStagingResetAllCmd() *cobra.Command {
 			if err := requireStagingDatabaseTarget(); err != nil {
 				return err
 			}
+			options, err := prepareDemoSeed(cmd)
+			if err != nil {
+				return err
+			}
+			var manifest *seeder.DemoManifest
 
-			return runWithMaintenanceAndDatabaseAdminLockOptions(cmd.Context(), true, databaseMaintenanceOptions{
+			err = runWithMaintenanceAndDatabaseAdminLockOptions(cmd.Context(), true, databaseMaintenanceOptions{
 				allowFailedTakeover:           true,
 				additionalFailedTakeoverKinds: []databaseMaintenanceKind{maintenanceKindMigration, maintenanceKindResetSeed},
 				kind:                          maintenanceKindResetAll,
@@ -140,11 +153,18 @@ func newStagingResetAllCmd() *cobra.Command {
 				}
 				// Truncate once more in the same transaction as seeding. This removes
 				// writes from direct clients or stale deployments during migration.
-				return seeder.ResetAllAndSeed(db.WithContext(operationCtx))
+				result, seedErr := seedDemoData(operationCtx, db, options, true)
+				manifest = result
+				return seedErr
 			})
+			if err != nil {
+				return err
+			}
+			return exportDemoEnvironment(cmd, options, manifest)
 		},
 	}
 	command.Flags().StringVar(&confirmation, "confirm", "", "required destructive-operation confirmation token")
+	addDemoSeedFlags(command)
 	return command
 }
 

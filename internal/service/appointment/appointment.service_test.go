@@ -254,8 +254,9 @@ func TestCreateAppointmentRequiresConsentAndBuildsSecureResult(t *testing.T) {
 	repo := &fakeRepository{schedules: []repository.Schedule{schedule}, appointment: created}
 	service := NewService(repo, nil, "test-secret-at-least-thirty-two-characters")
 	service.now = func() time.Time { return fixedNow }
-	start := "08:30"
-	req := request.CreateAppointmentRequest{ScheduleID: schedule.ID, AppointmentDate: "2026-09-07", StartTime: &start, ReasonForVisit: "Kontrol", ConsentVersion: "2026-09", ConsentAccepted: false}
+	start := time.Date(2026, 9, 7, 1, 30, 0, 0, time.UTC)
+	slotID := mustSlotID(t, schedule.ID, start, start.Add(30*time.Minute))
+	req := request.CreateAppointmentRequest{SlotID: slotID, ReasonForVisit: "Kontrol", ConsentVersion: "2026-09", ConsentAccepted: false}
 	if _, _, err := service.CreateAppointment(context.Background(), uuid.NewString(), uuid.NewString(), "127.0.0.1", "test", req); !errors.Is(err, constant.ErrAppointmentConsentRequired) {
 		t.Fatalf("missing consent error = %v", err)
 	}

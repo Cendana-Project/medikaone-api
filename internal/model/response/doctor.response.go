@@ -12,6 +12,8 @@ type PublicDoctor struct {
 	FullName          string                  `json:"full_name"`
 	SIPNumber         string                  `json:"sip_number" gorm:"column:sip_number"`
 	Specialty         string                  `json:"specialty"`
+	SpecialtyID       string                  `json:"specialty_id"`
+	SpecialtyCode     string                  `json:"specialty_code"`
 	NearestPractice   *DoctorPracticeLocation `json:"nearest_practice,omitempty" gorm:"-"`
 }
 

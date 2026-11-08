@@ -51,7 +51,8 @@ func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, def
 		return nil, constant.NewInvalidFieldValueError("min_experience_years", "less than or equal to max_experience_years", "lebih kecil atau sama dengan max_experience_years")
 	}
 	filter.Query = strings.TrimSpace(filter.Query)
-	filter.Specialty = strings.TrimSpace(filter.Specialty)
+	filter.SpecialtyID = strings.TrimSpace(filter.SpecialtyID)
+	filter.SpecialtyCode = strings.ToUpper(strings.TrimSpace(filter.SpecialtyCode))
 	filter.HospitalID = strings.TrimSpace(filter.HospitalID)
 	filter.DepartmentCode = strings.ToUpper(strings.TrimSpace(filter.DepartmentCode))
 	filter.DepartmentID = strings.TrimSpace(filter.DepartmentID)
@@ -73,8 +74,15 @@ func (s *Service) listDoctors(ctx context.Context, filter repository.Filter, def
 	if filter.RadiusKM != nil && (filter.Latitude == nil || math.IsNaN(*filter.RadiusKM) || math.IsInf(*filter.RadiusKM, 0) || *filter.RadiusKM <= 0 || *filter.RadiusKM > 5000) {
 		return nil, constant.NewInvalidFieldValueError("radius_km", "greater than 0 through 5000, with latitude and longitude", "lebih dari 0 hingga 5000, dengan latitude dan longitude")
 	}
-	if len(filter.Query) > 190 || len(filter.Specialty) > 190 || len(filter.DepartmentCode) > 40 || len(filter.City) > 100 {
-		return nil, constant.NewInvalidFieldLengthError("directory filter", "q/specialty <=190, department_code <=40, and city <=100 characters", "q/specialty <=190, department_code <=40, dan city <=100 karakter")
+	if len(filter.Query) > 190 || len(filter.SpecialtyCode) > 64 || len(filter.DepartmentCode) > 40 || len(filter.City) > 100 {
+		return nil, constant.NewInvalidFieldLengthError("directory filter", "q <=190, specialty_code <=64, department_code <=40, and city <=100 characters", "q <=190, specialty_code <=64, department_code <=40, dan city <=100 karakter")
+	}
+	if filter.SpecialtyID != "" {
+		id, err := uuid.Parse(filter.SpecialtyID)
+		if err != nil {
+			return nil, constant.ErrInvalidUUIDFormat
+		}
+		filter.SpecialtyID = id.String()
 	}
 	if filter.HospitalID != "" {
 		id, err := uuid.Parse(filter.HospitalID)

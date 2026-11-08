@@ -20,6 +20,7 @@ import (
 	hospRepo "github.com/Cendana-Project/medikaone-api/internal/repository/hospital"
 	prescriptionRepo "github.com/Cendana-Project/medikaone-api/internal/repository/prescription"
 	roleRepo "github.com/Cendana-Project/medikaone-api/internal/repository/role"
+	specialtyRepo "github.com/Cendana-Project/medikaone-api/internal/repository/specialty"
 	userRepo "github.com/Cendana-Project/medikaone-api/internal/repository/user"
 	appointmentSvc "github.com/Cendana-Project/medikaone-api/internal/service/appointment"
 	authSvc "github.com/Cendana-Project/medikaone-api/internal/service/auth"
@@ -28,6 +29,7 @@ import (
 	examinationSvc "github.com/Cendana-Project/medikaone-api/internal/service/examination"
 	hospSvc "github.com/Cendana-Project/medikaone-api/internal/service/hospital"
 	prescriptionSvc "github.com/Cendana-Project/medikaone-api/internal/service/prescription"
+	specialtySvc "github.com/Cendana-Project/medikaone-api/internal/service/specialty"
 	userSvc "github.com/Cendana-Project/medikaone-api/internal/service/user"
 	storageclient "github.com/Cendana-Project/medikaone-api/internal/storage"
 	httpTransport "github.com/Cendana-Project/medikaone-api/internal/transport/http"
@@ -38,6 +40,7 @@ import (
 	examinationHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/examination"
 	hospHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/hospital"
 	prescriptionHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/prescription"
+	specialtyHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/specialty"
 	userHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/user"
 	warmupHTTP "github.com/Cendana-Project/medikaone-api/internal/transport/http/warmup"
 	"github.com/sirupsen/logrus"
@@ -132,6 +135,7 @@ func runServer(parent context.Context) (returnErr error) {
 	authController := authHTTP.NewController(authService, uRepo)
 	doctorController := doctorHTTP.NewController(doctorSvc.NewService(dRepo))
 	userController := userHTTP.NewController(authService, uRepo, userProfileService)
+	specialtyController := specialtyHTTP.NewController(specialtySvc.NewService(specialtyRepo.NewRepository(gormDB)))
 	hospitalController := hospHTTP.NewController(hospitalService)
 	doctorHospitalController := doctorHospitalHTTP.NewController(doctorHospitalService)
 	appointmentController := appointmentHTTP.NewController(appointmentService)
@@ -143,6 +147,7 @@ func runServer(parent context.Context) (returnErr error) {
 		WithGinEngine(r).
 		WithAuthController(authController).
 		WithDoctorController(doctorController).
+		WithSpecialtyController(specialtyController).
 		WithUserController(userController).
 		WithHospitalController(hospitalController).
 		WithDoctorHospitalController(doctorHospitalController).

@@ -48,7 +48,10 @@ func TestSpecificScheduleAvailabilityDoesNotRepeatAndReservesCapacity(t *testing
 	if !errors.Is(err, constant.ErrScheduleNotFound) {
 		t.Fatalf("one-off repeated in walk-in: %v", err)
 	}
-	_, err = service.prepareBookInput(context.Background(), uuid.NewString(), uuid.NewString(), "", "", schedule.ID, "2026-09-21", nil, "consultation", nil, "v1")
+	nextStart := start.AddDate(0, 0, 7)
+	_, _, err = service.CreateAppointment(context.Background(), uuid.NewString(), uuid.NewString(), "", "", request.CreateAppointmentRequest{
+		SlotID: mustSlotID(t, schedule.ID, nextStart, nextStart.Add(30*time.Minute)), ReasonForVisit: "consultation", ConsentVersion: "v1", ConsentAccepted: true,
+	})
 	if !errors.Is(err, constant.ErrScheduleNotFound) {
 		t.Fatalf("one-off repeated in booking: %v", err)
 	}
